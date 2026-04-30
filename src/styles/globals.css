@@ -1,0 +1,178 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+/* ─── Design Tokens (espelho exato do Lovable) ─── */
+@theme {
+  /* Cores semânticas */
+  --color-background: hsl(43, 30%, 95%);
+  --color-foreground: hsl(30, 10%, 15%);
+
+  --color-card: hsl(0, 0%, 100%);
+  --color-card-foreground: hsl(30, 10%, 15%);
+
+  --color-popover: hsl(0, 0%, 100%);
+  --color-popover-foreground: hsl(30, 10%, 15%);
+
+  --color-primary: hsl(45, 80%, 55%);
+  --color-primary-foreground: hsl(30, 10%, 15%);
+
+  --color-secondary: hsl(45, 30%, 92%);
+  --color-secondary-foreground: hsl(30, 10%, 25%);
+
+  --color-muted: hsl(45, 20%, 93%);
+  --color-muted-foreground: hsl(30, 8%, 50%);
+
+  --color-accent: hsl(45, 60%, 88%);
+  --color-accent-foreground: hsl(30, 10%, 15%);
+
+  --color-destructive: hsl(0, 84.2%, 60.2%);
+  --color-destructive-foreground: hsl(210, 40%, 98%);
+
+  --color-border: hsl(40, 15%, 90%);
+  --color-input: hsl(40, 15%, 90%);
+  --color-ring: hsl(45, 80%, 55%);
+
+  --color-success: hsl(142, 60%, 45%);
+  --color-success-foreground: hsl(0, 0%, 100%);
+
+  /* Paleta gold */
+  --color-gold-50: hsl(45, 60%, 97%);
+  --color-gold-100: hsl(45, 60%, 92%);
+  --color-gold-200: hsl(45, 60%, 85%);
+  --color-gold-300: hsl(45, 70%, 75%);
+  --color-gold-400: hsl(45, 80%, 60%);
+  --color-gold-500: hsl(45, 80%, 55%);
+  --color-gold-600: hsl(40, 75%, 45%);
+
+  /* Sidebar */
+  --color-sidebar: hsl(0, 0%, 100%);
+  --color-sidebar-foreground: hsl(30, 8%, 40%);
+  --color-sidebar-primary: hsl(45, 80%, 55%);
+  --color-sidebar-primary-foreground: hsl(30, 10%, 15%);
+  --color-sidebar-accent: hsl(45, 60%, 92%);
+  --color-sidebar-accent-foreground: hsl(30, 10%, 15%);
+  --color-sidebar-border: hsl(40, 15%, 93%);
+  --color-sidebar-ring: hsl(45, 80%, 55%);
+
+  /* Tokens extras usados no projeto */
+  --color-charcoal: hsl(30, 10%, 15%);
+  --color-base: hsl(43, 30%, 95%);
+  --color-deep-teal: #2D7A7B;
+  --color-teal-primary: #2D7A7B;
+
+  /* Border radius */
+  --radius: 1rem;
+  --radius-sm: calc(1rem - 4px);
+  --radius-md: calc(1rem - 2px);
+  --radius-lg: 1rem;
+  --radius-xl: calc(1rem + 4px);
+  --radius-2xl: calc(1rem + 8px);
+
+  /* Font */
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
+}
+
+/* ─── CSS Variables (para hsl(var(--...)) em componentes) ─── */
+:root {
+  --background: 43 30% 95%;
+  --foreground: 30 10% 15%;
+  --card: 0 0% 100%;
+  --card-foreground: 30 10% 15%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 30 10% 15%;
+  --primary: 45 80% 55%;
+  --primary-foreground: 30 10% 15%;
+  --secondary: 45 30% 92%;
+  --secondary-foreground: 30 10% 25%;
+  --muted: 45 20% 93%;
+  --muted-foreground: 30 8% 50%;
+  --accent: 45 60% 88%;
+  --accent-foreground: 30 10% 15%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 40 15% 90%;
+  --input: 40 15% 90%;
+  --ring: 45 80% 55%;
+  --radius: 1rem;
+  --sidebar-background: 0 0% 100%;
+  --sidebar-foreground: 30 8% 40%;
+  --sidebar-primary: 45 80% 55%;
+  --sidebar-primary-foreground: 30 10% 15%;
+  --sidebar-accent: 45 60% 92%;
+  --sidebar-accent-foreground: 30 10% 15%;
+  --sidebar-border: 40 15% 93%;
+  --sidebar-ring: 45 80% 55%;
+  --success: 142 60% 45%;
+  --success-foreground: 0 0% 100%;
+  --card-shadow: 0 4px 20px -4px hsla(40, 30%, 50%, 0.08), 0 1px 6px -1px hsla(40, 30%, 50%, 0.05);
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.625;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Components ─── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: var(--card-shadow);
+}
+
+.glass-button {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  transition: all 0.15s ease;
+}
+.glass-button:hover {
+  background: white;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+}
+.glass-button:active {
+  transform: scale(0.95);
+}
+
+.sidebar-btn-active {
+  background-color: hsl(30, 10%, 15%);
+  color: white;
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+  transform: scale(1.05);
+}
+
+/* ─── Utilities ─── */
+.bg-noise {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 140px 140px;
+  opacity: 0.03;
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ─── Focus indicator global — inputs e selects nos modais ─── */
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #28374A !important;
+  box-shadow: 0 0 0 3px rgba(40, 55, 74, 0.12) !important;
+  caret-color: #28374A;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

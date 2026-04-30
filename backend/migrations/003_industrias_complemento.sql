@@ -1,0 +1,7 @@
+-- ============================================================
+-- Migration 003: INCORPORADA À MIGRATION 001
+-- Todas as tabelas e colunas de indústrias (contato_for,
+-- ind_metas, ia_conhecimento e colunas extras de fornecedores)
+-- já estão definidas em 001_create_base_tables.sql.
+-- Este arquivo existe apenas para manter a numeração.
+-- ============================================================

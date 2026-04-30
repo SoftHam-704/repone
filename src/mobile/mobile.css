@@ -1,0 +1,71 @@
+/* ── CSS Variables — Mobile Design System ───────────────────────────── */
+:root {
+  --navy:       #28374A;
+  --mustard:    #FFD200;
+  --sand-bg:    #E8E1D4;
+  --sand-card:  #F2EDE4;
+  --border:     #D6CCBA;
+  --navy-muted: #6B7A8A;
+}
+
+/* ── Reset mobile ────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+button { font-family: inherit; }
+
+/* ── Utility classes ─────────────────────────────────────────────────── */
+.screen-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.card {
+  background: var(--sand-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.pill {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn {
+  background: var(--navy);
+  color: #FFF;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.prod-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.prod-row:last-child {
+  border-bottom: none;
+}
+
+.prod-row:active {
+  background: var(--sand-card);
+}
+
+/* ── Spinner keyframe (usada no fallback do MobileApp) ───────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

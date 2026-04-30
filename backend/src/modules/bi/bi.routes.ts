@@ -1,0 +1,105 @@
+import { Router } from 'express';
+import { authMiddleware } from '../../middleware/auth';
+import { tenantMiddleware } from '../../middleware/tenant';
+import {
+  overviewHandler,
+  monthlyHandler,
+  marketShareHandler,
+  rankingIndustriasHandler,
+  abcClientesHandler,
+  sellersPerformanceHandler,
+  // Fase 2 — Indústrias
+  metasIndustriasHandler,
+  positivacaoHandler,
+  ticketMedioIndustriasHandler,
+  churnAlertHandler,
+  mixCategoriasHandler,
+  metasMensalHandler,
+  atividadeClientesHandler,
+  // Fase 3 — Clientes
+  clientesRankingHandler,
+  clientesQuedaMomHandler,
+  gruposLojasHandler,
+  cicloComprasHandler,
+  mediaRecompraHandler,
+  rankingProdutosHandler,
+  vendasCategoriasHandler,
+  // Fase 4 — Estatísticas
+  statsResumoHandler,
+  statsCurvaAbcHandler,
+  statsUltimaCompraHandler,
+  statsFatIndustriaMensalHandler,
+  statsClassificacaoProdutosHandler,
+  statsStatusClientesHandler,
+  // Fase 5 — Curva ABC
+  abcOverviewHandler,
+  abcTicketMedioHandler,
+  abcRankingHandler,
+  alertasHandler,
+  alertasDetalheHandler,
+  drilldownHandler,
+  skusPorGrupoHandler,
+  // Fase 6 — Produtos
+  produtosOverviewHandler,
+  produtosPorGrupoHandler,
+  topSkusHandler,
+} from './bi.controller';
+
+const router = Router();
+router.use(authMiddleware, tenantMiddleware);
+
+// Visão Geral
+router.get('/overview',            overviewHandler);
+router.get('/monthly',             monthlyHandler);
+router.get('/market-share',        marketShareHandler);
+router.get('/ranking-industrias',  rankingIndustriasHandler);
+router.get('/abc-clientes',        abcClientesHandler);
+router.get('/sellers-performance', sellersPerformanceHandler);
+
+// Fase 2 — Indústrias
+router.get('/metas-industrias',        metasIndustriasHandler);
+router.get('/metas-mensal',            metasMensalHandler);
+router.get('/positivacao',             positivacaoHandler);
+router.get('/ticket-medio-industrias', ticketMedioIndustriasHandler);
+router.get('/churn-alert',             churnAlertHandler);
+router.get('/mix-categorias',          mixCategoriasHandler);
+router.get('/ativacao-clientes',       atividadeClientesHandler);
+
+// Fase 3 — Clientes
+router.get('/clientes-ranking',        clientesRankingHandler);
+router.get('/clientes-queda-mom',      clientesQuedaMomHandler);
+router.get('/grupos-lojas',            gruposLojasHandler);
+router.get('/ciclo-compras',           cicloComprasHandler);
+router.get('/media-recompra',          mediaRecompraHandler);
+router.get('/ranking-produtos',       rankingProdutosHandler);
+router.get('/vendas-categorias',      vendasCategoriasHandler);
+
+// Fase 4 — Estatísticas
+router.get('/stats-resumo',                 statsResumoHandler);
+router.get('/stats-curva-abc',              statsCurvaAbcHandler);
+router.get('/stats-ultima-compra',          statsUltimaCompraHandler);
+router.get('/stats-fat-industria-mensal',   statsFatIndustriaMensalHandler);
+router.get('/stats-classificacao-produtos', statsClassificacaoProdutosHandler);
+router.get('/stats-status-clientes',        statsStatusClientesHandler);
+
+// Fase 5 — Curva ABC
+router.get('/abc-overview',       abcOverviewHandler);
+router.get('/abc-ticket-medio',   abcTicketMedioHandler);
+router.get('/abc-ranking',        abcRankingHandler);
+
+// Alertas proativos
+router.get('/alertas',            alertasHandler);
+router.get('/alertas/detalhe',    alertasDetalheHandler);
+
+// Drill-down hierárquico
+router.get('/drilldown',          drilldownHandler);
+
+// SKUs por grupo de produto
+router.get('/skus-por-grupo',     skusPorGrupoHandler);
+
+// Fase 6 — Produtos
+router.get('/produtos-overview',   produtosOverviewHandler);
+router.get('/produtos-por-grupo',  produtosPorGrupoHandler);
+router.get('/top-skus',            topSkusHandler);
+
+export default router;
