@@ -838,6 +838,11 @@ router.get('/faturamento/comissao', async (req: any, res: Response) => {
           LEFT JOIN grupos g ON g.gru_codigo = pr.pro_grupo
           LEFT JOIN vendedor_ind v ON v.vin_codigo = p2.ped_vendedor
                                   AND v.vin_industria = p2.ped_industria
+          WHERE EXISTS (
+            SELECT 1 FROM fatura_ped fp2
+            WHERE TRIM(fp2.fat_pedido) = TRIM(i.ite_pedido)
+              AND fp2.fat_datafat BETWEEN $1 AND $2
+          )
           GROUP BY TRIM(i.ite_pedido)
         )
         SELECT
@@ -871,12 +876,26 @@ router.get('/faturamento/comissao', async (req: any, res: Response) => {
 // ─── GET /api/reports/faturamento/periodo ────────────────────────────────
 router.get('/faturamento/periodo', async (req: any, res: Response) => {
   try {
-    const { dataInicio, dataFim } = req.query as Record<string, string>;
+    const { dataInicio, dataFim, industria } = req.query as Record<string, string>;
     if (!dataInicio || !dataFim) {
       res.status(400).json({ success: false, message: 'dataInicio e dataFim são obrigatórios.' });
       return;
     }
     const db = req.db!;
+    const sellerId = await getLinkedSellerId(db, req.user?.userId);
+
+    const params: any[] = [dataInicio, dataFim];
+    let idx = 3;
+    const conditions: string[] = [`fp.fat_datafat BETWEEN $1 AND $2`];
+
+    if (sellerId !== null) {
+      conditions.push(`p.ped_vendedor = $${idx++}`);
+      params.push(sellerId);
+    }
+    if (industria && industria !== '') {
+      conditions.push(`p.ped_industria = $${idx++}`);
+      params.push(parseInt(industria));
+    }
 
     const [dataResult, empresaResult] = await Promise.all([
       db.query(`
@@ -887,21 +906,15 @@ router.get('/faturamento/periodo', async (req: any, res: Response) => {
           fp.fat_datafat,
           fp.fat_nf,
           ROUND(fp.fat_valorfat::NUMERIC, 2)                    AS fat_valorfat,
-          ROUND(COALESCE(
-            NULLIF(regexp_replace(fp.fat_percomissind::text, '[^0-9.]', '', 'g'), '')::NUMERIC,
-            f.for_percom, 0
-          )::NUMERIC, 2)                                        AS percent_rep,
-          ROUND(fp.fat_valorfat * COALESCE(
-            NULLIF(regexp_replace(fp.fat_percomissind::text, '[^0-9.]', '', 'g'), '')::NUMERIC,
-            f.for_percom, 0
-          ) / 100, 2)                                           AS comissao_rep
+          ROUND(COALESCE(f.for_percom, 0)::NUMERIC, 2)         AS percent_rep,
+          ROUND(fp.fat_valorfat * COALESCE(f.for_percom, 0) / 100, 2) AS comissao_rep
         FROM fatura_ped   fp
         JOIN pedidos      p  ON TRIM(p.ped_pedido) = TRIM(fp.fat_pedido)
         JOIN clientes     c  ON c.cli_codigo        = p.ped_cliente
         JOIN fornecedores f  ON f.for_codigo        = fp.fat_industria
-        WHERE fp.fat_datafat BETWEEN $1 AND $2
+        WHERE ${conditions.join(' AND ')}
         ORDER BY f.for_nomered, fp.fat_datafat, c.cli_nomred
-      `, [dataInicio, dataFim]),
+      `, params),
       db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
     ]);
 
