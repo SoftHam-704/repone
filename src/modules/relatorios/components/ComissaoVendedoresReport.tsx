@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, Fragment } from 'react';
 import { Search, Printer, Loader2, AlertCircle } from 'lucide-react';
 import { api } from '@/shared/lib/api';
 import { G } from '@/shared/components/layout/CadastroShell';
@@ -183,12 +183,12 @@ export default function ComissaoVendedoresReport() {
                 {Object.entries(grupos).map(([nome, linhas]) => {
                   const sub = linhas.reduce((a, r) => ({ fat: a.fat + (r.fat_valorfat || 0), com: a.com + (r.comissao || 0) }), { fat: 0, com: 0 });
                   return (
-                    <>
-                      <tr key={`h-${nome}`} style={{ background: `${COLOR}10`, borderTop: `2px solid ${COLOR}` }}>
+                    <Fragment key={`group-${nome}`}>
+                      <tr style={{ background: `${COLOR}10`, borderTop: `2px solid ${COLOR}` }}>
                         <td colSpan={9} style={{ ...td, fontWeight: 900, fontSize: 12, color: G.text, padding: '8px 8px' }}>{nome}</td>
                       </tr>
                       {linhas.map((r, i) => (
-                        <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : `${G.cardHi}50` }}>
+                        <tr key={`${nome}-${r.ped_pedido}-${r.fat_datafat}`} style={{ background: i % 2 === 0 ? 'transparent' : `${G.cardHi}50` }}>
                           <td style={td}>{r.cliente}</td>
                           <td style={{ ...td, fontFamily: 'monospace', fontWeight: 700 }}>{r.ped_pedido}</td>
                           <td style={{ ...td, textAlign: 'right' }}>{fmtDate(r.ped_data)}</td>
@@ -200,13 +200,13 @@ export default function ComissaoVendedoresReport() {
                           <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: COLOR }}>{fmtBRL(r.comissao)}</td>
                         </tr>
                       ))}
-                      <tr key={`s-${nome}`} style={{ background: `${COLOR}12`, borderTop: `1px solid ${COLOR}40` }}>
+                      <tr style={{ background: `${COLOR}12`, borderTop: `1px solid ${COLOR}40` }}>
                         <td colSpan={6} style={{ ...td, textAlign: 'right', fontWeight: 800, fontSize: 11, color: G.textSec }}>Sub-total:</td>
                         <td style={{ ...td, textAlign: 'right', fontWeight: 900 }}>{fmtBRL(sub.fat)}</td>
                         <td />
                         <td style={{ ...td, textAlign: 'right', fontWeight: 900, color: COLOR }}>{fmtBRL(sub.com)}</td>
                       </tr>
-                    </>
+                    </Fragment>
                   );
                 })}
                 <tr style={{ background: G.text }}>
