@@ -789,4 +789,293 @@ router.get('/cotacoes-pendentes', async (req: any, res: Response) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// FATURAMENTO
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── GET /api/reports/faturamento/comissao ───────────────────────────────
+router.get('/faturamento/comissao', async (req: any, res: Response) => {
+  try {
+    const { dataInicio, dataFim, vendedor, industria } = req.query as Record<string, string>;
+    if (!dataInicio || !dataFim) {
+      res.status(400).json({ success: false, message: 'dataInicio e dataFim são obrigatórios.' });
+      return;
+    }
+    const db = req.db!;
+    const sellerId = await getLinkedSellerId(db, req.user?.userId);
+
+    const params: any[] = [dataInicio, dataFim];
+    let idx = 3;
+    const conditions: string[] = [`fp.fat_datafat BETWEEN $1 AND $2`];
+
+    if (sellerId !== null) {
+      conditions.push(`p.ped_vendedor = $${idx++}`);
+      params.push(sellerId);
+    } else if (vendedor && vendedor !== '') {
+      conditions.push(`p.ped_vendedor = $${idx++}`);
+      params.push(parseInt(vendedor));
+    }
+    if (industria && industria !== '') {
+      conditions.push(`fp.fat_industria = $${idx++}`);
+      params.push(parseInt(industria));
+    }
+
+    const [dataResult, empresaResult] = await Promise.all([
+      db.query(`
+        WITH comissao_por_pedido AS (
+          SELECT
+            TRIM(i.ite_pedido) AS pedido,
+            ROUND(SUM(
+              i.ite_totliquido *
+              CASE WHEN g.gru_usa_percomiss = TRUE THEN COALESCE(g.gru_percomiss, 0)
+                   ELSE COALESCE(v.vin_percom, 0)
+              END / 100
+            )::NUMERIC, 2) AS comissao,
+            MAX(COALESCE(v.vin_percom, 0)) AS percent_display
+          FROM itens_ped i
+          JOIN pedidos p2 ON TRIM(p2.ped_pedido) = TRIM(i.ite_pedido)
+          JOIN cad_prod pr ON TRIM(pr.pro_codprod) = TRIM(i.ite_produto)
+          LEFT JOIN grupos g ON g.gru_codigo = pr.pro_grupo
+          LEFT JOIN vendedor_ind v ON v.vin_codigo = p2.ped_vendedor
+                                  AND v.vin_industria = p2.ped_industria
+          GROUP BY TRIM(i.ite_pedido)
+        )
+        SELECT
+          f.for_nomered                             AS industria_nome,
+          c.cli_nomred                              AS cliente,
+          TRIM(p.ped_pedido)                        AS ped_pedido,
+          p.ped_data,
+          fp.fat_nf,
+          fp.fat_datafat,
+          ROUND(p.ped_totliq::NUMERIC, 2)           AS valor_pedido,
+          ROUND(fp.fat_valorfat::NUMERIC, 2)        AS fat_valorfat,
+          cp.percent_display,
+          cp.comissao
+        FROM fatura_ped fp
+        JOIN pedidos          p  ON TRIM(p.ped_pedido) = TRIM(fp.fat_pedido)
+        JOIN clientes         c  ON c.cli_codigo        = p.ped_cliente
+        JOIN fornecedores     f  ON f.for_codigo        = fp.fat_industria
+        JOIN comissao_por_pedido cp ON cp.pedido        = TRIM(fp.fat_pedido)
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY f.for_nomered, p.ped_data, c.cli_nomred
+      `, params),
+      db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
+    ]);
+
+    res.json({ success: true, data: dataResult.rows, empresa: empresaResult.rows[0] ?? null });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─── GET /api/reports/faturamento/periodo ────────────────────────────────
+router.get('/faturamento/periodo', async (req: any, res: Response) => {
+  try {
+    const { dataInicio, dataFim } = req.query as Record<string, string>;
+    if (!dataInicio || !dataFim) {
+      res.status(400).json({ success: false, message: 'dataInicio e dataFim são obrigatórios.' });
+      return;
+    }
+    const db = req.db!;
+
+    const [dataResult, empresaResult] = await Promise.all([
+      db.query(`
+        SELECT
+          f.for_nomered                                           AS industria_nome,
+          c.cli_nomred                                           AS cliente,
+          TRIM(p.ped_pedido)                                     AS ped_pedido,
+          fp.fat_datafat,
+          fp.fat_nf,
+          ROUND(fp.fat_valorfat::NUMERIC, 2)                    AS fat_valorfat,
+          ROUND(COALESCE(
+            NULLIF(regexp_replace(fp.fat_percomissind::text, '[^0-9.]', '', 'g'), '')::NUMERIC,
+            f.for_percom, 0
+          )::NUMERIC, 2)                                        AS percent_rep,
+          ROUND(fp.fat_valorfat * COALESCE(
+            NULLIF(regexp_replace(fp.fat_percomissind::text, '[^0-9.]', '', 'g'), '')::NUMERIC,
+            f.for_percom, 0
+          ) / 100, 2)                                           AS comissao_rep
+        FROM fatura_ped   fp
+        JOIN pedidos      p  ON TRIM(p.ped_pedido) = TRIM(fp.fat_pedido)
+        JOIN clientes     c  ON c.cli_codigo        = p.ped_cliente
+        JOIN fornecedores f  ON f.for_codigo        = fp.fat_industria
+        WHERE fp.fat_datafat BETWEEN $1 AND $2
+        ORDER BY f.for_nomered, fp.fat_datafat, c.cli_nomred
+      `, [dataInicio, dataFim]),
+      db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
+    ]);
+
+    res.json({ success: true, data: dataResult.rows, empresa: empresaResult.rows[0] ?? null });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─── GET /api/reports/faturamento/pedidos-faturados ──────────────────────
+router.get('/faturamento/pedidos-faturados', async (req: any, res: Response) => {
+  try {
+    const { dataInicio, dataFim, industria } = req.query as Record<string, string>;
+    if (!dataInicio || !dataFim) {
+      res.status(400).json({ success: false, message: 'dataInicio e dataFim são obrigatórios.' });
+      return;
+    }
+    const db = req.db!;
+    const sellerId = await getLinkedSellerId(db, req.user?.userId);
+
+    const params: any[] = [dataInicio, dataFim];
+    let idx = 3;
+    const extraConds: string[] = [];
+
+    if (sellerId !== null) {
+      extraConds.push(`p.ped_vendedor = $${idx++}`);
+      params.push(sellerId);
+    }
+    if (industria && industria !== '') {
+      extraConds.push(`p.ped_industria = $${idx++}`);
+      params.push(parseInt(industria));
+    }
+    const extraSQL = extraConds.length ? `AND ${extraConds.join(' AND ')}` : '';
+
+    const [dataResult, empresaResult] = await Promise.all([
+      db.query(`
+        SELECT
+          f.for_nomered                                           AS industria_nome,
+          TRIM(p.ped_pedido)                                     AS ped_pedido,
+          c.cli_nomred                                           AS cliente,
+          p.ped_data,
+          MIN(fp.fat_datafat)                                    AS primeira_fat,
+          STRING_AGG(DISTINCT fp.fat_nf, ', ')                  AS notas,
+          ROUND(p.ped_totliq::NUMERIC, 2)                       AS valor_pedido,
+          ROUND(SUM(fp.fat_valorfat)::NUMERIC, 2)               AS valor_faturado,
+          p.ped_situacao
+        FROM pedidos      p
+        JOIN clientes     c  ON c.cli_codigo        = p.ped_cliente
+        JOIN fornecedores f  ON f.for_codigo        = p.ped_industria
+        JOIN fatura_ped   fp ON TRIM(fp.fat_pedido) = TRIM(p.ped_pedido)
+                            AND fp.fat_datafat BETWEEN $1 AND $2
+        WHERE 1=1 ${extraSQL}
+        GROUP BY f.for_nomered, p.ped_pedido, c.cli_nomred, p.ped_data, p.ped_totliq, p.ped_situacao
+        ORDER BY f.for_nomered, p.ped_data, c.cli_nomred
+      `, params),
+      db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
+    ]);
+
+    res.json({ success: true, data: dataResult.rows, empresa: empresaResult.rows[0] ?? null });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─── GET /api/reports/faturamento/pendente ───────────────────────────────
+router.get('/faturamento/pendente', async (req: any, res: Response) => {
+  try {
+    const { dataInicio, dataFim, industria } = req.query as Record<string, string>;
+    if (!dataInicio || !dataFim) {
+      res.status(400).json({ success: false, message: 'dataInicio e dataFim são obrigatórios.' });
+      return;
+    }
+    const db = req.db!;
+    const sellerId = await getLinkedSellerId(db, req.user?.userId);
+
+    const params: any[] = [dataInicio, dataFim];
+    let idx = 3;
+    const conditions: string[] = [
+      `p.ped_situacao = 'P'`,
+      `p.ped_data BETWEEN $1 AND $2`,
+    ];
+
+    if (sellerId !== null) {
+      conditions.push(`p.ped_vendedor = $${idx++}`);
+      params.push(sellerId);
+    }
+    if (industria && industria !== '') {
+      conditions.push(`p.ped_industria = $${idx++}`);
+      params.push(parseInt(industria));
+    }
+
+    const [dataResult, empresaResult] = await Promise.all([
+      db.query(`
+        SELECT
+          f.for_nomered                                                   AS industria_nome,
+          TRIM(p.ped_pedido)                                             AS ped_pedido,
+          c.cli_nomred                                                   AS cliente,
+          p.ped_data,
+          ROUND(p.ped_totliq::NUMERIC, 2)                               AS valor_pedido,
+          ROUND(COALESCE(SUM(fp.fat_valorfat), 0)::NUMERIC, 2)         AS total_faturado,
+          ROUND((p.ped_totliq - COALESCE(SUM(fp.fat_valorfat), 0))::NUMERIC, 2) AS saldo_pendente,
+          (CURRENT_DATE - p.ped_data::DATE)::INT                        AS dias_aberto
+        FROM pedidos      p
+        JOIN clientes     c  ON c.cli_codigo        = p.ped_cliente
+        JOIN fornecedores f  ON f.for_codigo        = p.ped_industria
+        LEFT JOIN fatura_ped fp ON TRIM(fp.fat_pedido) = TRIM(p.ped_pedido)
+        WHERE ${conditions.join(' AND ')}
+        GROUP BY f.for_nomered, p.ped_pedido, c.cli_nomred, p.ped_data, p.ped_totliq
+        HAVING p.ped_totliq - COALESCE(SUM(fp.fat_valorfat), 0) > 0
+        ORDER BY f.for_nomered, p.ped_data, c.cli_nomred
+      `, params),
+      db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
+    ]);
+
+    res.json({ success: true, data: dataResult.rows, empresa: empresaResult.rows[0] ?? null });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─── GET /api/reports/faturamento/produtos-nao-faturados ─────────────────
+router.get('/faturamento/produtos-nao-faturados', async (req: any, res: Response) => {
+  try {
+    const { dataInicio, dataFim, industria } = req.query as Record<string, string>;
+    if (!dataInicio || !dataFim) {
+      res.status(400).json({ success: false, message: 'dataInicio e dataFim são obrigatórios.' });
+      return;
+    }
+    const db = req.db!;
+    const sellerId = await getLinkedSellerId(db, req.user?.userId);
+
+    const params: any[] = [dataInicio, dataFim];
+    let idx = 3;
+    const conditions: string[] = [
+      `COALESCE(i.ite_faturado, 'N') = 'N'`,
+      `p.ped_situacao = 'P'`,
+      `p.ped_data BETWEEN $1 AND $2`,
+    ];
+
+    if (sellerId !== null) {
+      conditions.push(`p.ped_vendedor = $${idx++}`);
+      params.push(sellerId);
+    }
+    if (industria && industria !== '') {
+      conditions.push(`p.ped_industria = $${idx++}`);
+      params.push(parseInt(industria));
+    }
+
+    const [dataResult, empresaResult] = await Promise.all([
+      db.query(`
+        SELECT
+          f.for_nomered                                   AS industria_nome,
+          TRIM(p.ped_pedido)                             AS ped_pedido,
+          p.ped_data,
+          c.cli_nomred                                   AS cliente,
+          TRIM(i.ite_produto)                            AS codigo,
+          i.ite_nomeprod                                 AS produto,
+          i.ite_quant                                    AS qtd_vendida,
+          COALESCE(i.ite_qtdfat, 0)                     AS qtd_faturada,
+          (i.ite_quant - COALESCE(i.ite_qtdfat, 0))    AS saldo
+        FROM itens_ped    i
+        JOIN pedidos      p  ON TRIM(p.ped_pedido) = TRIM(i.ite_pedido)
+        JOIN clientes     c  ON c.cli_codigo        = p.ped_cliente
+        JOIN fornecedores f  ON f.for_codigo        = p.ped_industria
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY f.for_nomered, p.ped_data, c.cli_nomred, i.ite_seq
+      `, params),
+      db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
+    ]);
+
+    res.json({ success: true, data: dataResult.rows, empresa: empresaResult.rows[0] ?? null });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 export default router;
