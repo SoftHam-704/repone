@@ -6,7 +6,7 @@ export async function listGruposHandler(req: Request, res: Response): Promise<vo
     const { search } = req.query;
     const db = req.db!;
 
-    let query = `SELECT gru_codigo, gru_nome, gru_percomiss FROM grupos WHERE 1=1`;
+    let query = `SELECT gru_codigo, gru_nome, gru_percomiss, gru_usa_percomiss FROM grupos WHERE 1=1`;
     const params: any[] = [];
 
     if (search) {
@@ -31,7 +31,7 @@ export async function getGrupoHandler(req: Request, res: Response): Promise<void
     const id = parseInt(String(req.params.id));
 
     const result = await db.query(
-      `SELECT gru_codigo, gru_nome, gru_percomiss FROM grupos WHERE gru_codigo = $1`,
+      `SELECT gru_codigo, gru_nome, gru_percomiss, gru_usa_percomiss FROM grupos WHERE gru_codigo = $1`,
       [id]
     );
 
@@ -50,7 +50,7 @@ export async function getGrupoHandler(req: Request, res: Response): Promise<void
 // ─── POST /api/grupos ─────────────────────────────────────────────────────────
 export async function createGrupoHandler(req: Request, res: Response): Promise<void> {
   try {
-    const { gru_nome, gru_percomiss } = req.body;
+    const { gru_nome, gru_percomiss, gru_usa_percomiss } = req.body;
     const db = req.db!;
 
     if (!gru_nome?.trim()) {
@@ -59,8 +59,8 @@ export async function createGrupoHandler(req: Request, res: Response): Promise<v
     }
 
     const result = await db.query(
-      `INSERT INTO grupos (gru_nome, gru_percomiss) VALUES ($1, $2) RETURNING gru_codigo`,
-      [gru_nome.trim(), gru_percomiss || 0]
+      `INSERT INTO grupos (gru_nome, gru_percomiss, gru_usa_percomiss) VALUES ($1, $2, $3) RETURNING gru_codigo`,
+      [gru_nome.trim(), gru_percomiss || 0, gru_usa_percomiss === true]
     );
 
     res.json({ success: true, message: 'Grupo criado com sucesso!', id: result.rows[0].gru_codigo });
@@ -75,7 +75,7 @@ export async function updateGrupoHandler(req: Request, res: Response): Promise<v
   try {
     const db = req.db!;
     const id = parseInt(String(req.params.id));
-    const { gru_nome, gru_percomiss } = req.body;
+    const { gru_nome, gru_percomiss, gru_usa_percomiss } = req.body;
 
     if (!gru_nome?.trim()) {
       res.status(400).json({ success: false, message: 'Nome do grupo é obrigatório.' });
@@ -83,8 +83,8 @@ export async function updateGrupoHandler(req: Request, res: Response): Promise<v
     }
 
     await db.query(
-      `UPDATE grupos SET gru_nome = $1, gru_percomiss = $2 WHERE gru_codigo = $3`,
-      [gru_nome.trim(), gru_percomiss || 0, id]
+      `UPDATE grupos SET gru_nome = $1, gru_percomiss = $2, gru_usa_percomiss = $3 WHERE gru_codigo = $4`,
+      [gru_nome.trim(), gru_percomiss || 0, gru_usa_percomiss === true, id]
     );
 
     res.json({ success: true, message: 'Grupo atualizado com sucesso!' });

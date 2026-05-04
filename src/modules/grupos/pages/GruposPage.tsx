@@ -12,9 +12,10 @@ interface Grupo {
   gru_codigo: number;
   gru_nome: string;
   gru_percomiss: number;
+  gru_usa_percomiss: boolean;
 }
 
-const empty: Partial<Grupo> = { gru_percomiss: 0 };
+const empty: Partial<Grupo> = { gru_percomiss: 0, gru_usa_percomiss: false };
 
 const actionBtn: React.CSSProperties = {
   width: 28, height: 28, borderRadius: 7,
@@ -142,19 +143,36 @@ export default function GruposPage() {
               autoFocus
             />
           </Field>
-          <Field label="% Comissão">
-            <input
-              style={{ ...inp, textAlign: 'right', maxWidth: 160 }}
-              type="number"
-              step="0.01"
-              min={0}
-              max={100}
-              value={editing.gru_percomiss ?? 0}
-              onChange={e => set('gru_percomiss', parseFloat(e.target.value) || 0)}
-              onKeyDown={onEnterTab}
-              placeholder="0.00"
-            />
+          <Field label="Comissão Própria por Grupo">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, fontWeight: 700, color: G.text }}>
+                <input
+                  type="checkbox"
+                  checked={!!editing.gru_usa_percomiss}
+                  onChange={e => {
+                    set('gru_usa_percomiss', e.target.checked);
+                    if (!e.target.checked) set('gru_percomiss', 0);
+                  }}
+                  style={{ width: 16, height: 16, accentColor: G.mustard, cursor: 'pointer' }}
+                />
+                Usar % próprio para comissão do preposto
+              </label>
+            </div>
           </Field>
+          {editing.gru_usa_percomiss && (
+            <Field label="% Comissão do Preposto">
+              <input
+                style={{ ...inp, textAlign: 'right', maxWidth: 160 }}
+                type="number"
+                step="0.01"
+                min={0}
+                max={100}
+                value={editing.gru_percomiss ?? 0}
+                onChange={e => set('gru_percomiss', parseFloat(e.target.value) || 0)}
+                placeholder="0.00"
+              />
+            </Field>
+          )}
         </FormSection>
       }
     >
@@ -164,13 +182,14 @@ export default function GruposPage() {
             <Th>Cód</Th>
             <Th>Nome do Grupo</Th>
             <Th align="right">% Comissão</Th>
+            <Th align="center">Comissão Própria</Th>
             <Th align="center">Ações</Th>
           </tr>
         </thead>
         <tbody>
           {filtered.length === 0 && (
             <tr>
-              <td colSpan={4} style={{ padding: '40px 16px', textAlign: 'center', color: G.textMuted, fontSize: 13 }}>
+              <td colSpan={5} style={{ padding: '40px 16px', textAlign: 'center', color: G.textMuted, fontSize: 13 }}>
                 Nenhum grupo encontrado.
               </td>
             </tr>
@@ -187,6 +206,15 @@ export default function GruposPage() {
                 <span style={{ fontSize: 12, color: row.gru_percomiss > 0 ? G.success : G.textMuted, fontWeight: 700 }}>
                   {row.gru_percomiss > 0 ? `${Number(row.gru_percomiss).toFixed(2)}%` : '—'}
                 </span>
+              </Td>
+              <Td align="center">
+                {row.gru_usa_percomiss ? (
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 4, background: `${G.mustard}30`, color: G.text }}>
+                    SIM — {Number(row.gru_percomiss).toFixed(2)}%
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 10, color: G.textMuted }}>—</span>
+                )}
               </Td>
               <Td align="center">
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
