@@ -32,8 +32,8 @@ function groupBy(rows: Row[]): Record<string, Row[]> {
 }
 
 const badgeSit = (sit: string) => ({
-  F: { label: 'Faturado', bg: '#D1FAE5', color: '#065F46' },
-  P: { label: 'Parcial',  bg: '#FEF3C7', color: '#92400E' },
+  F: { label: 'Faturado',     bg: '#D1FAE5', color: '#065F46' },
+  P: { label: 'Fat. Parcial', bg: '#FEF3C7', color: '#92400E' },
 }[sit] ?? { label: sit, bg: G.cardHi, color: G.textSec });
 
 export default function PedidosFaturadosReport() {

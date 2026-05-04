@@ -188,7 +188,7 @@ export default function ComissaoVendedoresReport() {
                         <td colSpan={9} style={{ ...td, fontWeight: 900, fontSize: 12, color: G.text, padding: '8px 8px' }}>{nome}</td>
                       </tr>
                       {linhas.map((r, i) => (
-                        <tr key={`${nome}-${r.ped_pedido}-${r.fat_datafat}`} style={{ background: i % 2 === 0 ? 'transparent' : `${G.cardHi}50` }}>
+                        <tr key={`${nome}-${r.ped_pedido}-${r.fat_datafat}-${i}`} style={{ background: i % 2 === 0 ? 'transparent' : `${G.cardHi}50` }}>
                           <td style={td}>{r.cliente}</td>
                           <td style={{ ...td, fontFamily: 'monospace', fontWeight: 700 }}>{r.ped_pedido}</td>
                           <td style={{ ...td, textAlign: 'right' }}>{fmtDate(r.ped_data)}</td>

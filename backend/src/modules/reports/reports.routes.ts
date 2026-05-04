@@ -1052,6 +1052,7 @@ router.get('/faturamento/produtos-nao-faturados', async (req: any, res: Response
       `COALESCE(i.ite_faturado, 'N') = 'N'`,
       `p.ped_situacao = 'P'`,
       `p.ped_data BETWEEN $1 AND $2`,
+      `(i.ite_quant - COALESCE(i.ite_qtdfat, 0)) > 0`,
     ];
 
     if (sellerId !== null) {
