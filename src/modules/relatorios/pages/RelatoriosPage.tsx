@@ -27,6 +27,11 @@ const VendasClienteIndustriaReport   = lazy(() => import('../components/VendasCl
 const VendasPeriodoSinteticoReport   = lazy(() => import('../components/VendasPeriodoSinteticoReport'));
 const VendasCidadeEstadoReport       = lazy(() => import('../components/VendasCidadeEstadoReport'));
 const CotacoesPendentesReport        = lazy(() => import('../components/CotacoesPendentesReport'));
+const ComissaoVendedoresReport       = lazy(() => import('../components/ComissaoVendedoresReport'));
+const FaturamentoPeriodoReport       = lazy(() => import('../components/FaturamentoPeriodoReport'));
+const PedidosFaturadosReport         = lazy(() => import('../components/PedidosFaturadosReport'));
+const FaturamentoPendenteReport      = lazy(() => import('../components/FaturamentoPendenteReport'));
+const ProdutosNaoFaturadosReport     = lazy(() => import('../components/ProdutosNaoFaturadosReport'));
 
 // ─── Categorias + relatórios ──────────────────────────────────────────────────
 type CategoriaId = 'cadastros' | 'vendas' | 'faturamento' | 'financeiro';
@@ -468,6 +473,16 @@ export default function RelatoriosPage() {
               <Suspense fallback={<Loading />}><VendasCidadeEstadoReport /></Suspense>
             ) : relObj.id === 'cotacoes-pendentes' ? (
               <Suspense fallback={<Loading />}><CotacoesPendentesReport /></Suspense>
+            ) : relObj.id === 'comissao-vendedores' ? (
+              <Suspense fallback={<Loading />}><ComissaoVendedoresReport /></Suspense>
+            ) : relObj.id === 'faturamento-periodo' ? (
+              <Suspense fallback={<Loading />}><FaturamentoPeriodoReport /></Suspense>
+            ) : relObj.id === 'pedidos-faturados' ? (
+              <Suspense fallback={<Loading />}><PedidosFaturadosReport /></Suspense>
+            ) : relObj.id === 'faturamento-pendente' ? (
+              <Suspense fallback={<Loading />}><FaturamentoPendenteReport /></Suspense>
+            ) : relObj.id === 'produtos-nao-faturados' ? (
+              <Suspense fallback={<Loading />}><ProdutosNaoFaturadosReport /></Suspense>
             ) : (
               <RelatorioPlaceholder relatorio={relObj} color={catObj.color} />
             )}
