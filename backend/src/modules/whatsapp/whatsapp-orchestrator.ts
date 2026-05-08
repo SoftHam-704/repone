@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import axios from 'axios';
 import {
   processarMensagem, gerarResumo, avaliarQualificacao, avaliarRelevancia,
-  DadosQualificacao, TenantConfig,
+  DadosQualificacao, TenantConfig, FichaCliente,
 } from './whatsapp-ai.service';
 
 // ─── Evolution API client ─────────────────────────────────────────────────────
@@ -102,13 +102,99 @@ async function getTenantConfig(db: Pool): Promise<TenantConfig> {
     );
     const map: Record<string, string> = {};
     for (const row of r.rows) map[row.par_chave] = row.par_valor;
+
+    // Carta confidencial da IRIS (master only, tabela auto-criada)
+    let iris_carta: string | undefined;
+    try {
+      const cartaRes = await db.query(
+        `SELECT iris_carta FROM iris_config LIMIT 1`
+      );
+      if (cartaRes.rows.length > 0) iris_carta = cartaRes.rows[0].iris_carta || undefined;
+    } catch { /* tabela pode não existir ainda */ }
+
     return {
       representante_nome: map['representante_nome'] || 'Representante',
       empresa_nome:       map['empresa_nome']       || 'Empresa',
       industrias:         map['industrias_representadas'],
+      iris_carta,
     };
   } catch {
     return { representante_nome: 'Representante', empresa_nome: 'Empresa' };
+  }
+}
+
+// ─── Ficha do cliente por telefone ───────────────────────────────────────────
+async function getFichaCliente(db: Pool, phone: string): Promise<FichaCliente | null> {
+  try {
+    // Normaliza: remove código país 55 se presente, mantém só dígitos locais
+    const digits    = phone.replace(/\D/g, '');
+    const localPhone = digits.startsWith('55') ? digits.slice(2) : digits;
+
+    const cliRes = await db.query(`
+      SELECT cli_id,
+             COALESCE(NULLIF(TRIM(cli_nomred),''), TRIM(cli_nome)) AS nome,
+             cli_cidade, cli_uf
+      FROM clientes
+      WHERE REGEXP_REPLACE(COALESCE(cli_celular,''), '[^0-9]', '', 'g') = $1
+         OR REGEXP_REPLACE(COALESCE(cli_fone1,''),   '[^0-9]', '', 'g') = $1
+         OR RIGHT(REGEXP_REPLACE(COALESCE(cli_celular,''), '[^0-9]', '', 'g'), 9) = RIGHT($1, 9)
+         OR RIGHT(REGEXP_REPLACE(COALESCE(cli_fone1,''),   '[^0-9]', '', 'g'), 9) = RIGHT($1, 9)
+      LIMIT 1
+    `, [localPhone]);
+
+    if (!cliRes.rows.length) return null;
+    const cli   = cliRes.rows[0];
+    const cliId = cli.cli_id;
+
+    const [lastRes, countRes, topRes] = await Promise.all([
+      db.query(`
+        SELECT ped_data::date::text AS data,
+               ped_totliq,
+               (CURRENT_DATE - ped_data::date)::int AS dias
+        FROM pedidos
+        WHERE ped_cliente = $1 AND ped_situacao IN ('P','F')
+        ORDER BY ped_data DESC LIMIT 1
+      `, [cliId]),
+      db.query(`
+        SELECT COUNT(*)::int AS total
+        FROM pedidos
+        WHERE ped_cliente = $1 AND ped_situacao IN ('P','F')
+          AND EXTRACT(YEAR FROM ped_data) = EXTRACT(YEAR FROM NOW())
+      `, [cliId]),
+      db.query(`
+        SELECT TRIM(i.ite_produto) AS codigo,
+               MAX(TRIM(i.ite_nomeprod)) AS nome,
+               COUNT(*)::int AS qtd
+        FROM itens_ped i
+        INNER JOIN pedidos p ON TRIM(p.ped_pedido) = TRIM(i.ite_pedido)
+        WHERE p.ped_cliente    = $1
+          AND p.ped_situacao   IN ('P','F')
+          AND p.ped_data       >= NOW() - INTERVAL '12 months'
+        GROUP BY TRIM(i.ite_produto)
+        ORDER BY qtd DESC
+        LIMIT 5
+      `, [cliId]),
+    ]);
+
+    const last = lastRes.rows[0];
+    return {
+      cli_id:              cliId,
+      nome:                cli.nome,
+      cidade:              cli.cli_cidade  || undefined,
+      uf:                  cli.cli_uf      || undefined,
+      ultimo_pedido_data:  last?.data      ?? null,
+      ultimo_pedido_valor: last ? parseFloat(last.ped_totliq) : null,
+      dias_sem_pedido:     last ? parseInt(last.dias) : null,
+      total_pedidos_ano:   countRes.rows[0]?.total || 0,
+      top_produtos:        topRes.rows.map((r: any) => ({
+        codigo: r.codigo || '',
+        nome:   r.nome   || '',
+        qtd:    r.qtd,
+      })),
+    };
+  } catch (err: any) {
+    console.warn('[WPP-ORCH] getFichaCliente error:', err.message);
+    return null;
   }
 }
 
@@ -138,16 +224,27 @@ async function rotaIA(
     await db.query(`UPDATE wpp_conversa SET estado='ia_ativa', updated_at=NOW() WHERE id=$1`, [conversa.id]);
   }
 
-  const historico    = await getHistorico(db, conversa.id);
-  const tenantConfig = await getTenantConfig(db);
-  const dadosAtivos: Partial<DadosQualificacao> = conversa.dados_qualificacao || {};
+  const historico      = await getHistorico(db, conversa.id);
+  const tenantConfig   = await getTenantConfig(db);
+  const fichaCliente   = await getFichaCliente(db, contato.telefone);
+  const tenantComFicha: TenantConfig = { ...tenantConfig, fichaCliente: fichaCliente ?? undefined };
+
+  // Pré-popula dados de qualificação com a ficha (cliente já é conhecido)
+  const dadosAtivos: Partial<DadosQualificacao> = { ...(conversa.dados_qualificacao || {}) };
+  if (fichaCliente) {
+    if (!dadosAtivos.nome)    dadosAtivos.nome    = fichaCliente.nome;
+    if (!dadosAtivos.empresa) dadosAtivos.empresa = fichaCliente.nome;
+    if (!dadosAtivos.cidade && fichaCliente.cidade) dadosAtivos.cidade = fichaCliente.cidade;
+    if (!dadosAtivos.uf     && fichaCliente.uf)     dadosAtivos.uf     = fichaCliente.uf;
+    console.log(`[WPP-ORCH] Cliente identificado: ${fichaCliente.nome} (${fichaCliente.cidade}) — último pedido há ${fichaCliente.dias_sem_pedido ?? '?'} dias`);
+  }
 
   const startTime = Date.now();
   const resposta  = await processarMensagem({
     mensagemAtual:    (await db.query('SELECT conteudo FROM wpp_mensagem WHERE id=$1', [msgId])).rows[0]?.conteudo || '',
     historico,
     dadosQualificacao: dadosAtivos,
-    tenantConfig,
+    tenantConfig: tenantComFicha,
   });
   const tempoMs = Date.now() - startTime;
 

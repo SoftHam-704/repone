@@ -46,6 +46,12 @@ interface MixItem {
 
 type Tab = 'recomprar' | 'mix' | 'iris'
 
+const TAB_HELP: Record<Tab, string> = {
+  recomprar: 'Produtos que este cliente já comprou e está há 30+ dias sem recomprar. Itens CRÍTICOS (120+ dias) são pré-selecionados automaticamente. Selecione os produtos e crie o pedido diretamente.',
+  mix:       'Produtos desta indústria que o cliente NUNCA comprou, ordenados pelos mais vendidos na sua carteira de clientes. Ideal para ampliar o mix e aumentar o ticket médio.',
+  iris:      'Análise estratégica gerada por IA com base no histórico real de pedidos: raio-x do cliente, oportunidade principal, alertas de mix, argumentos de venda e frase de abertura personalizada para a visita.',
+}
+
 const MIX_BADGE = (n: number) =>
   n >= 20 ? { label: 'POPULAR',  bg: '#DCFCE7', color: '#15803D' } :
   n >= 5  ? { label: 'EM ALTA',  bg: '#CCFBF1', color: '#0F766E' } :
@@ -97,8 +103,8 @@ function Sparkline({ data, color = '#16A34A' }: {
             }} />
           )}
           <span style={{
-            fontSize: 7, color: isLast(i) && d.qty === 0 ? '#DC2626' : G.muted,
-            fontWeight: isLast(i) && d.qty === 0 ? 800 : 400,
+            fontSize: 9, color: isLast(i) && d.qty === 0 ? '#DC2626' : G.text,
+            fontWeight: isLast(i) && d.qty === 0 ? 900 : 600,
           }}>{d.label}</span>
         </div>
       ))}
@@ -128,14 +134,16 @@ function PenetrationBar({ totalClientes, maxClientes, totalPedidos, badge }: {
 }
 
 // ─── IrisNarrativeStrip ────────────────────────────────────────────────────────
-function IrisNarrativeStrip({ tipo, clienteNome, industriaNome, summaryData }: {
+function IrisNarrativeStrip({ tipo, clienteNome, industriaNome, summaryData, helpText }: {
   tipo: 'recomprar' | 'mix'
   clienteNome: string
   industriaNome: string
   summaryData: Record<string, any>
+  helpText?: string
 }) {
   const [narrativa, setNarrativa] = useState<string | null>(null)
   const [loading,   setLoading]   = useState(false)
+  const [helpVisible, setHelpVisible] = useState(false)
 
   const gerar = useCallback(async () => {
     setLoading(true)
@@ -177,20 +185,58 @@ function IrisNarrativeStrip({ tipo, clienteNome, industriaNome, summaryData }: {
             <span style={{ fontSize: 10, color: textColor, opacity: 0.6 }}>Gerando briefing...</span>
           </div>
         ) : narrativa ? (
-          <p style={{ fontSize: 11, color: textColor, lineHeight: 1.65, margin: 0 }}>{narrativa}</p>
+          <p style={{ fontSize: 12, color: textColor, lineHeight: 1.65, margin: 0 }}>{narrativa}</p>
         ) : (
           <span style={{ fontSize: 10, color: textColor, opacity: 0.5 }}>Clique em ↺ para gerar</span>
         )}
       </div>
-      <button
-        onClick={gerar}
-        disabled={loading}
-        style={{
-          flexShrink: 0, padding: '4px 8px', borderRadius: 6,
-          border: `1px solid rgba(255,255,255,.15)`, background: 'transparent',
-          color: textColor, fontSize: 9, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer',
-        }}
-      >↺ Gerar</button>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0, alignItems: 'flex-end' }}>
+        <button
+          onClick={gerar}
+          disabled={loading}
+          style={{
+            padding: '7px 13px', borderRadius: 8,
+            border: `1px solid rgba(255,255,255,.22)`,
+            background: 'rgba(255,255,255,.12)', color: textColor,
+            fontSize: 12, fontWeight: 800, cursor: loading ? 'not-allowed' : 'pointer',
+            display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
+          }}
+        >
+          <RotateCcw size={12} /> Gerar
+        </button>
+        {helpText && (
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setHelpVisible(v => !v)}
+              style={{
+                width: 24, height: 24, borderRadius: '50%',
+                border: `1.5px solid rgba(255,255,255,.22)`,
+                background: helpVisible ? G.mustard : 'rgba(255,255,255,.12)',
+                color: helpVisible ? G.text : textColor,
+                fontSize: 12, fontWeight: 900, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+              }}
+            >?</button>
+            {helpVisible && (
+              <div
+                onClick={() => setHelpVisible(false)}
+                style={{
+                  position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 300,
+                  width: 272, padding: '11px 13px',
+                  background: '#0F1E2A', border: '1px solid rgba(255,255,255,.15)',
+                  borderRadius: 11, boxShadow: '0 10px 32px rgba(0,0,0,.55)',
+                  fontSize: 12, color: '#C8D8E4', lineHeight: 1.65, cursor: 'default',
+                }}
+              >
+                <div style={{ fontSize: 9, fontWeight: 800, color: G.mustard, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 7 }}>
+                  {tipo === 'recomprar' ? 'Recomprar' : 'Expandir Mix'}
+                </div>
+                {helpText}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -246,13 +292,13 @@ function MixRow({ item, selected, onToggle, qty, onQtyChange, maxClientes }: {
           </span>
         </div>
         {/* Linha 2: nome (secundário) */}
-        <div style={{ fontSize: 11, color: G.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>
+        <div style={{ fontSize: 11, color: G.text, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>
           {item.nome_produto}
         </div>
         {/* Linha 2b: embalagem + preço */}
         {(item.pro_embalagem || item.preco_tabela > 0) && (
-          <div style={{ display: 'flex', gap: 8, fontSize: 10, color: G.muted, marginBottom: 2 }}>
-            {item.pro_embalagem && <span>Emb: {item.pro_embalagem}</span>}
+          <div style={{ display: 'flex', gap: 8, fontSize: 11, marginBottom: 2 }}>
+            {item.pro_embalagem && <span style={{ color: G.text, fontWeight: 600 }}>Emb: {item.pro_embalagem}</span>}
             {item.preco_tabela > 0 && (
               <span style={{ color: '#16A34A', fontWeight: 700 }}>
                 {item.preco_tabela.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -354,8 +400,8 @@ function SuggestionRow({
           </span>
         </div>
         {/* Linha 2: nome + embalagem */}
-        <div style={{ fontSize: 10, color: G.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 5 }}>
-          {item.nome_produto}{item.pro_embalagem ? ` · Emb: ${item.pro_embalagem}` : ''}
+        <div style={{ fontSize: 11, color: G.text, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 5 }}>
+          {item.nome_produto}{item.pro_embalagem ? <span style={{ color: G.muted, fontWeight: 400 }}> · Emb: {item.pro_embalagem}</span> : ''}
         </div>
         {/* Linha 3: sparkline + metadados */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -393,7 +439,8 @@ function SuggestionRow({
 
 // ─── IrisPanel ─────────────────────────────────────────────────────────────────
 export default function IrisPanel({ clienteId, clienteNome, industriaId, industriaNome, tabelaId, onClose, onNewOrder }: Props) {
-  const [tab, setTab] = useState<Tab>('recomprar')
+  const [tab, setTab]           = useState<Tab>('recomprar')
+  const [irisHelpVisible, setIrisHelpVisible] = useState(false)
 
   // — Recomprar state
   const [items, setItems] = useState<Suggestion[]>([])
@@ -589,7 +636,7 @@ export default function IrisPanel({ clienteId, clienteNome, industriaId, industr
 
   const panel = (
     <div style={{
-      position: 'fixed', top: 0, right: 0, bottom: 0, width: 520,
+      position: 'fixed', top: 0, right: 0, bottom: 0, width: 580,
       background: G.card, borderLeft: `1px solid ${G.border}`,
       boxShadow: '-8px 0 32px rgba(0,0,0,.12)',
       display: 'flex', flexDirection: 'column', zIndex: 2000,
@@ -612,12 +659,12 @@ export default function IrisPanel({ clienteId, clienteNome, industriaId, industr
                 <IrisAvatar size={26} animated />
               </div>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: '#E8E1D4', letterSpacing: 0.3 }}>IRIS</div>
-                <div style={{ fontSize: 10, color: '#A8B8C4' }}>Assistente de Inteligência Comercial</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: '#F2EDE4', letterSpacing: 0.3 }}>IRIS</div>
+                <div style={{ fontSize: 10, color: '#C8D4DC' }}>Assistente de Inteligência Comercial</div>
               </div>
             </div>
-            <div style={{ fontSize: 12, color: '#A8B8C4', marginTop: 2 }}>
-              <span style={{ color: '#E8E1D4', fontWeight: 700 }}>{clienteNome}</span>
+            <div style={{ fontSize: 12, color: '#C8D4DC', marginTop: 2 }}>
+              <span style={{ color: '#F2EDE4', fontWeight: 700 }}>{clienteNome}</span>
               <span style={{ margin: '0 6px' }}>·</span>
               <span>{industriaNome}</span>
             </div>
@@ -639,7 +686,7 @@ export default function IrisPanel({ clienteId, clienteNome, industriaId, industr
               padding: '8px 14px', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700,
               borderRadius: '8px 8px 0 0',
               background: tab === key ? G.card : 'transparent',
-              color: tab === key ? G.text : '#A8B8C4',
+              color: tab === key ? G.text : '#C8D4DC',
               transition: 'all .15s',
             }}>
               <Icon size={13} />
@@ -647,8 +694,8 @@ export default function IrisPanel({ clienteId, clienteNome, industriaId, industr
               {count !== null && count > 0 && (
                 <span style={{
                   fontSize: 10, fontWeight: 800, minWidth: 18, height: 18,
-                  borderRadius: 9, background: tab === key ? G.text : '#A8B8C480',
-                  color: tab === key ? G.card : G.text,
+                  borderRadius: 9, background: tab === key ? G.text : '#C8D4DC50',
+                  color: tab === key ? G.card : '#C8D4DC',
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px',
                 }}>{count}</span>
               )}
@@ -689,6 +736,7 @@ export default function IrisPanel({ clienteId, clienteNome, industriaId, industr
                 tipo="recomprar"
                 clienteNome={clienteNome}
                 industriaNome={industriaNome}
+                helpText={TAB_HELP.recomprar}
                 summaryData={{
                   criticos: criticas,
                   emRisco,
@@ -807,6 +855,7 @@ export default function IrisPanel({ clienteId, clienteNome, industriaId, industr
                 tipo="mix"
                 clienteNome={clienteNome}
                 industriaNome={industriaNome}
+                helpText={TAB_HELP.mix}
                 summaryData={{
                   totalDisponiveis:  mixItems.length,
                   topProdutosNomes:  mixItems.slice(0, 3).map(i => i.nome_produto),
@@ -919,19 +968,50 @@ export default function IrisPanel({ clienteId, clienteNome, industriaId, industr
                     ⚠ {irisError}
                   </div>
                 )}
-                <button
-                  onClick={runIrisAnalisa}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '12px 28px', borderRadius: 12, border: 'none', cursor: 'pointer',
-                    background: 'linear-gradient(135deg, #FFD200, #F59E0B)',
-                    fontSize: 13, fontWeight: 800, color: G.text,
-                    boxShadow: '0 6px 20px #FFD20060',
-                  }}
-                >
-                  <Zap size={15} />
-                  Analisar com IRIS
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button
+                    onClick={runIrisAnalisa}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '12px 28px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                      background: 'linear-gradient(135deg, #FFD200, #F59E0B)',
+                      fontSize: 13, fontWeight: 800, color: G.text,
+                      boxShadow: '0 6px 20px #FFD20060',
+                    }}
+                  >
+                    <Zap size={15} />
+                    Analisar com IRIS
+                  </button>
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      onClick={() => setIrisHelpVisible(v => !v)}
+                      style={{
+                        width: 34, height: 34, borderRadius: '50%',
+                        border: `2px solid ${irisHelpVisible ? G.mustard : G.border}`,
+                        background: irisHelpVisible ? G.mustard : G.bg,
+                        color: irisHelpVisible ? G.text : G.muted,
+                        fontSize: 15, fontWeight: 900, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+                        transition: 'all .15s',
+                      }}
+                    >?</button>
+                    {irisHelpVisible && (
+                      <div
+                        onClick={() => setIrisHelpVisible(false)}
+                        style={{
+                          position: 'absolute', bottom: 'calc(100% + 8px)', right: 0, zIndex: 300,
+                          width: 280, padding: '12px 14px',
+                          background: '#1E2D3A', border: '1px solid rgba(255,255,255,.15)',
+                          borderRadius: 12, boxShadow: '0 10px 32px rgba(0,0,0,.5)',
+                          fontSize: 12, color: '#C8D8E4', lineHeight: 1.65, cursor: 'default',
+                        }}
+                      >
+                        <div style={{ fontSize: 9, fontWeight: 800, color: G.mustard, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>IRIS Analisa</div>
+                        {TAB_HELP.iris}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 

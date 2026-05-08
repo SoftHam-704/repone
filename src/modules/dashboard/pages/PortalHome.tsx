@@ -1699,7 +1699,7 @@ const PortalHome = () => {
                   {loadingCharts
                     ? <div className="h-full flex items-center justify-center"><span className="text-xs font-mono" style={{ color: G.textMuted }}>Carregando...</span></div>
                     : (
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="99%" height="100%" debounce={50}>
                         <AreaChart data={tlData} margin={{ top: 0, right: 4, bottom: 0, left: -10 }}>
                           <defs>
                             <linearGradient id="tl1" x1="0" y1="0" x2="0" y2="1">

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Trash2 } from 'lucide-react';
+import { Trash2, MapPin } from 'lucide-react';
 import {
   CadastroShell, CadastroTable, Th, Td, TrHover,
   StatusBadge, G,
@@ -53,6 +53,22 @@ export default function ClientesPage() {
   const openEdit = (id: number) => { setEditingId(String(id)); setSelectedId(id); setModalOpen(true); };
   const closeModal = () => { setModalOpen(false); load(); };
 
+  const [vinculando, setVinculando] = useState(false);
+  const vincularRegioes = async () => {
+    if (!confirm('Vincular regiões automaticamente para todos os clientes sem região, com base na cidade cadastrada?')) return;
+    setVinculando(true);
+    try {
+      const r = await api.post('/clients/vincular-regioes');
+      const n = r.data.atualizados ?? 0;
+      alert(n > 0 ? `${n} cliente(s) vinculado(s) com sucesso!` : 'Nenhum cliente sem região encontrado.');
+      if (n > 0) load();
+    } catch {
+      alert('Erro ao vincular regiões.');
+    } finally {
+      setVinculando(false);
+    }
+  };
+
   const inactivate = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm('Inativar este cliente?')) return;
@@ -72,10 +88,25 @@ export default function ClientesPage() {
         newLabel="Novo Cliente"
         loading={loading}
         toolbar={
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: G.textSec, cursor: 'pointer' }}>
-            <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
-            Mostrar inativos
-          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: G.textSec, cursor: 'pointer' }}>
+              <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+              Mostrar inativos
+            </label>
+            <button
+              onClick={vincularRegioes}
+              disabled={vinculando}
+              title="Preenche automaticamente a região dos clientes sem região, com base na cidade cadastrada"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '5px 12px', borderRadius: 7, border: `1px solid ${G.border}`,
+                background: G.card, color: G.textSec, fontSize: 11, fontWeight: 700,
+                cursor: vinculando ? 'not-allowed' : 'pointer', opacity: vinculando ? 0.6 : 1,
+              }}>
+              <MapPin size={12} />
+              {vinculando ? 'Vinculando...' : 'Vincular Regiões'}
+            </button>
+          </div>
         }
       >
         <CadastroTable>

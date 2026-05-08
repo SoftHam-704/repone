@@ -19,7 +19,8 @@ function fmtBRL(v: any) {
 }
 function fmtDate(d: string) {
   if (!d) return '—'
-  return new Date(d).toLocaleDateString('pt-BR')
+  const [y, m, day] = d.substring(0, 10).split('-')
+  return `${day}/${m}/${y}`
 }
 function todayISO() { return new Date().toISOString().split('T')[0] }
 function firstOfMonth() {

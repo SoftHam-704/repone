@@ -20,7 +20,8 @@ export type BITab =
   | 'curva-abc'
   | 'metas'
   | 'equipe'
-  | 'produtos';
+  | 'produtos'
+  | 'sell-in-out';
 
 interface BIStore {
   activeTab:  BITab;

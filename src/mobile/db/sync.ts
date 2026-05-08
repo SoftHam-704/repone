@@ -10,11 +10,16 @@ export async function downloadClientes(): Promise<void> {
     const risk: MobileClient['risk'] =
       days <= 30 ? 'ativo' : days <= 60 ? 'em_queda' : 'burnout';
     return {
-      cli_codigo: Number(c.cli_codigo),
-      cli_nomred: c.cli_nomred || c.cli_nome || '',
-      cli_cidade: c.cli_cidade || '',
-      cli_uf:     c.cli_uf    || '',
-      cli_email:  c.cli_email || '',
+      cli_codigo:  Number(c.cli_codigo),
+      cli_nomred:  c.cli_nomred   || c.cli_nome || '',
+      cli_cidade:  c.cli_cidade   || '',
+      cli_uf:      c.cli_uf       || '',
+      cli_email:   c.cli_email    || '',
+      cli_cnpj:    c.cli_cnpj     || '',
+      cli_fone1:   c.cli_fone1    || c.cli_fone || '',
+      cli_endereco: c.cli_endereco || '',
+      cli_endnum:   c.cli_endnum   || '',
+      cli_bairro:   c.cli_bairro   || '',
       risk,
     };
   });
@@ -108,7 +113,7 @@ export async function uploadQueue(): Promise<void> {
   const pending = await db.queue.where('status').equals('pendente').toArray();
   for (const item of pending) {
     try {
-      const r = await api.post('/orders', item.payload);
+      const r = await api.post('/orders/mobile', item.payload);
       const num = r.data.data?.ped_numero ?? r.data.data?.id ?? '';
       await db.queue.delete(item.id!);
       toast.success(`Pedido${num ? ` #${num}` : ''} enviado com sucesso`);

@@ -79,6 +79,7 @@ export default function MapaOportunidades({ dataInicio, dataFim }: Props) {
   const [error,      setError]      = useState('');
   const [industria,  setIndustria]  = useState('');
   const [cliente,    setCliente]    = useState('');
+  const [uf,         setUf]         = useState('');
   const [somenteGap, setSomenteGap] = useState(true);
   // Default: todas as famílias colapsadas
   const [collapsed,  setCollapsed]  = useState<Set<string>>(new Set());
@@ -104,6 +105,7 @@ export default function MapaOportunidades({ dataInicio, dataFim }: Props) {
         industria, cliente,
         dataInicial: dataInicio, dataFinal: dataFim,
         somenteGap: String(somenteGap),
+        ...(uf ? { uf } : {}),
       });
       const r = await api.get(`/estatisticas/mapa-oportunidades?${params}`);
       const data: Row[] = r.data.data || [];
@@ -118,7 +120,7 @@ export default function MapaOportunidades({ dataInicio, dataFim }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [industria, cliente, dataInicio, dataFim, somenteGap, canLoad]);
+  }, [industria, cliente, uf, dataInicio, dataFim, somenteGap, canLoad]);
 
   // Agrupar por família, ordenar linhas por qtd_mercado DESC
   const porFamilia = rows.reduce<Record<string, Row[]>>((acc, r) => {
@@ -170,7 +172,7 @@ export default function MapaOportunidades({ dataInicio, dataFim }: Props) {
     ws['!cols'] = [{ wch: 28 }, { wch: 14 }, { wch: 60 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 10 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Mapa Oportunidades');
-    XLSX.writeFile(wb, `mapa-oportunidades-${clienteNome}-${indNome}-${dataInicio}-${dataFim}.xlsx`);
+    XLSX.writeFile(wb, `mapa-oportunidades-${clienteNome}-${indNome}${uf ? `-${uf}` : ''}-${dataInicio}-${dataFim}.xlsx`);
   };
 
   const selectStyle: React.CSSProperties = {
@@ -219,6 +221,19 @@ export default function MapaOportunidades({ dataInicio, dataFim }: Props) {
             placeholder="Buscar cliente..."
             required
           />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 88 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: G.textMuted, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+            UF
+          </label>
+          <select value={uf} onChange={e => setUf(e.target.value)} style={selectStyle}>
+            <option value="">Todas</option>
+            {['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT',
+              'PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'].map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
         </div>
 
         {/* Toggle somente gap */}

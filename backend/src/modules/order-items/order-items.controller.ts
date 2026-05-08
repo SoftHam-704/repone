@@ -79,7 +79,7 @@ export async function listOrderItemsHandler(req: Request, res: Response): Promis
     const { pedido } = req.params;
     const db = req.db!;
     const result = await db.query(
-      `SELECT * FROM itens_ped WHERE ite_pedido = $1 ORDER BY ite_seq ASC, ite_lancto ASC`,
+      `SELECT * FROM itens_ped WHERE TRIM(ite_pedido) = TRIM($1) ORDER BY ite_seq ASC, ite_lancto ASC`,
       [pedido]
     );
     res.json({ success: true, data: result.rows });
@@ -97,7 +97,7 @@ export async function syncOrderItemsHandler(req: Request, res: Response): Promis
 
   try {
     await db.transaction(async (client) => {
-      await client.query(`DELETE FROM itens_ped WHERE ite_pedido = $1`, [pedido]);
+      await client.query(`DELETE FROM itens_ped WHERE TRIM(ite_pedido) = TRIM($1)`, [pedido]);
 
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
@@ -155,10 +155,10 @@ export async function syncOrderItemsHandler(req: Request, res: Response): Promis
 
       await client.query(`
         UPDATE pedidos SET
-          ped_totbruto = (SELECT COALESCE(SUM(ite_totbruto),   0) FROM itens_ped WHERE ite_pedido = $1),
-          ped_totliq   = (SELECT COALESCE(SUM(ite_totliquido), 0) FROM itens_ped WHERE ite_pedido = $1),
-          ped_totalipi = (SELECT COALESCE(SUM(ite_valcomipi),  0) FROM itens_ped WHERE ite_pedido = $1)
-        WHERE ped_pedido = $1
+          ped_totbruto = (SELECT COALESCE(SUM(ite_totbruto),   0) FROM itens_ped WHERE TRIM(ite_pedido) = TRIM($1)),
+          ped_totliq   = (SELECT COALESCE(SUM(ite_totliquido), 0) FROM itens_ped WHERE TRIM(ite_pedido) = TRIM($1)),
+          ped_totalipi = (SELECT COALESCE(SUM(ite_valcomipi),  0) FROM itens_ped WHERE TRIM(ite_pedido) = TRIM($1))
+        WHERE TRIM(ped_pedido) = TRIM($1)
       `, [pedido]);
     });
 

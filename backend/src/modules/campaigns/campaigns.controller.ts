@@ -7,7 +7,7 @@ function getBusinessDays(start: string, end: string): number {
   const cur = new Date(s);
   while (cur <= e) {
     const d = cur.getDay();
-    if (d !== 0) count++; // excluir domingo
+    if (d !== 0) count++;
     cur.setDate(cur.getDate() + 1);
   }
   return Math.max(1, count);
@@ -72,7 +72,7 @@ export async function simulateCampaignHandler(req: Request, res: Response): Prom
       WHERE p.ped_cliente   = $1
         AND i.ite_industria = $2
         AND p.ped_data BETWEEN $3::DATE AND $4::DATE
-        AND p.ped_situacao IN ('P', 'F', 'E')
+        AND p.ped_situacao IN ('P', 'F')
     `, [cliId, indId, base_start, base_end]);
 
     const row = histRes.rows[0] || { total_value: 0, total_qty: 0 };
@@ -118,7 +118,8 @@ export async function createCampaignHandler(req: Request, res: Response): Promis
       cmp_periodo_base_ini, cmp_periodo_base_fim, cmp_campanha_ini, cmp_campanha_fim,
       cmp_perc_crescimento, simulation_data, cmp_observacao,
       cmp_setor, cmp_regiao, cmp_equipe_vendas, cmp_verba_solicitada,
-      cmp_tema, cmp_tipo_periodo,
+      cmp_tema, cmp_tipo_periodo, cmp_tipo,
+      cmp_meta_qtd_total: cmp_meta_qtd_direct,
     } = req.body;
 
     const base       = simulation_data?.base       || {};
@@ -133,20 +134,23 @@ export async function createCampaignHandler(req: Request, res: Response): Promis
         cmp_perc_crescimento,
         cmp_meta_valor_total, cmp_meta_qtd_total, cmp_meta_diaria_val, cmp_meta_diaria_qtd,
         cmp_observacao, cmp_setor, cmp_regiao, cmp_equipe_vendas,
-        cmp_verba_solicitada, cmp_tema, cmp_tipo_periodo
+        cmp_verba_solicitada, cmp_tema, cmp_tipo_periodo, cmp_tipo
       ) VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
       ) RETURNING cmp_codigo
     `, [
       cmp_descricao, cmp_cliente_id, cmp_industria_id, cmp_promotor_id || null,
-      cmp_periodo_base_ini, cmp_periodo_base_fim, cmp_campanha_ini || null, cmp_campanha_fim || null,
+      cmp_periodo_base_ini || null, cmp_periodo_base_fim || null,
+      cmp_campanha_ini || null, cmp_campanha_fim || null,
       base.days || 0, base.total_value || 0, base.total_qty || 0,
       base.daily_avg_value || 0, base.daily_avg_qty || 0,
       cmp_perc_crescimento || 0,
-      projection.target_total_value || 0, projection.target_total_qty || 0,
+      projection.target_total_value || 0,
+      projection.target_total_qty || cmp_meta_qtd_direct || 0,
       projection.target_daily_value || 0, projection.target_daily_qty || 0,
       cmp_observacao || '', cmp_setor || '', cmp_regiao || '', cmp_equipe_vendas || 0,
       cmp_verba_solicitada || 0, cmp_tema || '', cmp_tipo_periodo || 'TRIMESTRAL',
+      cmp_tipo || 'CRESCIMENTO',
     ]);
 
     res.json({ success: true, message: 'Campanha criada com sucesso!', id: result.rows[0].cmp_codigo });
@@ -167,7 +171,8 @@ export async function updateCampaignHandler(req: Request, res: Response): Promis
       cmp_perc_crescimento, cmp_observacao, cmp_status,
       cmp_setor, cmp_regiao, cmp_equipe_vendas, cmp_verba_solicitada,
       cmp_tema, cmp_tipo_periodo, cmp_justificativa, cmp_premiacoes,
-      cmp_real_valor_total, cmp_real_qtd_total,
+      cmp_real_valor_total, cmp_real_qtd_total, cmp_tipo,
+      cmp_meta_qtd_total,
     } = req.body;
 
     await db.query(`
@@ -193,8 +198,10 @@ export async function updateCampaignHandler(req: Request, res: Response): Promis
         cmp_premiacoes         = $19,
         cmp_real_valor_total   = COALESCE($20, cmp_real_valor_total),
         cmp_real_qtd_total     = COALESCE($21, cmp_real_qtd_total),
+        cmp_tipo               = COALESCE($22, cmp_tipo),
+        cmp_meta_qtd_total     = COALESCE($23, cmp_meta_qtd_total),
         cmp_data_atualizacao   = NOW()
-      WHERE cmp_codigo = $22
+      WHERE cmp_codigo = $24
     `, [
       cmp_descricao, cmp_cliente_id, cmp_industria_id, cmp_promotor_id || null,
       cmp_periodo_base_ini, cmp_periodo_base_fim, cmp_campanha_ini, cmp_campanha_fim,
@@ -202,12 +209,117 @@ export async function updateCampaignHandler(req: Request, res: Response): Promis
       cmp_setor, cmp_regiao, cmp_equipe_vendas, cmp_verba_solicitada,
       cmp_tema, cmp_tipo_periodo, cmp_justificativa, cmp_premiacoes,
       cmp_real_valor_total, cmp_real_qtd_total,
+      cmp_tipo || null, cmp_meta_qtd_total || null,
       id,
     ]);
 
     res.json({ success: true, message: 'Campanha atualizada com sucesso!' });
   } catch (error: any) {
     console.error('❌ [CAMPAIGNS] update:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── GET /api/campaigns/:id/auto-progress ────────────────────────────────────
+export async function autoProgressHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { id } = req.params;
+
+    const campRes = await db.query(`
+      SELECT cmp_tipo, cmp_cliente_id, cmp_industria_id,
+             cmp_campanha_ini, cmp_campanha_fim,
+             cmp_meta_valor_total, cmp_meta_qtd_total
+      FROM campanhas_promocionais WHERE cmp_codigo = $1
+    `, [id]);
+
+    if (!campRes.rows.length) {
+      res.status(404).json({ success: false, message: 'Campanha não encontrada.' });
+      return;
+    }
+
+    const camp = campRes.rows[0];
+    const tipo: string = camp.cmp_tipo || 'CRESCIMENTO';
+
+    if (!camp.cmp_campanha_ini || !camp.cmp_campanha_fim) {
+      res.json({ success: true, data: { realizado: 0, meta: 0, progress_pct: 0, elapsed_pct: 0, behind: false, tipo, label: '' } });
+      return;
+    }
+
+    let realizado = 0;
+    let meta = 0;
+    let label = '';
+
+    if (tipo === 'CRESCIMENTO') {
+      const r = await db.query(`
+        SELECT COALESCE(ROUND(SUM(i.ite_totliquido::NUMERIC), 2), 0) AS realizado
+        FROM itens_ped i
+        JOIN pedidos p ON i.ite_pedido = p.ped_pedido
+        WHERE p.ped_cliente   = $1
+          AND i.ite_industria = $2
+          AND p.ped_data BETWEEN $3::DATE AND $4::DATE
+          AND p.ped_situacao IN ('P', 'F')
+      `, [camp.cmp_cliente_id, camp.cmp_industria_id, camp.cmp_campanha_ini, camp.cmp_campanha_fim]);
+      realizado = parseFloat(r.rows[0].realizado) || 0;
+      meta = parseFloat(String(camp.cmp_meta_valor_total)) || 0;
+      label = 'R$ vendido';
+    } else if (tipo === 'MIX') {
+      const r = await db.query(`
+        SELECT COUNT(DISTINCT pr.pro_grupo) AS realizado
+        FROM itens_ped i
+        JOIN pedidos p  ON i.ite_pedido  = p.ped_pedido
+        JOIN produtos pr ON pr.pro_codigo = i.ite_produto
+        WHERE p.ped_cliente   = $1
+          AND i.ite_industria = $2
+          AND p.ped_data BETWEEN $3::DATE AND $4::DATE
+          AND p.ped_situacao IN ('P', 'F')
+          AND pr.pro_grupo IS NOT NULL AND pr.pro_grupo <> ''
+      `, [camp.cmp_cliente_id, camp.cmp_industria_id, camp.cmp_campanha_ini, camp.cmp_campanha_fim]);
+      realizado = parseFloat(r.rows[0].realizado) || 0;
+      meta = parseFloat(String(camp.cmp_meta_qtd_total)) || 0;
+      label = 'famílias vendidas';
+    } else if (tipo === 'POSITIVACAO') {
+      const r = await db.query(`
+        SELECT COUNT(DISTINCT DATE_TRUNC('month', p.ped_data)) AS realizado
+        FROM pedidos p
+        JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+        WHERE p.ped_cliente   = $1
+          AND i.ite_industria = $2
+          AND p.ped_data BETWEEN $3::DATE AND $4::DATE
+          AND p.ped_situacao IN ('P', 'F')
+      `, [camp.cmp_cliente_id, camp.cmp_industria_id, camp.cmp_campanha_ini, camp.cmp_campanha_fim]);
+      realizado = parseFloat(r.rows[0].realizado) || 0;
+      meta = parseFloat(String(camp.cmp_meta_qtd_total)) || 0;
+      label = 'meses com pedido';
+    } else if (tipo === 'VOLUME') {
+      const r = await db.query(`
+        SELECT COALESCE(SUM(i.ite_quant), 0) AS realizado
+        FROM itens_ped i
+        JOIN pedidos p ON i.ite_pedido = p.ped_pedido
+        WHERE p.ped_cliente   = $1
+          AND i.ite_industria = $2
+          AND p.ped_data BETWEEN $3::DATE AND $4::DATE
+          AND p.ped_situacao IN ('P', 'F')
+      `, [camp.cmp_cliente_id, camp.cmp_industria_id, camp.cmp_campanha_ini, camp.cmp_campanha_fim]);
+      realizado = parseFloat(r.rows[0].realizado) || 0;
+      meta = parseFloat(String(camp.cmp_meta_qtd_total)) || 0;
+      label = 'unidades vendidas';
+    }
+
+    const progress_pct = meta > 0 ? Math.min(100, (realizado / meta) * 100) : 0;
+
+    const now      = new Date();
+    const startDt  = new Date(camp.cmp_campanha_ini);
+    const endDt    = new Date(camp.cmp_campanha_fim);
+    const totalMs  = endDt.getTime() - startDt.getTime();
+    const elapsedMs = Math.max(0, now.getTime() - startDt.getTime());
+    const elapsed_pct = totalMs > 0 ? Math.min(100, (elapsedMs / totalMs) * 100) : 0;
+
+    const behind = elapsed_pct > 15 && progress_pct < elapsed_pct * 0.75;
+
+    res.json({ success: true, data: { realizado, meta, progress_pct, elapsed_pct, behind, tipo, label } });
+  } catch (error: any) {
+    console.error('❌ [CAMPAIGNS] auto-progress:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 }

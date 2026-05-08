@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, Save, Loader2, User, RefreshCw,
-  MapPin, AlertTriangle, TrendingUp, Lightbulb,
+  ArrowLeft, Save, Loader2, User,
+  MapPin, AlertTriangle,
   Phone, Search, Copy, Plus, Pencil, Trash2, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -267,6 +267,7 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
   const [tab, setTab]         = useState<Tab>('GERAL');
   const [saving, setSaving]   = useState(false);
   const [loading, setLoading] = useState(!isNew);
+  const [loadError, setLoadError] = useState(false);
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [regioes, setRegioes] = useState<Regiao[]>([]);
   const [setores, setSetores] = useState<Setor[]>([]);
@@ -275,6 +276,7 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
   const [savingContact, setSavingContact] = useState(false);
   const [loadingCNPJ, setLoadingCNPJ] = useState(false);
   const [loadingCEP, setLoadingCEP]   = useState(false);
+  const cnpjLookupRef = useRef(false);
   const [industries, setIndustries]   = useState<CliInd[]>([]);
   const [allIndustrias, setAllIndustrias] = useState<{value:number;label:string}[]>([]);
   const [carriers, setCarriers]       = useState<{value:number;label:string}[]>([]);
@@ -295,7 +297,7 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
         const d = r.data.data || {};
         setData({ ...d, cli_dtabertura: toISODate(d.cli_dtabertura) });
       })
-      .catch(() => close())
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, [id, isNew, navigate]);
 
@@ -416,9 +418,30 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
     loadDiscounts();
   };
 
+  // Busca cid_codigo pelo nome da cidade e atualiza idcidade + regiao automaticamente
+  const resolveCity = async (nomeCidade: string, uf: string) => {
+    if (!nomeCidade) return;
+    try {
+      const r = await api.get(`/cidades?search=${encodeURIComponent(nomeCidade)}&limit=5`);
+      const cidades: any[] = r.data.data || [];
+      const match = cidades.find(c =>
+        c.cid_nome.toLowerCase() === nomeCidade.toLowerCase() &&
+        (!uf || c.cid_uf?.toLowerCase() === uf.toLowerCase())
+      ) || cidades[0];
+      if (!match) return;
+      setData(prev => ({ ...prev, cli_idcidade: match.cid_codigo }));
+      const rr = await api.get(`/aux/regiao-by-cidade/${match.cid_codigo}`);
+      if (rr.data.data?.reg_codigo) {
+        setData(prev => ({ ...prev, cli_regiao_id: rr.data.data.reg_codigo }));
+      }
+    } catch {}
+  };
+
   const lookupCNPJ = async () => {
+    if (cnpjLookupRef.current) return;
     const raw = (data.cli_cnpj || '').replace(/\D/g, '');
     if (raw.length !== 14) return;
+    cnpjLookupRef.current = true;
     setLoadingCNPJ(true);
     try {
       const res = await api.get(`/aux/cnpj/${raw}`);
@@ -440,12 +463,15 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
         cli_uf:          d.uf                                                    || prev.cli_uf,
         cli_cep:         fmtCep(d.cep)                                          || prev.cli_cep,
         cli_email:       d.email                                                 || prev.cli_email,
-        cli_dtabertura:  toISODate(d.data_inicio_atividade)                         || prev.cli_dtabertura,
+        cli_dtabertura:  toISODate(d.data_inicio_atividade)                     || prev.cli_dtabertura,
       }));
+      // Resolve cidade → idcidade + região
+      await resolveCity(d.municipio || '', d.uf || '');
     } catch (e: any) {
-      alert(e.message || 'CNPJ não encontrado na Receita Federal.');
+      toast.error(e.message || 'CNPJ não encontrado na Receita Federal.');
     } finally {
       setLoadingCNPJ(false);
+      cnpjLookupRef.current = false;
     }
   };
 
@@ -459,12 +485,14 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
       if (d.erro) throw new Error('CEP não encontrado');
       setData(prev => ({
         ...prev,
-        cli_cep:      d.cep      || prev.cli_cep,
+        cli_cep:      d.cep        || prev.cli_cep,
         cli_endereco: d.logradouro || prev.cli_endereco,
-        cli_bairro:   d.bairro   || prev.cli_bairro,
+        cli_bairro:   d.bairro     || prev.cli_bairro,
         cli_cidade:   d.localidade || prev.cli_cidade,
-        cli_uf:       d.uf       || prev.cli_uf,
+        cli_uf:       d.uf         || prev.cli_uf,
       }));
+      // Resolve cidade → idcidade + região
+      await resolveCity(d.localidade || '', d.uf || '');
     } catch {
       alert('CEP não encontrado.');
     } finally {
@@ -609,13 +637,16 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Loader2 size={28} style={{ color: G.textMuted, animation: 'spin 1s linear infinite' }} />
           </div>
+        ) : loadError ? (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+            <AlertTriangle size={32} style={{ color: G.danger }} />
+            <span style={{ fontSize: 14, color: G.textMuted }}>Não foi possível carregar os dados do cliente.</span>
+            <button onClick={close} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: G.navy, color: '#fff', cursor: 'pointer', fontSize: 13 }}>Fechar</button>
+          </div>
         ) : (
           <div style={{ flex: 1, overflow: 'auto', padding: '28px 32px' }}>
             {tab === 'GERAL' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 24, maxWidth: 1440 }}>
-
-                {/* ── Formulário ──────────────────────────────────────────── */}
-                <div>
+              <div style={{ maxWidth: 860 }}>
                   {/* I - IDENTIFICAÇÃO COMERCIAL */}
                   <div style={section}>
                     <div style={sectionTitle}>
@@ -961,106 +992,6 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
                       </div>
                     </Field>
                   </div>
-                </div>
-
-                {/* ── Sidebar de Inteligência ──────────────────────────────── */}
-                <div style={{ position: 'sticky', top: 0, alignSelf: 'start' }}>
-                  {/* Card do cliente */}
-                  <div style={{
-                    background: '#fff', borderRadius: 14, padding: 20,
-                    border: `1px solid ${G.border}`, marginBottom: 16,
-                    textAlign: 'center',
-                  }}>
-                    <div style={{
-                      width: 64, height: 64, borderRadius: '50%',
-                      background: G.card, border: `2px solid ${G.border}`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      margin: '0 auto 12px',
-                    }}>
-                      <User size={28} style={{ color: G.textMuted }} />
-                    </div>
-
-                    <div style={{ fontSize: 14, fontWeight: 800, color: G.text, marginBottom: 6 }}>
-                      {displayName}
-                    </div>
-
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginBottom: 14 }}>
-                      <span style={{
-                        fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 5,
-                        background: '#FFD70020', color: '#B8860B', border: '1px solid #FFD70040',
-                      }}>GOLD PARTNER</span>
-                      <span style={{
-                        fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 5,
-                        background: isAtivo ? '#16A34A18' : '#C0392B18',
-                        color: isAtivo ? G.success : G.danger,
-                        border: `1px solid ${isAtivo ? '#16A34A33' : '#C0392B33'}`,
-                      }}>{isAtivo ? 'ATIVO' : 'INATIVO'}</span>
-                    </div>
-
-                    <div style={{ textAlign: 'left', marginBottom: 16 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: G.textMuted, letterSpacing: 0.8, marginBottom: 4 }}>NÍVEL DE FIDELIDADE</div>
-                      <div style={{ display: 'flex', gap: 2, marginBottom: 10 }}>
-                        {[1,2,3,4,5].map(i => (
-                          <span key={i} style={{ fontSize: 16, color: i <= 3 ? '#FFD200' : G.border }}>★</span>
-                        ))}
-                      </div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: G.textMuted, letterSpacing: 0.8, marginBottom: 4 }}>Comprometimento</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ flex: 1, height: 6, background: G.card, borderRadius: 3, border: `1px solid ${G.border}` }}>
-                          <div style={{ width: '85%', height: '100%', background: G.success, borderRadius: 3 }} />
-                        </div>
-                        <span style={{ fontSize: 11, fontWeight: 800, color: G.success }}>85%</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Inteligência de Vendas */}
-                  <div style={{
-                    background: '#fff', borderRadius: 14, padding: 20,
-                    border: `1px solid ${G.border}`,
-                  }}>
-                    <div style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      marginBottom: 14,
-                    }}>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: G.text }}>INTELIGÊNCIA DE VENDAS</span>
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, color: G.mustard,
-                        background: '#FFD20018', padding: '2px 6px', borderRadius: 4,
-                      }}>3 Analisados</span>
-                    </div>
-
-                    <InsightCard
-                      icon={<AlertTriangle size={14} />}
-                      color="#F59E0B"
-                      title="RISCO DE CHURN AUMENTADO"
-                      text={`${displayName} está inativo há 103 dias. Frequência média de compra: 2 dias. Risco elevado — acione reengajamento.`}
-                    />
-                    <InsightCard
-                      icon={<TrendingUp size={14} />}
-                      color={G.success}
-                      title="POTENCIAL DE CROSS-SELL"
-                      text="Histórico frequente com produtos relacionados indica oportunidade de cross-sell com itens complementares."
-                    />
-                    <InsightCard
-                      icon={<Lightbulb size={14} />}
-                      color="#3B82F6"
-                      title="FOCO EM PRODUTOS DE ALTA ROTAÇÃO"
-                      text="Os produtos mais comprados mostram preferência clara. Marketing direcionado pode reativar o cliente."
-                    />
-
-                    <button style={{
-                      width: '100%', marginTop: 12,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      background: 'none', border: `1px solid ${G.border}`,
-                      borderRadius: 8, padding: '8px 0',
-                      fontSize: 11, fontWeight: 700, color: G.textMuted,
-                      cursor: 'pointer',
-                    }}>
-                      <RefreshCw size={12} /> ATUALIZAR INTELIGÊNCIA
-                    </button>
-                  </div>
-                </div>
               </div>
             )}
 
@@ -1642,30 +1573,6 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── Componentes auxiliares ───────────────────────────────────────────────────
-function InsightCard({ icon, color, title, text }: { icon: React.ReactNode; color: string; title: string; text: string }) {
-  return (
-    <div style={{
-      display: 'flex', gap: 10, marginBottom: 12,
-      padding: '10px 12px', borderRadius: 10,
-      background: G.card, border: `1px solid ${G.border}`,
-    }}>
-      <div style={{
-        width: 28, height: 28, borderRadius: 8,
-        background: `${color}18`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color, flexShrink: 0,
-      }}>
-        {icon}
-      </div>
-      <div>
-        <div style={{ fontSize: 10, fontWeight: 800, color, letterSpacing: 0.5, marginBottom: 3 }}>{title}</div>
-        <div style={{ fontSize: 11, color: G.textSec, lineHeight: 1.4 }}>{text}</div>
-      </div>
     </div>
   );
 }

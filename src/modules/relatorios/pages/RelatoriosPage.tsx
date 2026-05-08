@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText, BarChart2, Users, Package, ShoppingCart,
   TrendingUp, Target, DollarSign, UserX, Building2,
-  ChevronRight, Construction, Printer, Download,
+  ChevronRight, Construction,
   Receipt, Truck, Tag, Wallet, BookOpen,
   ClipboardList, MapPin,
 } from 'lucide-react';
@@ -209,22 +209,13 @@ function CategoriaVazia({ label, color }: { label: string; color: string }) {
 }
 
 // ─── ContentHeader ────────────────────────────────────────────────────────────
-function ContentHeader({
-  relatorio, color, dataInicio, dataFim, onDataInicio, onDataFim,
-}: {
-  relatorio: Relatorio | null;
-  color: string;
-  dataInicio: string;
-  dataFim: string;
-  onDataInicio: (v: string) => void;
-  onDataFim: (v: string) => void;
-}) {
+function ContentHeader({ relatorio, color }: { relatorio: Relatorio | null; color: string }) {
   const Icon = relatorio?.icon ?? FileText;
   return (
     <div style={{
       padding: '14px 22px', background: G.card,
       borderBottom: `1px solid ${G.border}`,
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      display: 'flex', alignItems: 'center',
       flexShrink: 0,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -244,55 +235,6 @@ function ContentHeader({
           </div>
         </div>
       </div>
-
-      {relatorio && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <span style={{ fontSize: 11, color: G.textMuted, fontWeight: 600 }}>Período:</span>
-            <input
-              type="date" value={dataInicio}
-              onChange={e => onDataInicio(e.target.value)}
-              style={{
-                padding: '5px 9px', borderRadius: 7, fontSize: 12, fontWeight: 600,
-                border: `1px solid ${G.border}`, background: G.cardHi,
-                color: G.text, outline: 'none', cursor: 'pointer',
-              }}
-            />
-            <span style={{ fontSize: 11, color: G.textMuted }}>até</span>
-            <input
-              type="date" value={dataFim}
-              onChange={e => onDataFim(e.target.value)}
-              style={{
-                padding: '5px 9px', borderRadius: 7, fontSize: 12, fontWeight: 600,
-                border: `1px solid ${G.border}`, background: G.cardHi,
-                color: G.text, outline: 'none', cursor: 'pointer',
-              }}
-            />
-          </div>
-
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '5px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700,
-              border: `1px solid ${G.border}`, background: 'transparent',
-              color: G.textSec, cursor: 'pointer',
-            }}>
-              <Printer size={12} />
-              Imprimir
-            </button>
-            <button style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '5px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700,
-              border: `1px solid ${G.mustard}40`,
-              background: `${G.mustard}15`,
-              color: G.mustard, cursor: 'pointer',
-            }}>
-              <Download size={12} />
-              Exportar
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -311,11 +253,6 @@ function Loading() {
 export default function RelatoriosPage() {
   const [categoria, setCategoria] = useState<CategoriaId>('cadastros');
   const [relatorioAtivo, setRelatorioAtivo] = useState<string | null>(null);
-
-  const hoje = new Date();
-  const primeiroDia = new Date(hoje.getFullYear(), 0, 1).toISOString().slice(0, 10);
-  const [dataInicio, setDataInicio] = useState(primeiroDia);
-  const [dataFim, setDataFim] = useState(hoje.toISOString().slice(0, 10));
 
   const catObj     = CATEGORIAS.find(c => c.id === categoria)!;
   const relatorios = RELATORIOS_POR_CATEGORIA[categoria];
@@ -419,14 +356,7 @@ export default function RelatoriosPage() {
       {/* ── Painel Direito ── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-        <ContentHeader
-          relatorio={relObj}
-          color={catObj.color}
-          dataInicio={dataInicio}
-          dataFim={dataFim}
-          onDataInicio={setDataInicio}
-          onDataFim={setDataFim}
-        />
+        <ContentHeader relatorio={relObj} color={catObj.color} />
 
         <AnimatePresence mode="wait">
           <motion.div
@@ -435,7 +365,7 @@ export default function RelatoriosPage() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -12 }}
             transition={{ duration: 0.18 }}
-            style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}
+            style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}
           >
             {!relObj ? (
               <CategoriaVazia label={catObj.label} color={catObj.color} />

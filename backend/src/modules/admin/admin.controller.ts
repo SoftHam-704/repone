@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { pool } from '../../config/database';
 
 // ─── POST /api/admin/migrate ──────────────────────────────────────────────────
 // Aplica migrations pendentes no schema do tenant atual.
@@ -116,5 +117,102 @@ export async function migrationStatusHandler(req: Request, res: Response): Promi
     res.json({ success: true, schema, pending, status });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── POST /api/admin/migrate-all ─────────────────────────────────────────────
+// Aplica migrations pendentes em TODOS os schemas de tenant.
+// Chamar a cada deploy para garantir que todos os tenants estão sincronizados.
+export async function migrateAllHandler(req: Request, res: Response): Promise<void> {
+  const masterClient = await pool.connect();
+  try {
+    const candidates = [
+      join(process.cwd(), 'migrations'),
+      join(__dirname, '../../../../migrations'),
+      join(__dirname, '../../../../../migrations'),
+    ];
+    const migrationsDir = candidates.find(existsSync);
+    if (!migrationsDir) {
+      res.status(500).json({ success: false, message: 'Diretório de migrations não encontrado.' });
+      return;
+    }
+
+    const files = readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+
+    // Lista todos os schemas de tenant (exclui schemas do sistema)
+    const schemasResult = await masterClient.query(`
+      SELECT schema_name FROM information_schema.schemata
+      WHERE schema_name NOT IN ('public','information_schema','pg_catalog','pg_toast')
+        AND schema_name NOT LIKE 'pg_%'
+      ORDER BY schema_name
+    `);
+    const schemas: string[] = schemasResult.rows.map((r: any) => r.schema_name);
+
+    const summary: { schema: string; applied: number; skipped: number; errors: number; details: any[] }[] = [];
+
+    for (const schema of schemas) {
+      const client = await pool.connect();
+      const schemaResult = { schema, applied: 0, skipped: 0, errors: 0, details: [] as any[] };
+      try {
+        await client.query(`SET search_path TO "${schema}", public`);
+
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS _migrations (
+            id         SERIAL PRIMARY KEY,
+            name       VARCHAR(255) NOT NULL UNIQUE,
+            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+
+        const applied = await client.query(`SELECT name FROM _migrations`);
+        const appliedSet = new Set<string>(applied.rows.map((r: any) => r.name));
+
+        for (const file of files) {
+          if (appliedSet.has(file)) {
+            schemaResult.skipped++;
+            continue;
+          }
+          const sql = readFileSync(join(migrationsDir, file), 'utf-8');
+          try {
+            await client.query(sql);
+            await client.query(
+              `INSERT INTO _migrations (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
+              [file]
+            );
+            schemaResult.applied++;
+            schemaResult.details.push({ file, status: 'applied' });
+            console.log(`✅ [MIGRATE-ALL] ${schema} — ${file}`);
+          } catch (err: any) {
+            schemaResult.errors++;
+            schemaResult.details.push({ file, status: 'error', error: err.message });
+            console.error(`❌ [MIGRATE-ALL] ${schema} — ${file}: ${err.message}`);
+          }
+        }
+      } catch (err: any) {
+        schemaResult.errors++;
+        schemaResult.details.push({ file: '_setup', status: 'error', error: err.message });
+      } finally {
+        await client.query('RESET search_path').catch(() => {});
+        client.release();
+      }
+      summary.push(schemaResult);
+    }
+
+    const totalApplied = summary.reduce((s, r) => s + r.applied, 0);
+    const totalErrors  = summary.reduce((s, r) => s + r.errors,  0);
+
+    console.log(`✅ [MIGRATE-ALL] Concluído: ${schemas.length} schemas, ${totalApplied} aplicadas, ${totalErrors} erros`);
+
+    res.json({
+      success:        totalErrors === 0,
+      schemas_count:  schemas.length,
+      total_applied:  totalApplied,
+      total_errors:   totalErrors,
+      summary,
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  } finally {
+    masterClient.release();
   }
 }

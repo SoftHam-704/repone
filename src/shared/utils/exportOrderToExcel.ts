@@ -41,7 +41,7 @@ const BORDER_THIN = {
 
 // --- MAIN BUILDER ---
 
-async function buildWorkbook(order: any, items: any[]) {
+async function buildWorkbook(order: any, items: any[], separateGroups: 'S' | 'N' = 'N') {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Pedido', {
         pageSetup: { paperSize: 9, orientation: 'landscape' }, // A4 Landscape usually
@@ -186,7 +186,7 @@ async function buildWorkbook(order: any, items: any[]) {
             }
         }
         
-        const groupName = item.gru_nome || 'GERAL';
+        const groupName = separateGroups === 'S' ? (item.gru_nome || 'GERAL') : 'GERAL';
         const key = `${discKey}|GRP|${groupName}`;
 
         if (!groups[key]) groups[key] = [];
@@ -290,9 +290,9 @@ async function buildWorkbook(order: any, items: any[]) {
 
 // --- EXPORTS ---
 
-export async function exportOrderToExcel(order: any, items: any[]) {
+export async function exportOrderToExcel(order: any, items: any[], separateGroups: 'S' | 'N' = 'N') {
     try {
-        const workbook = await buildWorkbook(order, items);
+        const workbook = await buildWorkbook(order, items, separateGroups);
         const buffer = await workbook.xlsx.writeBuffer();
 
         const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -307,9 +307,9 @@ export async function exportOrderToExcel(order: any, items: any[]) {
     }
 }
 
-export async function generateOrderExcelData(order: any, items: any[]) {
+export async function generateOrderExcelData(order: any, items: any[], separateGroups: 'S' | 'N' = 'N') {
     try {
-        const workbook = await buildWorkbook(order, items);
+        const workbook = await buildWorkbook(order, items, separateGroups);
         const buffer = await workbook.xlsx.writeBuffer();
         return new Uint8Array(buffer);
     } catch (error) {

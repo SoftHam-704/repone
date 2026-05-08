@@ -24,7 +24,8 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('sm_token');
       localStorage.removeItem('sm_auth_state');
-      window.location.href = '/login';
+      const isMobile = window.location.pathname.startsWith('/mobile');
+      window.location.href = isMobile ? '/mobile/login' : '/login';
     }
     return Promise.reject(error);
   }

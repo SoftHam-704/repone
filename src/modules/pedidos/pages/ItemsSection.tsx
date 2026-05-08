@@ -204,6 +204,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
   const [multWarn,         setMultWarn]         = useState<string | null>(null);
   const [productHistory,   setProductHistory]   = useState<any[]>([]);
   const [loadingHistory,   setLoadingHistory]   = useState(false);
+  const [conversao,        setConversao]        = useState<string>('');
 
   // Refs for focus management
   const codigoRef  = useRef<HTMLInputElement>(null);
@@ -225,12 +226,18 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
     if (!order?.ped_pedido) return;
     setLoading(true);
 
+    // Only load items from DB if none are loaded yet — avoids overwriting unsaved items
+    // when the user navigates away and back to this tab
+    const shouldLoadItems = orderItems.length === 0;
+
     Promise.allSettled([
-      api.get(`/order-items/${encodeURIComponent(order.ped_pedido)}`),
+      shouldLoadItems
+        ? api.get(`/order-items/${encodeURIComponent(order.ped_pedido)}`)
+        : Promise.resolve({ data: { success: false } }),
       order.ped_cliente ? api.get(`/clients/${order.ped_cliente}/discounts`) : Promise.resolve({ data: { success: true, data: [] } }),
       api.get('/grupo-desc'),
     ]).then(([itemsRes, cliRes, grpRes]) => {
-      if (itemsRes.status === 'fulfilled' && itemsRes.value.data.success) {
+      if (shouldLoadItems && itemsRes.status === 'fulfilled' && itemsRes.value.data.success) {
         const rows: ItemRow[] = (itemsRes.value.data.data || []).map((r: any, i: number) => ({
           ...r,
           tempId: `loaded-${i}-${r.ite_lancto}`,
@@ -246,6 +253,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
     }).finally(() => setLoading(false));
 
     setTimeout(() => codigoRef.current?.focus(), 100);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.ped_pedido]);
 
   // ── Load product purchase history ────────────────────────────────────────────
@@ -389,6 +397,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
 
     const filled = recalc(newForm);
     setForm(filled);
+    setConversao(product.pro_conversao || '');
     setCatalogFilter('');
     setSelectedCatIdx(-1);
 
@@ -473,6 +482,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
     });
 
     setForm(emptyForm());
+    setConversao('');
     setTimeout(() => codigoRef.current?.focus(), 30);
   }
 
@@ -522,6 +532,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
     );
     setDupDialog(null);
     setForm(emptyForm());
+    setConversao('');
     setTimeout(() => codigoRef.current?.focus(), 30);
   }
 
@@ -529,6 +540,8 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
     const quantStr = usaDecimais
       ? item.ite_quant.toFixed(qtdDecimais).replace('.', ',')
       : String(Math.trunc(item.ite_quant));
+    const catProd = priceTableItems.find(p => p.pro_codigo === item.ite_produto);
+    setConversao(catProd?.pro_conversao || '');
     setForm({
       produto: item.ite_produto, embuch: item.ite_embuch,
       nomeprod: item.ite_nomeprod, grupo: item.ite_grupo,
@@ -550,7 +563,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
 
   function handleDeleteItem(tempId: string) {
     setOrderItems(prev => prev.filter(it => it.tempId !== tempId).map((it, i) => ({ ...it, ite_seq: i + 1 })));
-    if (form.editingTempId === tempId) setForm(emptyForm());
+    if (form.editingTempId === tempId) { setForm(emptyForm()); setConversao(''); }
   }
 
   // ── Catalog keyboard navigation ──────────────────────────────────────────────
@@ -672,6 +685,20 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
           <span style={labelStyle}>Descrição do produto</span>
           <input style={{ ...einp, background: G.cardHi, color: G.text }} value={form.nomeprod} readOnly />
         </div>
+
+        {/* Conversão (badge visível quando o produto tem valor) */}
+        {conversao && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={labelStyle}>Conversão</span>
+            <span style={{
+              fontSize: 11, fontWeight: 700, color: G.mustard,
+              background: `${G.mustard}18`, border: `1px solid ${G.mustard}44`,
+              borderRadius: 6, padding: '2px 8px', letterSpacing: 0.3,
+            }}>
+              {conversao}
+            </span>
+          </div>
+        )}
 
         {/* Row 2: Descontos D1-D9 (visible if qtdEnter >= 3) */}
         {qtdEnter >= 3 && (

@@ -7,9 +7,9 @@ import {
   // Centro de Custo
   listCentroCustoHandler, createCentroCustoHandler, updateCentroCustoHandler, deleteCentroCustoHandler,
   // Clientes Financeiros
-  listFinClientsHandler, createFinClientHandler, updateFinClientHandler, deleteFinClientHandler,
+  listFinClientsHandler, getFinClientHandler, createFinClientHandler, updateFinClientHandler, deleteFinClientHandler,
   // Fornecedores Financeiros
-  listFinSuppliersHandler, createFinSupplierHandler, updateFinSupplierHandler, deleteFinSupplierHandler,
+  listFinSuppliersHandler, getFinSupplierHandler, createFinSupplierHandler, updateFinSupplierHandler, deleteFinSupplierHandler,
   // Contas a Pagar
   listContasPagarHandler, getContaPagarHandler, createContaPagarHandler,
   baixaContaPagarHandler, deleteContaPagarHandler,
@@ -47,12 +47,14 @@ router.delete('/centro-custo/:id', deleteCentroCustoHandler);
 // Clientes Financeiros
 router.get   ('/fin-clientes',     listFinClientsHandler);
 router.post  ('/fin-clientes',     createFinClientHandler);
+router.get   ('/fin-clientes/:id', getFinClientHandler);
 router.put   ('/fin-clientes/:id', updateFinClientHandler);
 router.delete('/fin-clientes/:id', deleteFinClientHandler);
 
 // Fornecedores Financeiros
 router.get   ('/fin-fornecedores',     listFinSuppliersHandler);
 router.post  ('/fin-fornecedores',     createFinSupplierHandler);
+router.get   ('/fin-fornecedores/:id', getFinSupplierHandler);
 router.put   ('/fin-fornecedores/:id', updateFinSupplierHandler);
 router.delete('/fin-fornecedores/:id', deleteFinSupplierHandler);
 

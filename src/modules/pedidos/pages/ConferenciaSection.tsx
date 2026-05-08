@@ -60,7 +60,7 @@ interface Props {
   setOrderItems: React.Dispatch<React.SetStateAction<ItemRow[]>>;
   priceTableItems: CatalogItem[];
   isView: boolean;
-  userParams: { usaDecimais: boolean; qtdDecimais: number } | null;
+  userParams: { usaDecimais: boolean; qtdDecimais: number; mostraCodigoOri?: boolean } | null;
   hasSuframa?: boolean;
   autoApplyGroupDisc?: boolean;
   onGroupDiscApplied?: () => void;
@@ -846,7 +846,11 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
       if (p?.pro_codigooriginal) { count++; return { ...it, ite_embuch: p.pro_codigooriginal }; }
       return it;
     }));
-    toast.success(`Código original aplicado em ${count} item(s).`);
+    if (count > 0) {
+      toast.success(`Código original aplicado em ${count} item(s).`);
+    } else {
+      toast('Nenhum item possui código original cadastrado.', { icon: 'ℹ️' });
+    }
   }, [priceTableItems, setOrderItems]);
 
   // ── Totals ────────────────────────────────────────────────────────────────
@@ -885,7 +889,7 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
         case '9': setShowAdd(true); break;
         case 'A': handleChecarMultiplos(); break;
         case 'B': handlePreco3(); break;
-        case 'C': handleCodOriginal(); break;
+        case 'C': if (userParams?.mostraCodigoOri) handleCodOriginal(); break;
         case 'I': handleDeleteAll(); break;
         case 'P': handleExcelForaEmbal(); break;
         default: break;
@@ -1169,7 +1173,7 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
           <ActionBtn shortcut="5" label="IPI / ST"       onClick={() => setShowIpiSt(true)} />
           <ActionBtn shortcut="A" label="Múltiplos"      onClick={handleChecarMultiplos} />
           <ActionBtn shortcut="P" label="Excel Embal."   onClick={handleExcelForaEmbal} />
-          <ActionBtn shortcut="C" label="Cód. Original"  onClick={handleCodOriginal} />
+          {userParams?.mostraCodigoOri && <ActionBtn shortcut="C" label="Cód. Original"  onClick={handleCodOriginal} />}
 
           <div style={{ flex: 1 }} />
 

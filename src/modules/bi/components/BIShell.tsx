@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Building2, Users, BarChart2,
   PieChart, Target, Briefcase, Package, AlertTriangle, AlertCircle, X,
-  UserX, TrendingDown, Building,
+  UserX, TrendingDown, Building, HelpCircle, TrendingUp, Filter,
+  MousePointerClick, Layers, Sparkles, CheckCircle2, ArrowLeftRight,
 } from 'lucide-react';
 import { BI, fmtBRL } from './biTokens';
 import { PeriodSelector } from './PeriodSelector';
@@ -98,7 +99,149 @@ const TABS: { id: BITab; label: string; Icon: React.ElementType }[] = [
   { id: 'metas',        label: 'Metas',        Icon: Target },
   { id: 'equipe',       label: 'Equipe',       Icon: Briefcase },
   { id: 'produtos',     label: 'Produtos',     Icon: Package },
+  { id: 'sell-in-out',  label: 'Sell In/Out',  Icon: ArrowLeftRight },
 ];
+
+// ─── Modal de Ajuda — BI Intelligence ────────────────────────────────────────
+
+function BIHelpModal({ onClose }: { onClose: () => void }) {
+  const teal = '#00e5d1', gold = '#FFD200', dim = '#7EB5CC', light = '#E0F2FE', navy = '#0D2137';
+  const sec: React.CSSProperties = { marginBottom: 26 };
+  const h2: React.CSSProperties = { fontSize: 11, fontWeight: 900, color: teal, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7 };
+  const p: React.CSSProperties = { fontSize: 12, color: dim, lineHeight: 1.8, marginBottom: 8 };
+  const tip = (accent = teal): React.CSSProperties => ({ background: `${accent}0D`, border: `1px solid ${accent}33`, borderLeft: `3px solid ${accent}`, borderRadius: 8, padding: '10px 14px', fontSize: 12, color: light, lineHeight: 1.75, marginBottom: 8 });
+  const stp = (n: number): React.CSSProperties => ({ width: 22, height: 22, borderRadius: '50%', background: teal, color: navy, fontWeight: 900, fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 });
+
+  const tabs = [
+    { label: 'Visão Geral', desc: 'Resumo completo do período: faturamento total, pedidos, clientes ativos, crescimento vs. período anterior, evolução mensal e drill-down por indústria.' },
+    { label: 'Indústrias', desc: 'Comparativo de desempenho entre as indústrias representadas. Veja quais cresceram, quais caíram e qual a participação de cada uma no total.' },
+    { label: 'Clientes', desc: 'Análise por carteira de clientes: quem comprou mais, quem está inativo, curva ABC, ticket médio e oportunidades de cross-sell.' },
+    { label: 'Produtos', desc: 'Ranking de produtos e famílias mais vendidas. Identifique os SKUs campeões e os produtos parados.' },
+    { label: 'Curva ABC', desc: 'Classifica clientes e produtos em A (top 20%), B (30%) e C (50% restante). Essencial para priorizar visitas e ações comerciais.' },
+    { label: 'Metas', desc: 'Acompanhamento das metas definidas por indústria ou por período.' },
+  ];
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(5,15,30,0.8)' }} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 1101, width: 620, background: '#0A1929', boxShadow: '-8px 0 48px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: `1px solid ${teal}22` }}>
+
+        <div style={{ background: '#0D2137', borderBottom: `1px solid ${teal}22`, padding: '20px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 38, height: 38, background: `${teal}22`, border: `1px solid ${teal}44`, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <BarChart2 size={18} color={teal} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 15, color: '#fff' }}>Guia — BI Intelligence</div>
+              <div style={{ fontSize: 11, color: dim, marginTop: 1 }}>⚡ Inteligência comercial que guia decisões</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: `${teal}11`, border: `1px solid ${teal}22`, borderRadius: 8, cursor: 'pointer', padding: '6px 8px', color: dim, display: 'flex' }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+
+          <div style={sec}>
+            <div style={h2}><Sparkles size={12} color={teal} /> O que é o BI Intelligence?</div>
+            <p style={p}>O BI (Business Intelligence) é o <strong style={{ color: light }}>painel de análise comercial</strong> do RepOne. Ele transforma todos os pedidos em indicadores visuais para que o representante e o gestor tomem decisões baseadas em dados reais — não em intuição.</p>
+            <p style={p}>O BI <strong style={{ color: light }}>não exige nenhum lançamento manual</strong> — ele lê automaticamente tudo que foi pedido, faturado e cancelado no sistema.</p>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><Filter size={12} color={teal} /> Como usar os Filtros</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[
+                { rotulo: 'Ano (2023 / 2024 / 2025 / 2026)', desc: 'Selecione um ou mais anos para comparar. Clicar em "Ano todo" remove o filtro de mês.' },
+                { rotulo: 'Meses (Jan / Fev / ... / Dez)', desc: 'Filtre por meses específicos dentro do(s) ano(s) selecionado(s). Útil para analisar sazonalidade.' },
+                { rotulo: 'Todas Indústrias', desc: 'Restringir a análise a uma única indústria. O drill-down e todos os gráficos filtram por ela.' },
+                { rotulo: 'Todos Clientes', desc: 'Focar em um único cliente para ver o histórico completo de relacionamento com todas as indústrias.' },
+                { rotulo: 'Métrica (R$ / Qtd / SKU)', desc: 'Alterna entre valor financeiro, quantidade de peças ou diversidade de SKUs vendidos.' },
+              ].map(f => (
+                <div key={f.rotulo} style={{ display: 'flex', gap: 10, padding: '9px 12px', background: 'rgba(0,229,209,0.04)', borderRadius: 8, border: `1px solid ${teal}1A` }}>
+                  <div style={{ minWidth: 180, fontWeight: 900, fontSize: 11, color: teal }}>{f.rotulo}</div>
+                  <div style={{ fontSize: 12, color: dim, lineHeight: 1.65 }}>{f.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><MousePointerClick size={12} color={teal} /> Drill-Down — Como navegar pelos dados</div>
+            <p style={p}>O drill-down é o recurso mais poderoso do BI. Ele permite <strong style={{ color: light }}>clicar em qualquer barra ou item para aprofundar a análise</strong>, indo do mais geral ao mais específico.</p>
+            <div style={{ display: 'flex', gap: 0, alignItems: 'stretch', marginBottom: 14, overflowX: 'auto' }}>
+              {['Indústrias', 'Meses', 'Clientes', 'Famílias', 'SKUs'].map((nivel, i, arr) => (
+                <div key={nivel} style={{ display: 'flex', alignItems: 'center' }}>
+                  <div style={{ padding: '8px 14px', background: i === 0 ? `${teal}22` : 'rgba(255,255,255,0.04)', border: `1px solid ${i === 0 ? teal : teal + '33'}`, borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ fontSize: 9, fontWeight: 900, color: teal, textTransform: 'uppercase', letterSpacing: 0.5 }}>Nível {i + 1}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: light, marginTop: 2 }}>{nivel}</div>
+                  </div>
+                  {i < arr.length - 1 && <div style={{ padding: '0 6px', color: dim, fontSize: 14 }}>›</div>}
+                </div>
+              ))}
+            </div>
+            <div style={tip()}>
+              <strong style={{ color: teal }}>Exemplo prático:</strong> Clique na IMA → veja os meses em que mais vendeu → clique em Abril → veja quais clientes compraram → clique na Auto Peças Silva → veja as famílias de produto → clique em Rolamentos → veja cada SKU vendido com quantidade e valor.
+            </div>
+            <p style={{ ...p, fontSize: 11 }}>O caminho de navegação fica salvo no topo do gráfico. Clique em qualquer etapa para voltar àquele nível.</p>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><Layers size={12} color={teal} /> As Abas do BI</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {tabs.map(t => (
+                <div key={t.label} style={{ display: 'flex', gap: 10, padding: '10px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: `1px solid ${teal}1A` }}>
+                  <div style={{ minWidth: 110, fontWeight: 900, fontSize: 11, color: teal }}>{t.label}</div>
+                  <div style={{ fontSize: 12, color: dim, lineHeight: 1.65 }}>{t.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><TrendingUp size={12} color={teal} /> KPIs Principais</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[
+                { kpi: 'Faturamento Total', desc: 'Soma dos pedidos com situação P (Pedido) e F (Faturado). Cancelados (E) nunca entram.' },
+                { kpi: 'Crescimento %', desc: 'Variação em relação ao mesmo período do ano anterior. Verde = crescimento, vermelho = queda.' },
+                { kpi: 'Clientes Ativos', desc: 'Clientes que fizeram pelo menos um pedido no período selecionado.' },
+                { kpi: 'Ticket Médio', desc: 'Valor médio por pedido. Subir o ticket médio é uma das formas mais rápidas de crescer sem novos clientes.' },
+                { kpi: 'Positivação', desc: 'Percentual de clientes da carteira que compraram no período. Meta ideal: acima de 70%.' },
+              ].map(f => (
+                <div key={f.kpi} style={{ display: 'flex', gap: 10, padding: '9px 12px', background: 'rgba(0,229,209,0.04)', borderRadius: 8, border: `1px solid ${teal}1A` }}>
+                  <div style={{ minWidth: 130, fontWeight: 900, fontSize: 11, color: teal }}>{f.kpi}</div>
+                  <div style={{ fontSize: 12, color: dim, lineHeight: 1.65 }}>{f.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><CheckCircle2 size={12} color={teal} /> Boas Práticas</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[
+                'Comece sempre pela Visão Geral para ter o panorama do período antes de aprofundar.',
+                'Use o filtro de indústria ao visitar um fornecedor — leve os dados de desempenho da carteira para a reunião.',
+                'A Curva ABC é a sua lista de prioridades de visita: foque nos A, recupere os B que caíram.',
+                'Compare meses equivalentes (Abr 2026 vs Abr 2025) para análises sazonais — não compare Dezembro com Janeiro.',
+                'Se um cliente soma mais de 30% do seu faturamento, é um risco de concentração — use o BI para diversificar.',
+              ].map((t, i) => (
+                <div key={i} style={{ display: 'flex', gap: 10, ...tip(teal), alignItems: 'flex-start' }}>
+                  <CheckCircle2 size={12} color={teal} style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span>{t}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface BIShellProps {
   children: React.ReactNode;
@@ -107,6 +250,7 @@ interface BIShellProps {
 export const BIShell = ({ children }: BIShellProps) => {
   const navigate = useNavigate();
   const { activeTab, setTab, filters, syncFromURL, toURLParams } = useBIStore();
+  const [showHelp, setShowHelp] = useState(false);
   const { user } = useAuthStore();
   const firstName = user?.nome?.split(' ')[0]?.toUpperCase() || 'USUÁRIO';
 
@@ -128,6 +272,7 @@ export const BIShell = ({ children }: BIShellProps) => {
     <div className="flex flex-col h-screen overflow-hidden bi-scrollbar"
       style={{ background: BI.pageBg, color: BI.text }}>
       <BIStyles />
+      {showHelp && <BIHelpModal onClose={() => setShowHelp(false)} />}
 
       {/* ── TOP BAR ──────────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 flex flex-col gap-0"
@@ -161,6 +306,11 @@ export const BIShell = ({ children }: BIShellProps) => {
             <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-50" style={{ color: BI.text }}>
               ⚡ INTELIGÊNCIA COMERCIAL QUE GUIA DECISÕES.
             </p>
+            <button onClick={() => setShowHelp(true)}
+              className="mt-2 flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-lg"
+              style={{ background: `${BI.teal}14`, border: `1px solid ${BI.teal}33`, color: BI.teal, cursor: 'pointer' }}>
+              <HelpCircle size={12} /> Como usar o BI
+            </button>
           </div>
 
           <div className="flex flex-col items-end gap-3 mt-1">

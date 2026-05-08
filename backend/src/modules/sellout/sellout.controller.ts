@@ -249,11 +249,14 @@ export async function createSellOutHandler(req: Request, res: Response): Promise
       INSERT INTO crm_sellout (cli_codigo, for_codigo, periodo, valor, quantidade)
       VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (cli_codigo, for_codigo, periodo)
-      DO UPDATE SET valor = $4, quantidade = $5, criado_em = NOW()
-      RETURNING *
+      DO UPDATE SET
+        valor      = crm_sellout.valor      + $4,
+        quantidade = crm_sellout.quantidade + $5,
+        criado_em  = NOW()
+      RETURNING *, (xmax <> 0) AS acumulado
     `, [cli_codigo, for_codigo, periodoDate, valor || 0, quantidade || 0]);
 
-    res.json({ success: true, data: result.rows[0] });
+    res.json({ success: true, data: result.rows[0], acumulado: result.rows[0].acumulado });
   } catch (error: any) {
     console.error('❌ [SELLOUT] create:', error.message);
     res.status(500).json({ success: false, message: error.message });
@@ -332,7 +335,10 @@ export async function importSellOutHandler(req: Request, res: Response): Promise
           INSERT INTO crm_sellout (cli_codigo, for_codigo, periodo, valor, quantidade)
           VALUES ($1, $2, $3, $4, $5)
           ON CONFLICT (cli_codigo, for_codigo, periodo)
-          DO UPDATE SET valor = $4, quantidade = $5, criado_em = NOW()
+          DO UPDATE SET
+            valor      = crm_sellout.valor      + $4,
+            quantidade = crm_sellout.quantidade + $5,
+            criado_em  = NOW()
         `, [row.cli_codigo, row.for_codigo, periodoDate, row.valor || 0, row.quantidade || 0]);
         imported++;
       } catch (e: any) {

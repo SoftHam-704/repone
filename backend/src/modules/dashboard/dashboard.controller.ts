@@ -597,8 +597,8 @@ export async function mobileSummaryHandler(req: Request, res: Response): Promise
     const db = req.db!;
     const userId = getUserId(req);
     const now = new Date();
-    const ano = now.getFullYear();
-    const mes = now.getMonth() + 1;
+    const ano = req.query.ano ? parseInt(String(req.query.ano)) : now.getFullYear();
+    const mes = req.query.mes ? parseInt(String(req.query.mes)) : now.getMonth() + 1;
 
     const allowedIndustries = await getAllowedIndustries(db, userId);
 

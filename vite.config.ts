@@ -13,7 +13,7 @@ export default defineConfig({
       manifest: {
         name: 'RepOne',
         short_name: 'RepOne',
-        start_url: '/dashboard',
+        start_url: '/mobile',
         scope: '/',
         display: 'standalone',
         background_color: '#E8E1D4',
@@ -26,6 +26,11 @@ export default defineConfig({
       workbox: {
         navigateFallback: null,
         runtimeCaching: [
+          {
+            // AI upload can take 30-60s — bypass SW caching entirely
+            urlPattern: /\/api\/smart-order\/upload/,
+            handler: 'NetworkOnly',
+          },
           {
             urlPattern: /^https?:\/\/.*\/api\/.*/,
             handler: 'NetworkFirst',

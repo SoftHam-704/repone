@@ -527,7 +527,7 @@ router.get('/vendas-periodo', async (req: any, res: Response) => {
 
     const params: any[] = [dataInicio, dataFim];
     let idx = 3;
-    const conditions: string[] = [`p.ped_data BETWEEN $1 AND $2`, `p.ped_situacao IN ('P','F','E')`];
+    const conditions: string[] = [`p.ped_data BETWEEN $1 AND $2`, `p.ped_situacao IN ('P','F')`];
 
     if (sellerId !== null) {
       conditions.push(`p.ped_vendedor = $${idx++}`);
@@ -562,7 +562,14 @@ router.get('/vendas-periodo', async (req: any, res: Response) => {
       ORDER BY f.for_nomered, p.ped_data, c.cli_nomred
     `, params);
 
-    res.json({ success: true, data: result.rows });
+    res.json({
+      success: true,
+      data: result.rows.map((r: any) => ({
+        ...r,
+        valor_pedido:   parseFloat(r.valor_pedido)   || 0,
+        valor_faturado: parseFloat(r.valor_faturado) || 0,
+      })),
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -582,7 +589,7 @@ router.get('/vendas-periodo-sintetico', async (req: any, res: Response) => {
 
     const params: any[] = [dataInicio, dataFim];
     let idx = 3;
-    const conditions: string[] = [`p.ped_data BETWEEN $1 AND $2`, `p.ped_situacao IN ('P','F','E')`];
+    const conditions: string[] = [`p.ped_data BETWEEN $1 AND $2`, `p.ped_situacao IN ('P','F')`];
 
     if (sellerId !== null) {
       conditions.push(`p.ped_vendedor = $${idx++}`);
@@ -607,7 +614,15 @@ router.get('/vendas-periodo-sintetico', async (req: any, res: Response) => {
       db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
     ]);
 
-    res.json({ success: true, data: dataResult.rows, empresa: empresaResult.rows[0] ?? null });
+    res.json({
+      success: true,
+      data: dataResult.rows.map((r: any) => ({
+        ...r,
+        valor_bruto:   parseFloat(r.valor_bruto)   || 0,
+        valor_liquido: parseFloat(r.valor_liquido) || 0,
+      })),
+      empresa: empresaResult.rows[0] ?? null,
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -629,7 +644,7 @@ router.get('/vendas-cidade-estado', async (req: any, res: Response) => {
     let idx = 4;
     const conditions: string[] = [
       `p.ped_data BETWEEN $1 AND $2`,
-      `p.ped_situacao IN ('P','F','E')`,
+      `p.ped_situacao IN ('P','F')`,
       `UPPER(COALESCE(cid.cid_uf, c.cli_uf)) = $3`,
     ];
 
@@ -665,7 +680,15 @@ router.get('/vendas-cidade-estado', async (req: any, res: Response) => {
       db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
     ]);
 
-    res.json({ success: true, data: dataResult.rows, empresa: empresaResult.rows[0] ?? null });
+    res.json({
+      success: true,
+      data: dataResult.rows.map((r: any) => ({
+        ...r,
+        valor_bruto:   parseFloat(r.valor_bruto)   || 0,
+        valor_liquido: parseFloat(r.valor_liquido) || 0,
+      })),
+      empresa: empresaResult.rows[0] ?? null,
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -685,7 +708,7 @@ router.get('/vendas-cliente-industria', async (req: any, res: Response) => {
     let idx = 4;
     const conditions: string[] = [
       `p.ped_data BETWEEN $1 AND $2`,
-      `p.ped_situacao IN ('P','F','E')`,
+      `p.ped_situacao IN ('P','F')`,
       `p.ped_cliente = $3`,
     ];
 
@@ -714,7 +737,14 @@ router.get('/vendas-cliente-industria', async (req: any, res: Response) => {
       ORDER BY f.for_nomered, p.ped_data
     `, params);
 
-    res.json({ success: true, data: result.rows });
+    res.json({
+      success: true,
+      data: result.rows.map((r: any) => ({
+        ...r,
+        valor_pedido:   parseFloat(r.valor_pedido)   || 0,
+        valor_faturado: parseFloat(r.valor_faturado) || 0,
+      })),
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -822,52 +852,38 @@ router.get('/faturamento/comissao', async (req: any, res: Response) => {
 
     const [dataResult, empresaResult] = await Promise.all([
       db.query(`
-        WITH comissao_por_pedido AS (
-          SELECT
-            TRIM(i.ite_pedido) AS pedido,
-            ROUND(SUM(
-              i.ite_totliquido *
-              CASE WHEN g.gru_usa_percomiss = TRUE THEN COALESCE(g.gru_percomiss, 0)
-                   ELSE COALESCE(v.vin_percom, 0)
-              END / 100
-            )::NUMERIC, 2) AS comissao,
-            MAX(COALESCE(v.vin_percom, 0)) AS percent_display
-          FROM itens_ped i
-          JOIN pedidos p2 ON TRIM(p2.ped_pedido) = TRIM(i.ite_pedido)
-          JOIN cad_prod pr ON TRIM(pr.pro_codprod) = TRIM(i.ite_produto)
-          LEFT JOIN grupos g ON g.gru_codigo = pr.pro_grupo
-          LEFT JOIN vendedor_ind v ON v.vin_codigo = p2.ped_vendedor
-                                  AND v.vin_industria = p2.ped_industria
-          WHERE EXISTS (
-            SELECT 1 FROM fatura_ped fp2
-            WHERE TRIM(fp2.fat_pedido) = TRIM(i.ite_pedido)
-              AND fp2.fat_datafat BETWEEN $1 AND $2
-          )
-          GROUP BY TRIM(i.ite_pedido)
-        )
         SELECT
-          f.for_nomered                             AS industria_nome,
-          c.cli_nomred                              AS cliente,
-          TRIM(p.ped_pedido)                        AS ped_pedido,
+          f.for_nomered                              AS industria_nome,
+          c.cli_nomred                               AS cliente,
+          TRIM(p.ped_pedido)                         AS ped_pedido,
           p.ped_data,
           fp.fat_nf,
           fp.fat_datafat,
-          ROUND(p.ped_totliq::NUMERIC, 2)           AS valor_pedido,
-          ROUND(fp.fat_valorfat::NUMERIC, 2)        AS fat_valorfat,
-          cp.percent_display,
-          cp.comissao
+          ROUND(p.ped_totliq::NUMERIC, 2)            AS valor_pedido,
+          ROUND(fp.fat_valorfat::NUMERIC, 2)         AS fat_valorfat,
+          COALESCE(fp.fat_percent,  0)               AS percent_display,
+          COALESCE(fp.fat_comissao, 0)               AS comissao
         FROM fatura_ped fp
-        JOIN pedidos          p  ON TRIM(p.ped_pedido) = TRIM(fp.fat_pedido)
-        JOIN clientes         c  ON c.cli_codigo        = p.ped_cliente
-        JOIN fornecedores     f  ON f.for_codigo        = fp.fat_industria
-        JOIN comissao_por_pedido cp ON cp.pedido        = TRIM(fp.fat_pedido)
+        JOIN pedidos      p ON TRIM(p.ped_pedido) = TRIM(fp.fat_pedido)
+        JOIN clientes     c ON c.cli_codigo        = p.ped_cliente
+        JOIN fornecedores f ON f.for_codigo        = fp.fat_industria
         WHERE ${conditions.join(' AND ')}
         ORDER BY f.for_nomered, p.ped_data, c.cli_nomred
       `, params),
       db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
     ]);
 
-    res.json({ success: true, data: dataResult.rows, empresa: empresaResult.rows[0] ?? null });
+    res.json({
+      success: true,
+      data: dataResult.rows.map((r: any) => ({
+        ...r,
+        valor_pedido:    parseFloat(r.valor_pedido)    || 0,
+        fat_valorfat:    parseFloat(r.fat_valorfat)    || 0,
+        percent_display: parseFloat(r.percent_display) || 0,
+        comissao:        parseFloat(r.comissao)        || 0,
+      })),
+      empresa: empresaResult.rows[0] ?? null,
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -907,7 +923,7 @@ router.get('/faturamento/periodo', async (req: any, res: Response) => {
           fp.fat_nf,
           ROUND(fp.fat_valorfat::NUMERIC, 2)                    AS fat_valorfat,
           ROUND(COALESCE(f.for_percom, 0)::NUMERIC, 2)         AS percent_rep,
-          ROUND(fp.fat_valorfat * COALESCE(f.for_percom, 0) / 100, 2) AS comissao_rep
+          ROUND((fp.fat_valorfat * COALESCE(f.for_percom, 0) / 100)::NUMERIC, 2) AS comissao_rep
         FROM fatura_ped   fp
         JOIN pedidos      p  ON TRIM(p.ped_pedido) = TRIM(fp.fat_pedido)
         JOIN clientes     c  ON c.cli_codigo        = p.ped_cliente
@@ -918,7 +934,16 @@ router.get('/faturamento/periodo', async (req: any, res: Response) => {
       db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
     ]);
 
-    res.json({ success: true, data: dataResult.rows, empresa: empresaResult.rows[0] ?? null });
+    res.json({
+      success: true,
+      data: dataResult.rows.map((r: any) => ({
+        ...r,
+        fat_valorfat: parseFloat(r.fat_valorfat) || 0,
+        percent_rep:  parseFloat(r.percent_rep)  || 0,
+        comissao_rep: parseFloat(r.comissao_rep) || 0,
+      })),
+      empresa: empresaResult.rows[0] ?? null,
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -973,7 +998,15 @@ router.get('/faturamento/pedidos-faturados', async (req: any, res: Response) => 
       db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
     ]);
 
-    res.json({ success: true, data: dataResult.rows, empresa: empresaResult.rows[0] ?? null });
+    res.json({
+      success: true,
+      data: dataResult.rows.map((r: any) => ({
+        ...r,
+        valor_pedido:   parseFloat(r.valor_pedido)   || 0,
+        valor_faturado: parseFloat(r.valor_faturado) || 0,
+      })),
+      empresa: empresaResult.rows[0] ?? null,
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1029,7 +1062,16 @@ router.get('/faturamento/pendente', async (req: any, res: Response) => {
       db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
     ]);
 
-    res.json({ success: true, data: dataResult.rows, empresa: empresaResult.rows[0] ?? null });
+    res.json({
+      success: true,
+      data: dataResult.rows.map((r: any) => ({
+        ...r,
+        valor_pedido:    parseFloat(r.valor_pedido)    || 0,
+        total_faturado:  parseFloat(r.total_faturado)  || 0,
+        saldo_pendente:  parseFloat(r.saldo_pendente)  || 0,
+      })),
+      empresa: empresaResult.rows[0] ?? null,
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -1086,7 +1128,16 @@ router.get('/faturamento/produtos-nao-faturados', async (req: any, res: Response
       db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
     ]);
 
-    res.json({ success: true, data: dataResult.rows, empresa: empresaResult.rows[0] ?? null });
+    res.json({
+      success: true,
+      data: dataResult.rows.map((r: any) => ({
+        ...r,
+        qtd_vendida:  parseFloat(r.qtd_vendida)  || 0,
+        qtd_faturada: parseFloat(r.qtd_faturada) || 0,
+        saldo:        parseFloat(r.saldo)        || 0,
+      })),
+      empresa: empresaResult.rows[0] ?? null,
+    });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }

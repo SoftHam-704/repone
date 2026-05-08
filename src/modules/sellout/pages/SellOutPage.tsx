@@ -104,6 +104,7 @@ function InlineSearch({ endpoint, labelField, idField, placeholder, value, onCha
   const [q, setQ] = useState('');
   const [options, setOptions] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -131,7 +132,13 @@ function InlineSearch({ endpoint, labelField, idField, placeholder, value, onCha
   return (
     <div ref={containerRef} style={{ position: 'relative' }}>
       <div
-        onClick={() => setOpen(o => !o)}
+        onClick={() => {
+          if (!open && containerRef.current) {
+            const r = containerRef.current.getBoundingClientRect();
+            setDropPos({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 260) });
+          }
+          setOpen(o => !o);
+        }}
         style={{
           display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
           border: '1px solid #ccc', borderRadius: 6, padding: '6px 10px',
@@ -148,9 +155,9 @@ function InlineSearch({ endpoint, labelField, idField, placeholder, value, onCha
       </div>
       {open && (
         <div style={{
-          position: 'absolute', top: '100%', left: 0, zIndex: 999,
+          position: 'fixed', top: dropPos.top, left: dropPos.left, zIndex: 9999,
           background: '#fff', border: '1px solid #ddd', borderRadius: 8,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.12)', width: 280, marginTop: 4,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.12)', width: dropPos.width,
         }}>
           <div style={{ padding: '8px 10px', borderBottom: '1px solid #eee' }}>
             <input
@@ -190,6 +197,54 @@ interface ModalProps {
   onSaved: () => void;
 }
 
+function HelpTooltip() {
+  const [show, setShow] = useState(false);
+  return (
+    <div style={{ position: 'relative', display: 'inline-flex' }}>
+      <button
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        onClick={() => setShow(s => !s)}
+        style={{
+          width: 20, height: 20, borderRadius: '50%', border: '1.5px solid #94A3B8',
+          background: '#F8FAFC', color: '#64748B', fontSize: 11, fontWeight: 700,
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+        }}
+      >?</button>
+      {show && (
+        <div style={{
+          position: 'absolute', top: 26, right: 0, zIndex: 600,
+          background: '#1E2D3D', color: '#E2E8F0', borderRadius: 10,
+          padding: '14px 16px', width: 280, fontSize: 12, lineHeight: 1.6,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+        }}>
+          <div style={{ fontWeight: 700, color: '#D4A843', marginBottom: 8 }}>O que é Sell-Out?</div>
+          <p style={{ margin: '0 0 10px' }}>
+            Sell-Out é o que o <b style={{ color: '#fff' }}>lojista vendeu</b> para os clientes finais dele — não o que você vendeu para o lojista.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[
+              ['Cliente', 'O lojista que vai reportar as vendas'],
+              ['Indústria', 'A marca/fabricante dos produtos vendidos'],
+              ['Período', 'O mês e ano das vendas (ex: Abril/2026)'],
+              ['Valor (R$)', 'Total faturado pelo lojista no período'],
+              ['Quantidade', 'Total de unidades vendidas (opcional)'],
+            ].map(([label, desc]) => (
+              <div key={label}>
+                <span style={{ fontWeight: 700, color: '#D4A843' }}>{label}:</span>{' '}
+                <span style={{ color: '#CBD5E1' }}>{desc}</span>
+              </div>
+            ))}
+          </div>
+          <p style={{ margin: '10px 0 0', fontSize: 11, color: '#64748B' }}>
+            Mesmo cliente + indústria + período = atualiza o registro existente.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SellOutModal({ record, onClose, onSaved }: ModalProps) {
   const isEdit = !!record?.id;
 
@@ -203,6 +258,18 @@ function SellOutModal({ record, onClose, onSaved }: ModalProps) {
   const [valor, setValor] = useState(record?.valor != null ? String(record.valor) : '');
   const [quantidade, setQuantidade] = useState(record?.quantidade != null ? String(record.quantidade) : '');
   const [saving, setSaving] = useState(false);
+  const [existing, setExisting] = useState<{ valor: number; quantidade: number } | null>(null);
+
+  // Busca valor já registrado quando cliente + indústria + período estão preenchidos
+  useEffect(() => {
+    if (isEdit || !client || !industry || !periodo) { setExisting(null); return; }
+    api.get('/sellout', { params: { cli_codigo: client.id, for_codigo: industry.id, periodo: `${periodo}-01` } })
+      .then(r => {
+        const found = (r.data.data || [])[0];
+        setExisting(found ? { valor: found.valor, quantidade: found.quantidade } : null);
+      })
+      .catch(() => setExisting(null));
+  }, [client, industry, periodo, isEdit]);
 
   async function handleSave() {
     if (!isEdit && (!client || !industry)) {
@@ -222,7 +289,7 @@ function SellOutModal({ record, onClose, onSaved }: ModalProps) {
           quantidade: parseFloat(quantidade) || 0,
         });
       }
-      toast.success(isEdit ? 'Registro atualizado!' : 'Sell-Out registrado!');
+      toast.success(isEdit ? 'Registro atualizado!' : existing ? 'Lançamento somado ao registro existente!' : 'Sell-Out registrado!');
       onSaved();
       onClose();
     } catch (e: any) {
@@ -242,9 +309,12 @@ function SellOutModal({ record, onClose, onSaved }: ModalProps) {
         boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#28374A' }}>
-            {isEdit ? 'Editar Sell-Out' : 'Novo Registro de Sell-Out'}
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#28374A' }}>
+              {isEdit ? 'Editar Sell-Out' : 'Novo Registro de Sell-Out'}
+            </h2>
+            <HelpTooltip />
+          </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666' }}>
             <X size={20} />
           </button>
@@ -285,6 +355,23 @@ function SellOutModal({ record, onClose, onSaved }: ModalProps) {
                 />
               </div>
             </>
+          )}
+
+          {!isEdit && existing && (
+            <div style={{
+              background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8,
+              padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <span style={{ fontSize: 18 }}>➕</span>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#C2410C' }}>Já registrado neste período</div>
+                <div style={{ fontSize: 13, color: '#92400E' }}>
+                  <b>{fmt(existing.valor)}</b>
+                  {existing.quantidade > 0 && <span style={{ marginLeft: 8, opacity: 0.7 }}>{existing.quantidade} un.</span>}
+                </div>
+                <div style={{ fontSize: 11, color: '#B45309', marginTop: 2 }}>O novo lançamento será <b>somado</b> ao valor acima.</div>
+              </div>
+            </div>
           )}
 
           <div style={{ display: 'flex', gap: 12 }}>
@@ -344,6 +431,8 @@ export default function SellOutPage() {
   const [pendencies, setPendencies] = useState<Pendency[]>([]);
   const [search, setSearch] = useState('');
   const [selectedPeriodo, setSelectedPeriodo] = useState(currentPeriodStr().slice(0, 7));
+  const [filterCli, setFilterCli] = useState<{ id: number; label: string } | null>(null);
+  const [filterFor, setFilterFor] = useState<{ id: number; label: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [modal, setModal] = useState<Partial<SellOutRecord> | null | false>(false);
@@ -369,7 +458,12 @@ export default function SellOutPage() {
   useEffect(() => {
     setLoading(true);
     if (activeTab === 'registros') {
-      api.get('/sellout', { params: { search: search || undefined, periodo: `${selectedPeriodo}-01` } })
+      api.get('/sellout', { params: {
+        search:     search || undefined,
+        periodo:    `${selectedPeriodo}-01`,
+        cli_codigo: filterCli?.id || undefined,
+        for_codigo: filterFor?.id || undefined,
+      } })
         .then(r => setRecords(r.data.data))
         .catch(() => setRecords([]))
         .finally(() => setLoading(false));
@@ -379,7 +473,7 @@ export default function SellOutPage() {
         .catch(() => setPendencies([]))
         .finally(() => setLoading(false));
     }
-  }, [activeTab, search, selectedPeriodo, refreshKey]);
+  }, [activeTab, search, selectedPeriodo, filterCli, filterFor, refreshKey]);
 
   // Handle search debounce
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -510,34 +604,78 @@ export default function SellOutPage() {
   return (
     <div style={{ padding: 24, background: '#E8E1D4', minHeight: '100vh', fontFamily: 'sans-serif' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#28374A' }}>Sell-Out</h1>
-          <p style={{ margin: 0, fontSize: 13, color: '#666' }}>Monitoramento de vendas ao consumidor final</p>
+      <div style={{ marginBottom: 20 }}>
+        {/* Linha 1: título + ações */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#28374A' }}>Sell-Out</h1>
+            <p style={{ margin: 0, fontSize: 13, color: '#666' }}>Monitoramento de vendas ao consumidor final</p>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button onClick={handleDownloadTemplate} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 14px', borderRadius: 8, border: '1px solid #ccc',
+              background: '#fff', cursor: 'pointer', fontSize: 13, color: '#28374A',
+            }}>
+              <FileSpreadsheet size={15} /> Template
+            </button>
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 14px', borderRadius: 8, border: '1px solid #16a34a',
+              background: importing ? '#dcfce7' : '#f0fdf4', cursor: 'pointer', fontSize: 13, color: '#16a34a',
+            }}>
+              <Upload size={15} /> {importing ? 'Importando...' : 'Importar Excel'}
+              <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFileImport} style={{ display: 'none' }} />
+            </label>
+            <button onClick={() => setModal({})} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', borderRadius: 8, border: 'none',
+              background: '#28374A', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            }}>
+              <Plus size={15} /> Novo Registro
+            </button>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={handleDownloadTemplate} style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '8px 14px', borderRadius: 8, border: '1px solid #ccc',
-            background: '#fff', cursor: 'pointer', fontSize: 13, color: '#28374A',
-          }}>
-            <FileSpreadsheet size={15} /> Template
-          </button>
-          <label style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '8px 14px', borderRadius: 8, border: '1px solid #16a34a',
-            background: importing ? '#dcfce7' : '#f0fdf4', cursor: 'pointer', fontSize: 13, color: '#16a34a',
-          }}>
-            <Upload size={15} /> {importing ? 'Importando...' : 'Importar Excel'}
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFileImport} style={{ display: 'none' }} />
-          </label>
-          <button onClick={() => setModal({})} style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '8px 16px', borderRadius: 8, border: 'none',
-            background: '#28374A', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-          }}>
-            <Plus size={15} /> Novo Registro
-          </button>
+        {/* Linha 2: filtros */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          background: '#fff', borderRadius: 10, padding: '10px 16px',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
+        }}>
+          <input
+            type="month"
+            value={selectedPeriodo}
+            onChange={e => setSelectedPeriodo(e.target.value)}
+            style={{ border: '1px solid #ddd', borderRadius: 6, padding: '6px 10px', fontSize: 13 }}
+          />
+          <InlineSearch
+            endpoint="/clients"
+            labelField="cli_nomred"
+            idField="cli_codigo"
+            placeholder="Filtrar cliente..."
+            value={filterCli}
+            onChange={setFilterCli}
+          />
+          <InlineSearch
+            endpoint="/suppliers"
+            labelField="for_nomered"
+            idField="for_codigo"
+            placeholder="Filtrar indústria..."
+            value={filterFor}
+            onChange={setFilterFor}
+          />
+          <div style={{ position: 'relative' }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#999' }} />
+            <input
+              value={searchInput}
+              onChange={e => handleSearchChange(e.target.value)}
+              placeholder="Buscar..."
+              style={{ paddingLeft: 30, paddingRight: 10, paddingTop: 6, paddingBottom: 6, border: '1px solid #ddd', borderRadius: 6, fontSize: 13, width: 160 }}
+            />
+          </div>
+          <div style={{ marginLeft: 'auto' }}>
+            <HelpTooltip />
+          </div>
         </div>
       </div>
 
@@ -639,25 +777,7 @@ export default function SellOutPage() {
             </button>
           ))}
           <div style={{ flex: 1 }} />
-          {activeTab === 'registros' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px' }}>
-              <input
-                type="month"
-                value={selectedPeriodo}
-                onChange={e => setSelectedPeriodo(e.target.value)}
-                style={{ border: '1px solid #ddd', borderRadius: 6, padding: '5px 10px', fontSize: 13 }}
-              />
-              <div style={{ position: 'relative' }}>
-                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#999' }} />
-                <input
-                  value={searchInput}
-                  onChange={e => handleSearchChange(e.target.value)}
-                  placeholder="Buscar cliente / indústria..."
-                  style={{ paddingLeft: 30, paddingRight: 10, paddingTop: 6, paddingBottom: 6, border: '1px solid #ddd', borderRadius: 6, fontSize: 13, width: 220 }}
-                />
-              </div>
-            </div>
-          )}
+          <div style={{ flex: 1 }} />
         </div>
 
         {/* Content */}

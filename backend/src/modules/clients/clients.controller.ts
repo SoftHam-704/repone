@@ -640,3 +640,22 @@ export async function upsertAreasHandler(req: Request, res: Response): Promise<v
     res.status(500).json({ success: false, message: error.message });
   }
 }
+
+// ─── POST /api/clients/vincular-regioes ───────────────────────────────────────
+export async function vincularRegioesHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const result = await db.query(`
+      UPDATE clientes c
+      SET cli_regiao2 = cr.reg_id
+      FROM cidades_regioes cr
+      WHERE c.cli_idcidade = cr.cid_id
+        AND c.cli_regiao2 IS NULL
+        AND c.cli_idcidade IS NOT NULL
+    `);
+    res.json({ success: true, atualizados: result.rowCount ?? 0 });
+  } catch (error: any) {
+    console.error('❌ [CLIENTS] vincular-regioes:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}

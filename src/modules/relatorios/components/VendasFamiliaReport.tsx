@@ -25,7 +25,7 @@ const td: React.CSSProperties = {
   padding: '7px 12px', fontSize: 11, borderBottom: `1px solid ${G.border}`, color: G.text,
 };
 
-const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
+const fmtDate = (d: string) => { if (!d) return '—'; const s = String(d).slice(0, 10); return `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`; };
 
 export default function VendasFamiliaReport() {
   const [grupos,    setGrupos]   = useState<Grupo[]>([]);

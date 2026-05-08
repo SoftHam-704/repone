@@ -13,6 +13,7 @@ const CurvaAbcTab      = lazy(() => import('../tabs/CurvaAbcTab'));
 const MetasTab         = lazy(() => import('../tabs/MetasTab'));
 const EquipeTab        = lazy(() => import('../tabs/EquipeTab'));
 const ProdutosTab      = lazy(() => import('../tabs/ProdutosTab'));
+const SellInOutTab     = lazy(() => import('../tabs/SellInOutTab'));
 
 // Placeholder para tabs ainda não implementadas
 const ComingSoon = ({ label }: { label: string }) => (
@@ -54,6 +55,7 @@ const BIPage = () => {
       case 'metas':        return <MetasTab />;
       case 'equipe':       return <EquipeTab />;
       case 'produtos':     return <ProdutosTab />;
+      case 'sell-in-out':  return <SellInOutTab />;
       default:             return <VisaoGeralTab />;
     }
   };

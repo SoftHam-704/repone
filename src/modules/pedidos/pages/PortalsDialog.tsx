@@ -163,9 +163,10 @@ interface PortalsDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     orderId?: string | null;
+    onFaniaRequest?: () => void;
 }
 
-const PortalsDialog: React.FC<PortalsDialogProps> = ({ open, onOpenChange, orderId }) => {
+const PortalsDialog: React.FC<PortalsDialogProps> = ({ open, onOpenChange, orderId, onFaniaRequest }) => {
     const [activeIndustries, setActiveIndustries] = useState<string[]>([]);
     const [allIndustries, setAllIndustries] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -196,7 +197,8 @@ const PortalsDialog: React.FC<PortalsDialogProps> = ({ open, onOpenChange, order
         "NINO", "SAMPEL",
         "POLO", "DRIVEWAY",
         "3RHO", "IGUAÇU",
-        "PARAFLU", "OSPINA"
+        "PARAFLU", "OSPINA",
+        "FANIA"
     ];
 
     useEffect(() => {
@@ -347,13 +349,18 @@ const PortalsDialog: React.FC<PortalsDialogProps> = ({ open, onOpenChange, order
 
     // ─── Import mode handlers (PATRAL / ARCA) ────────────────────────────────
     const handlePortalClick = (portal: string) => {
+        if (portal === 'FANIA')   { onOpenChange(false); onFaniaRequest?.(); return; }
         if (portal === 'PARAFLU') { setParafluMode(true); return; }
+        if (portal === 'TSA')     { exportPortal('tsa',  'POST', 'xlsx', 'TSA');  return; }
+        if (portal === 'BORG')    { exportPortal('borg', 'POST', 'csv',  'BORG'); return; }
         if (portal === 'STAHL')   { exportPortal('stahl', 'POST', 'txt', 'STAHL'); return; }
         if (portal === 'IGUAÇU')  { exportPortal('iguacu', 'POST', 'xml', 'IGUAÇU'); return; }
         if (portal === 'VIEMAR')  { exportPortal('viemar', 'POST', 'xlsx', 'VIEMAR'); return; }
         if (portal === 'SAMPEL')  { exportPortal('sampel', 'GET', 'xlsx', 'SAMPEL'); return; }
         if (portal === 'POLO')    { exportPortal('polo', 'POST', 'csv', 'POLO'); return; }
-        if (portal === 'OSPINA')  { exportPortal('ospina', 'POST', 'txt', 'OSPINA'); return; }
+        if (portal === 'OSPINA')   { exportPortal('ospina',   'POST', 'txt',  'OSPINA');   return; }
+        if (portal === 'SINALSUL') { exportPortal('sinalsul', 'POST', 'txt',  'SINALSUL'); return; }
+        if (portal === 'PHINIA')   { exportPortal('phinia',   'POST', 'csv',  'PHINIA');   return; }
 
         // PATRAL / ARCA → import mode
         setImportPortal(portal);

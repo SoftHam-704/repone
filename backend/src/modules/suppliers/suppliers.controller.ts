@@ -301,7 +301,7 @@ export async function upsertIaKnowledgeHandler(req: Request, res: Response): Pro
       VALUES ($1,$2,$3,$4,$5)
       ON CONFLICT (for_codigo) DO UPDATE SET
         nome_marca=$2, resumo_negocio=$3, persona_ia=$4, palavras_chave=$5, updated_at=NOW()
-    `, [fid, nome_marca || null, resumo_negocio || null, persona_ia || null, palavras_chave || null]);
+    `, [fid, nome_marca || '', resumo_negocio || null, persona_ia || null, palavras_chave || null]);
 
     res.json({ success: true, message: 'Conhecimento salvo com sucesso!' });
   } catch (error: any) {

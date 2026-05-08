@@ -454,7 +454,7 @@ export async function sellersPerformanceHandler(req: Request, res: Response): Pr
               AND EXTRACT(YEAR FROM p2.ped_data) < $1
           )
           AND (
-            SELECT (DATE_TRUNC('year', MAKE_DATE($1, 1, 1)) - MAX(p2.ped_data)::DATE)
+            SELECT (DATE_TRUNC('year', MAKE_DATE($1::INTEGER, 1, 1))::DATE - MAX(p2.ped_data)::DATE)
             FROM pedidos p2
             WHERE p2.ped_cliente = p.ped_cliente
               AND p2.ped_situacao IN ('P','F','A')
@@ -511,6 +511,105 @@ export async function sellersPerformanceHandler(req: Request, res: Response): Pr
     res.json({ success: true, data: r.rows });
   } catch (error: any) {
     console.error('❌ [BI/sellers-performance]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── GET /api/bi/equipe-cockpit ───────────────────────────────────────────────
+// Cockpit do Gestor: por rep — fat mês atual, meta (mês ant), clientes em risco,
+// visitas na semana, último pedido, alertas automáticos
+export async function equipeCockpitHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const userId = getUserId(req);
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+    const allowFilter = allowedIndustries?.length
+      ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])`
+      : '';
+
+    const r = await db.query(`
+      WITH
+      mes_atual AS (
+        SELECT p.ped_vendedor,
+               COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0) AS fat_atual
+        FROM pedidos p
+        LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+        WHERE p.ped_situacao IN ('P','F')
+          AND DATE_TRUNC('month', p.ped_data) = DATE_TRUNC('month', CURRENT_DATE)
+          ${allowFilter}
+        GROUP BY p.ped_vendedor
+      ),
+      mes_ant AS (
+        SELECT p.ped_vendedor,
+               COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0) AS fat_meta
+        FROM pedidos p
+        LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+        WHERE p.ped_situacao IN ('P','F')
+          AND DATE_TRUNC('month', p.ped_data) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+          ${allowFilter}
+        GROUP BY p.ped_vendedor
+      ),
+      ultimo_pedido AS (
+        SELECT p.ped_vendedor, MAX(p.ped_data) AS ultima_data
+        FROM pedidos p
+        WHERE p.ped_situacao IN ('P','F')
+          ${allowFilter}
+        GROUP BY p.ped_vendedor
+      ),
+      visitas_semana AS (
+        SELECT v2.ven_codigo,
+               COUNT(*) AS visitas
+        FROM agenda a
+        JOIN vendedores v2 ON v2.ven_codusu = a.usuario_id
+        WHERE a.data_inicio >= DATE_TRUNC('week', CURRENT_DATE)
+          AND a.data_inicio <  DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'
+          AND a.tipo IN ('visita','reuniao','ligacao','cobranca','followup')
+        GROUP BY v2.ven_codigo
+      ),
+      clientes_risco AS (
+        SELECT p.ped_vendedor,
+               COUNT(DISTINCT p.ped_cliente) AS cnt
+        FROM pedidos p
+        WHERE p.ped_situacao IN ('P','F')
+          AND p.ped_data >= CURRENT_DATE - INTERVAL '90 days'
+          AND p.ped_data <  CURRENT_DATE - INTERVAL '30 days'
+          ${allowFilter}
+          AND NOT EXISTS (
+            SELECT 1 FROM pedidos p2
+            WHERE p2.ped_vendedor = p.ped_vendedor
+              AND p2.ped_cliente  = p.ped_cliente
+              AND p2.ped_situacao IN ('P','F')
+              AND p2.ped_data >= CURRENT_DATE - INTERVAL '30 days'
+          )
+        GROUP BY p.ped_vendedor
+      )
+      SELECT
+        v.ven_codigo,
+        v.ven_nome,
+        COALESCE(ma.fat_atual, 0)        AS fat_mes_atual,
+        COALESCE(mb.fat_meta,  0)        AS fat_meta,
+        CASE WHEN COALESCE(mb.fat_meta, 0) > 0
+             THEN ROUND(COALESCE(ma.fat_atual, 0) * 100.0 / mb.fat_meta, 1)
+             ELSE NULL END               AS pct_meta,
+        COALESCE(cr.cnt, 0)              AS clientes_risco,
+        COALESCE(vs.visitas, 0)          AS visitas_semana,
+        up.ultima_data,
+        CASE WHEN up.ultima_data IS NOT NULL
+             THEN (CURRENT_DATE - up.ultima_data::date)
+             ELSE NULL END               AS dias_sem_pedido
+      FROM vendedores v
+      LEFT JOIN mes_atual      ma ON ma.ped_vendedor  = v.ven_codigo
+      LEFT JOIN mes_ant        mb ON mb.ped_vendedor  = v.ven_codigo
+      LEFT JOIN ultimo_pedido  up ON up.ped_vendedor  = v.ven_codigo
+      LEFT JOIN visitas_semana vs ON vs.ven_codigo     = v.ven_codigo
+      LEFT JOIN clientes_risco cr ON cr.ped_vendedor  = v.ven_codigo
+      WHERE v.ven_status = 'A'
+      ORDER BY COALESCE(ma.fat_atual, 0) DESC
+    `);
+
+    res.json({ success: true, data: r.rows });
+  } catch (error: any) {
+    console.error('❌ [BI/equipe-cockpit]', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 }
@@ -2239,6 +2338,12 @@ export async function drilldownHandler(req: Request, res: Response): Promise<voi
     const nivel    = parseInt(String(req.query.nivel  || 0));
     const anos     = parseAnos(req.query.anos as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    // meses: global filter from PeriodSelector (comma-separated, e.g. "4" or "1,2,3")
+    const mesesRaw    = req.query.meses as string | undefined;
+    const mesesGlobal = mesesRaw
+      ? mesesRaw.split(',').map(Number).filter(n => !isNaN(n) && n >= 1 && n <= 12)
+      : [];
+    // mes: single month from the drill-down stack (clicking a bar at nivel 1)
     const mesInt   = req.query.mes        ? parseInt(String(req.query.mes))        : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
     const grupoInt = req.query.grupo      ? parseInt(String(req.query.grupo))      : null;
@@ -2255,6 +2360,9 @@ export async function drilldownHandler(req: Request, res: Response): Promise<voi
     if (allowedIndustries?.length) {
       params.push(allowedIndustries);
       clauses.push(`p.ped_industria = ANY($${params.length}::int[])`);
+    }
+    if (mesesGlobal.length) {
+      clauses.push(`EXTRACT(MONTH FROM p.ped_data) IN (${mesesGlobal.join(',')})`);
     }
     if (mesInt) {
       clauses.push(`EXTRACT(MONTH FROM p.ped_data) = ${mesInt}`);
@@ -2328,6 +2436,7 @@ export async function drilldownHandler(req: Request, res: Response): Promise<voi
         FROM pedidos p
         JOIN itens_ped i  ON i.ite_pedido = p.ped_pedido
         LEFT JOIN cad_prod cp ON TRIM(cp.pro_codprod) = TRIM(i.ite_produto)
+                              AND cp.pro_industria = p.ped_industria
         LEFT JOIN grupos g ON g.gru_codigo = cp.pro_grupo
         WHERE ${where}
         GROUP BY g.gru_codigo, g.gru_nome
@@ -2352,6 +2461,7 @@ export async function drilldownHandler(req: Request, res: Response): Promise<voi
         FROM pedidos p
         JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
         LEFT JOIN cad_prod cp ON TRIM(cp.pro_codprod) = TRIM(i.ite_produto)
+                              AND cp.pro_industria = p.ped_industria
         WHERE ${where}
         ${grupoClause}
         GROUP BY i.ite_produto
@@ -2598,5 +2708,274 @@ export async function topSkusHandler(req: Request, res: Response): Promise<void>
   } catch (error: any) {
     console.error('❌ [BI/top-skus]', error.message);
     res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── Sell In/Out — helpers internos ──────────────────────────────────────────
+
+function calcPeriodDays(anos: number[], meses: number[] | null): number {
+  if (meses?.length) {
+    return anos.reduce((total, ano) =>
+      total + meses.reduce((t, mes) => t + new Date(ano, mes, 0).getDate(), 0), 0);
+  }
+  return anos.reduce((total, ano) => {
+    const leap = (ano % 4 === 0 && ano % 100 !== 0) || ano % 400 === 0;
+    return total + (leap ? 366 : 365);
+  }, 0);
+}
+
+function buildSellOutConditions(
+  anos: number[], meses: number[] | null,
+  forInt: number | null, cliInt: number | null,
+  allowedIndustries: number[] | null,
+): { where: string; params: any[] } {
+  const clauses: string[] = [];
+  const params: any[] = [];
+  let idx = 1;
+
+  clauses.push(`EXTRACT(YEAR FROM s.periodo::date) IN (${anos.join(',')})`);
+  if (meses?.length) clauses.push(`EXTRACT(MONTH FROM s.periodo::date) IN (${meses.join(',')})`);
+  if (forInt)               { params.push(forInt);              clauses.push(`s.for_codigo = $${idx++}`); }
+  if (allowedIndustries?.length) { params.push(allowedIndustries); clauses.push(`s.for_codigo = ANY($${idx++}::int[])`); }
+  if (cliInt)               { params.push(cliInt);              clauses.push(`s.cli_codigo = $${idx++}`); }
+
+  return { where: clauses.length ? clauses.join(' AND ') : '1=1', params };
+}
+
+function getPrevPeriod(anos: number[], meses: number[] | null): { anos: number[]; meses: number[] | null } {
+  if (meses?.length === 1) {
+    const m = meses[0];
+    if (m > 1) return { anos, meses: [m - 1] };
+    return { anos: anos.map(a => a - 1), meses: [12] };
+  }
+  return { anos: anos.map(a => a - 1), meses };
+}
+
+// ─── GET /api/bi/sell-in-out/kpis ─────────────────────────────────────────────
+export async function sellInOutKpisHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const userId = getUserId(req);
+    const anos = parseAnos(req.query.anos as string);
+    const meses = parseMeses(req.query.meses as string);
+    const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+
+    const { where: siWhere, params: siParams } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where: soWhere, params: soParams } = buildSellOutConditions(anos, meses, forInt, cliInt, allowedIndustries);
+    const prev = getPrevPeriod(anos, meses);
+    const { where: soPrevWhere, params: soPrevParams } = buildSellOutConditions(prev.anos, prev.meses, forInt, cliInt, allowedIndustries);
+
+    const perioDias = calcPeriodDays(anos, meses);
+
+    const [siR, soR, prevR] = await Promise.all([
+      db.query(`
+        SELECT
+          COALESCE(SUM(i.ite_totliquido), 0)::NUMERIC AS valor,
+          COALESCE(SUM(CASE WHEN p.ped_situacao = 'F' THEN i.ite_totliquido ELSE 0 END), 0)::NUMERIC AS valor_fat,
+          COALESCE(SUM(i.ite_quant), 0)::NUMERIC      AS qtd,
+          COUNT(DISTINCT p.ped_cliente)::INTEGER       AS clientes
+        FROM pedidos p
+        LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+        WHERE ${siWhere}
+      `, siParams),
+      db.query(`
+        SELECT
+          COALESCE(SUM(s.valor), 0)::NUMERIC           AS valor,
+          COALESCE(SUM(s.quantidade), 0)::NUMERIC      AS qtd,
+          COUNT(DISTINCT s.cli_codigo)::INTEGER        AS clientes
+        FROM crm_sellout s
+        WHERE ${soWhere}
+      `, soParams),
+      db.query(`
+        SELECT COALESCE(SUM(s.valor), 0)::NUMERIC AS valor
+        FROM crm_sellout s WHERE ${soPrevWhere}
+      `, soPrevParams),
+    ]);
+
+    const siValor   = parseFloat(siR.rows[0].valor)     || 0;
+    const siFatValor= parseFloat(siR.rows[0].valor_fat) || 0;
+    const soValor   = parseFloat(soR.rows[0].valor)     || 0;
+    const prevValor = parseFloat(prevR.rows[0].valor)   || 0;
+
+    res.json({ success: true, data: {
+      si_valor:          siValor,
+      si_qtd:            parseFloat(siR.rows[0].qtd) || 0,
+      si_clientes:       siR.rows[0].clientes,
+      so_valor:          soValor,
+      so_qtd:            parseFloat(soR.rows[0].qtd) || 0,
+      so_clientes:       soR.rows[0].clientes,
+      sell_through_pct:  siValor   > 0 ? parseFloat(((soValor   / siValor)   * 100).toFixed(1)) : null,
+      so_var_pct:        prevValor > 0 ? parseFloat((((soValor - prevValor) / prevValor) * 100).toFixed(1)) : null,
+      // novos campos
+      si_faturado:       siFatValor,
+      fulfillment_pct:   siValor   > 0 ? parseFloat(((siFatValor / siValor)   * 100).toFixed(1)) : null,
+      fulfillment_gap:   siValor - siFatValor,
+      estoque_gap:       siFatValor - soValor,
+      periodo_dias:      perioDias,
+      si_media_diaria:   perioDias > 0 ? Math.round(siValor / perioDias)  : null,
+      so_media_diaria:   perioDias > 0 ? Math.round(soValor / perioDias)  : null,
+    }});
+  } catch (err: any) {
+    console.error('❌ [BI/sell-in-out/kpis]', err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// ─── GET /api/bi/sell-in-out/ranking ──────────────────────────────────────────
+export async function sellInOutRankingHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const userId = getUserId(req);
+    const anos = parseAnos(req.query.anos as string);
+    const meses = parseMeses(req.query.meses as string);
+    const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const agruparRede = req.query.agrupar_rede === 'true';
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+
+    const { where: siWhere, params: siParams } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where: soWhere, params: soParams } = buildSellOutConditions(anos, meses, forInt, cliInt, allowedIndustries);
+
+    const nomeExpr = agruparRede
+      ? `COALESCE(NULLIF(TRIM(c.cli_redeloja), ''), c.cli_nomred, c.cli_nome, 'EXCLUÍDO')`
+      : `COALESCE(c.cli_nomred, c.cli_nome, 'EXCLUÍDO')`;
+    const groupExpr = agruparRede
+      ? `COALESCE(NULLIF(TRIM(c.cli_redeloja), ''), c.cli_nomred, c.cli_nome, 'EXCLUÍDO')`
+      : `c.cli_codigo`;
+
+    const [siR, soR] = await Promise.all([
+      db.query(`
+        SELECT ${nomeExpr} AS nome,
+          SUM(i.ite_totliquido)::NUMERIC AS valor,
+          SUM(i.ite_quant)::NUMERIC      AS qtd
+        FROM pedidos p
+        LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+        JOIN clientes c ON c.cli_codigo = p.ped_cliente
+        WHERE ${siWhere}
+        GROUP BY ${groupExpr}
+        ORDER BY valor DESC LIMIT 12
+      `, siParams),
+      db.query(`
+        SELECT ${nomeExpr} AS nome,
+          SUM(s.valor)::NUMERIC      AS valor,
+          SUM(s.quantidade)::NUMERIC AS qtd
+        FROM crm_sellout s
+        JOIN clientes c ON c.cli_codigo = s.cli_codigo
+        WHERE ${soWhere}
+        GROUP BY ${groupExpr}
+        ORDER BY valor DESC LIMIT 12
+      `, soParams),
+    ]);
+
+    const toRow = (r: any) => ({ nome: r.nome, valor: parseFloat(r.valor) || 0, qtd: parseFloat(r.qtd) || 0 });
+    res.json({ success: true, data: { sell_in: siR.rows.map(toRow), sell_out: soR.rows.map(toRow) }});
+  } catch (err: any) {
+    console.error('❌ [BI/sell-in-out/ranking]', err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// ─── GET /api/bi/sell-in-out/cruzamento ───────────────────────────────────────
+export async function sellInOutCruzamentoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const userId = getUserId(req);
+    const anos = parseAnos(req.query.anos as string);
+    const meses = parseMeses(req.query.meses as string);
+    const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+
+    const { where: siWhere, params: siParams } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where: soWhere, params: soParams } = buildSellOutConditions(anos, meses, forInt, cliInt, allowedIndustries);
+    const prev = getPrevPeriod(anos, meses);
+    const { where: soPrevWhere, params: soPrevParams } = buildSellOutConditions(prev.anos, prev.meses, forInt, cliInt, allowedIndustries);
+
+    const [siR, soR, soPrevR] = await Promise.all([
+      db.query(`
+        SELECT
+          p.ped_cliente AS cli_codigo,
+          COALESCE(c.cli_nomred, c.cli_nome, 'EXCLUÍDO') AS cli_nome,
+          c.cli_uf,
+          COALESCE(NULLIF(TRIM(c.cli_redeloja), ''), c.cli_nomred, c.cli_nome, 'EXCLUÍDO') AS grupo,
+          SUM(i.ite_totliquido)::NUMERIC AS si_valor,
+          SUM(i.ite_quant)::NUMERIC      AS si_qtd
+        FROM pedidos p
+        LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+        JOIN clientes c ON c.cli_codigo = p.ped_cliente
+        WHERE ${siWhere}
+        GROUP BY p.ped_cliente, c.cli_nomred, c.cli_nome, c.cli_uf, c.cli_redeloja
+      `, siParams),
+      db.query(`
+        SELECT cli_codigo,
+          SUM(s.valor)::NUMERIC      AS so_valor,
+          SUM(s.quantidade)::NUMERIC AS so_qtd
+        FROM crm_sellout s WHERE ${soWhere}
+        GROUP BY cli_codigo
+      `, soParams),
+      db.query(`
+        SELECT cli_codigo,
+          SUM(s.valor)::NUMERIC      AS so_prev_valor,
+          SUM(s.quantidade)::NUMERIC AS so_prev_qtd
+        FROM crm_sellout s WHERE ${soPrevWhere}
+        GROUP BY cli_codigo
+      `, soPrevParams),
+    ]);
+
+    const soMap   = new Map(soR.rows.map((r: any) => [Number(r.cli_codigo), r]));
+    const prevMap = new Map(soPrevR.rows.map((r: any) => [Number(r.cli_codigo), r]));
+
+    const addPcts = (row: any) => {
+      const stPct  = row.si_valor > 0   ? parseFloat(((row.so_valor / row.si_valor) * 100).toFixed(1)) : null;
+      const varV   = row.so_prev_valor > 0 ? parseFloat((((row.so_valor - row.so_prev_valor) / row.so_prev_valor) * 100).toFixed(1)) : null;
+      const varQ   = row.so_prev_qtd   > 0 ? parseFloat((((row.so_qtd   - row.so_prev_qtd)   / row.so_prev_qtd)   * 100).toFixed(1)) : null;
+      return { ...row, sell_through_pct: stPct, so_var_pct: varV, so_var_qtd_pct: varQ };
+    };
+
+    const filiais: any[] = siR.rows.map((r: any) => {
+      const cur  = soMap.get(Number(r.cli_codigo));
+      const prev = prevMap.get(Number(r.cli_codigo));
+      return {
+        tipo: 'filial', cli_codigo: r.cli_codigo,
+        nome: r.cli_nome, uf: r.cli_uf, grupo: r.grupo,
+        si_valor: parseFloat(r.si_valor) || 0,
+        si_qtd:   parseFloat(r.si_qtd)   || 0,
+        so_valor:      parseFloat(cur?.so_valor)       || 0,
+        so_qtd:        parseFloat(cur?.so_qtd)         || 0,
+        so_prev_valor: parseFloat(prev?.so_prev_valor) || 0,
+        so_prev_qtd:   parseFloat(prev?.so_prev_qtd)   || 0,
+      };
+    });
+
+    const grupoMap = new Map<string, any>();
+    const filasByGrupo = new Map<string, any[]>();
+    filiais.forEach(f => {
+      if (!grupoMap.has(f.grupo)) grupoMap.set(f.grupo, {
+        tipo: 'grupo', nome: f.grupo, uf: null, grupo: f.grupo,
+        si_valor: 0, si_qtd: 0, so_valor: 0, so_qtd: 0, so_prev_valor: 0, so_prev_qtd: 0,
+      });
+      const g = grupoMap.get(f.grupo)!;
+      g.si_valor += f.si_valor; g.si_qtd += f.si_qtd;
+      g.so_valor += f.so_valor; g.so_qtd += f.so_qtd;
+      g.so_prev_valor += f.so_prev_valor; g.so_prev_qtd += f.so_prev_qtd;
+
+      if (!filasByGrupo.has(f.grupo)) filasByGrupo.set(f.grupo, []);
+      filasByGrupo.get(f.grupo)!.push(f);
+    });
+
+    const result: any[] = [];
+    [...grupoMap.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR')).forEach(g => {
+      result.push(addPcts(grupoMap.get(g)!));
+      (filasByGrupo.get(g) || [])
+        .sort((a: any, b: any) => (a.uf || '').localeCompare(b.uf || '', 'pt-BR'))
+        .forEach((f: any) => result.push(addPcts(f)));
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    console.error('❌ [BI/sell-in-out/cruzamento]', err.message);
+    res.status(500).json({ success: false, message: err.message });
   }
 }

@@ -9,9 +9,13 @@ const LoginPage        = lazy(() => import('./pages/LoginPage'));
 const HomePage         = lazy(() => import('./pages/HomePage'));
 const ClientesPage     = lazy(() => import('./pages/ClientesPage'));
 const BriefingPage     = lazy(() => import('./pages/BriefingPage'));
+const ClienteEditPage  = lazy(() => import('./pages/ClienteEditPage'));
+const PedidosPage      = lazy(() => import('./pages/PedidosPage'));
 const PedidoPage       = lazy(() => import('./pages/PedidoPage'));
 const TabelaPrecosPage = lazy(() => import('./pages/TabelaPrecosPage'));
 const SellOutPage      = lazy(() => import('./pages/SellOutPage'));
+const CampanhasPage    = lazy(() => import('./pages/CampanhasPage'));
+const AgendaPage       = lazy(() => import('./pages/AgendaPage'));
 const BIPage           = lazy(() => import('./pages/BIPage'));
 
 function AuthRequired({ children }: { children: React.ReactNode }) {
@@ -44,10 +48,14 @@ export default function MobileApp() {
           <Route index      element={<Navigate to="home" replace />} />
           <Route path="home"         element={<HomePage />} />
           <Route path="clientes"     element={<ClientesPage />} />
-          <Route path="clientes/:id" element={<BriefingPage />} />
+          <Route path="clientes/:id"        element={<BriefingPage />} />
+          <Route path="clientes/:id/editar" element={<ClienteEditPage />} />
+          <Route path="pedidos"      element={<PedidosPage />} />
           <Route path="pedido"       element={<PedidoPage />} />
           <Route path="precos"       element={<TabelaPrecosPage />} />
           <Route path="sellout"      element={<SellOutPage />} />
+          <Route path="campanhas"    element={<CampanhasPage />} />
+          <Route path="agenda"       element={<AgendaPage />} />
           <Route path="bi"           element={<BIPage />} />
         </Route>
         <Route path="*" element={<Navigate to="home" replace />} />

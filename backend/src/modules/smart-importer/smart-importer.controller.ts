@@ -72,7 +72,9 @@ export async function analyzeHandler(req: Request, res: Response): Promise<void>
             itab_precopromo,
             itab_precoespecial,
             itab_grupodesconto,
-            itab_tabela
+            itab_tabela,
+            COALESCE(itab_ipi, 0) AS itab_ipi,
+            COALESCE(itab_st,  0) AS itab_st
           FROM cad_tabelaspre
           WHERE itab_idprod = $1
           ORDER BY (itab_tabela = $2) DESC, itab_precobruto DESC
@@ -84,6 +86,8 @@ export async function analyzeHandler(req: Request, res: Response): Promise<void>
         const price = priceRes.rows[0];
         const precoBruto = parseFloat(price.itab_precobruto || 0);
         const promoPrice = parseFloat(price.itab_precopromo || 0);
+        const ipi        = parseFloat(price.itab_ipi || 0);
+        const st         = parseFloat(price.itab_st  || 0);
         let precoUnitario = precoBruto;
         let isPromo = false;
 
@@ -106,6 +110,8 @@ export async function analyzeHandler(req: Request, res: Response): Promise<void>
           preco_bruto:     precoBruto,
           preco_unitario:  precoUnitario,
           total:           qty * precoUnitario,
+          ipi,
+          st,
           industria_id:    product.pro_industria,
           industria_nome:  product.industria_nome,
           is_promo:        isPromo,
@@ -327,9 +333,10 @@ export async function checkoutHandler(req: Request, res: Response): Promise<void
           INSERT INTO itens_ped (
             ite_pedido, ite_seq, ite_industria, ite_idproduto, ite_produto, ite_nomeprod,
             ite_quant, ite_puni, ite_totbruto, ite_puniliq, ite_totliquido,
+            ite_ipi, ite_st,
             ite_des1, ite_des2, ite_des3, ite_des4, ite_des5,
             ite_des6, ite_des7, ite_des8, ite_des9, ite_des10, ite_promocao
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
         `, [
           pedPedido, i + 1, bucket.industria_id,
           item.pro_id, item.codigo, item.descricao,
@@ -338,6 +345,7 @@ export async function checkoutHandler(req: Request, res: Response): Promise<void
           parseFloat(item.preco_bruto || 0) * parseFloat(item.quantidade || 0),
           item.preco_unitario,
           parseFloat(item.preco_unitario || 0) * parseFloat(item.quantidade || 0),
+          item.ipi || 0, item.st || 0,
           item.descontos?.desc1 || 0, item.descontos?.desc2 || 0,
           item.descontos?.desc3 || 0, item.descontos?.desc4 || 0,
           item.descontos?.desc5 || 0, item.descontos?.desc6 || 0,
@@ -471,7 +479,9 @@ export async function parseBatchHandler(req: Request, res: Response): Promise<vo
     const priceMap = new Map<number, any[]>(); // pro_id → preços[]
     if (foundProIds.length > 0) {
       const priceRes = await db.query(`
-        SELECT itab_idprod, itab_precobruto, itab_precopromo, itab_tabela
+        SELECT itab_idprod, itab_precobruto, itab_precopromo, itab_tabela,
+               COALESCE(itab_ipi, 0) AS itab_ipi,
+               COALESCE(itab_st,  0) AS itab_st
         FROM cad_tabelaspre
         WHERE itab_idprod = ANY($1::int[])
         ORDER BY itab_idprod, itab_precobruto DESC
@@ -517,6 +527,8 @@ export async function parseBatchHandler(req: Request, res: Response): Promise<vo
         const price      = getBestPrice(prod.pro_id, cond.cli_tabela);
         const precoBruto = price ? parseFloat(price.itab_precobruto || 0) : 0;
         const promoPrice = price ? parseFloat(price.itab_precopromo || 0) : 0;
+        const ipi        = price ? parseFloat(price.itab_ipi || 0) : 0;
+        const st         = price ? parseFloat(price.itab_st  || 0) : 0;
         let precoUnit    = precoBruto;
         let isPromo      = false;
 
@@ -540,6 +552,8 @@ export async function parseBatchHandler(req: Request, res: Response): Promise<vo
           preco_bruto:    precoBruto,
           preco_unitario: precoUnit,
           total:          linha.qtd * precoUnit,
+          ipi,
+          st,
           is_promo:       isPromo,
           tabela:         cond.cli_tabela,
           descontos:      cond,
@@ -674,9 +688,10 @@ export async function confirmBatchHandler(req: Request, res: Response): Promise<
           INSERT INTO itens_ped (
             ite_pedido, ite_seq, ite_industria, ite_idproduto, ite_produto, ite_nomeprod,
             ite_quant, ite_puni, ite_totbruto, ite_puniliq, ite_totliquido,
+            ite_ipi, ite_st,
             ite_des1, ite_des2, ite_des3, ite_des4, ite_des5,
             ite_des6, ite_des7, ite_des8, ite_des9, ite_des10, ite_promocao
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
         `, [
           pedPedido, i + 1, group.industria_id,
           item.pro_id, item.codigo, item.descricao,
@@ -685,6 +700,7 @@ export async function confirmBatchHandler(req: Request, res: Response): Promise<
           parseFloat(item.preco_bruto || 0) * parseFloat(item.quantidade || 0),
           item.preco_unitario,
           parseFloat(item.preco_unitario || 0) * parseFloat(item.quantidade || 0),
+          item.ipi || 0, item.st || 0,
           item.descontos?.desc1 || 0, item.descontos?.desc2 || 0,
           item.descontos?.desc3 || 0, item.descontos?.desc4 || 0,
           item.descontos?.desc5 || 0, item.descontos?.desc6 || 0,

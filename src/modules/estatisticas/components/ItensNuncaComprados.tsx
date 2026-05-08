@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ShoppingCart, CheckCircle2 } from 'lucide-react';
+import { ShoppingCart, CheckCircle2, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 
@@ -56,6 +57,16 @@ export default function ItensNuncaComprados(_: Props) {
 
   const clienteNome = clientes.find(c => String(c.id) === cliente)?.nome || '';
   const indNome     = industrias.find(i => String(i.id) === industria)?.nome || '';
+
+  const exportExcel = () => {
+    const slug = (s: string) => s.replace(/[/\\?%*:|"<>]/g, '-').trim();
+    const data = rows.map(r => ({ 'Código': r.codigo, 'Descrição': r.descricao, 'Aplicação': r.aplicacao || '' }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [{ wch: 16 }, { wch: 55 }, { wch: 40 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Nunca Comprados');
+    XLSX.writeFile(wb, `nunca-comprados-${slug(clienteNome)}-${slug(indNome)}.xlsx`);
+  };
 
   return (
     <div style={{ padding: '20px 24px', background: G.bg, minHeight: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -124,9 +135,9 @@ export default function ItensNuncaComprados(_: Props) {
         </div>
       )}
 
-      {/* Counter */}
+      {/* Counter + Export */}
       {!loading && rows.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{
             background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10,
             padding: '8px 16px', display: 'flex', gap: 8, alignItems: 'center',
@@ -139,6 +150,13 @@ export default function ItensNuncaComprados(_: Props) {
           <span style={{ fontSize: 11, color: G.textMuted }}>
             por <strong style={{ color: G.text }}>{clienteNome}</strong> na indústria <strong style={{ color: G.text }}>{indNome}</strong>
           </span>
+          <button onClick={exportExcel} style={{
+            marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 16px', borderRadius: 8, border: `1px solid ${G.border}`,
+            background: G.card, color: G.text, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+          }}>
+            <Download size={14} /> Exportar Excel
+          </button>
         </div>
       )}
 

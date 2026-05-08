@@ -41,9 +41,20 @@ interface ProductForm {
   linhaleve: boolean; linhapesada: boolean; linhaagricola: boolean;
   linhautilitarios: boolean; motocicletas: boolean; offroad: boolean;
   linhaamarela: boolean;
+  ciclo: string;
   precobruto: string; precopromo: string; precoespecial: string;
   ipi: string; st: string; descontoadd: string; grupodesconto: string;
   prepeso: string; replicate: boolean;
+}
+
+interface PurchaseHistory {
+  cliente_nome: string;
+  ultima_compra: string;
+}
+
+interface SalesSummary {
+  periodo: string;
+  total_qtd: number;
 }
 
 interface SelectOption { value: string | number; label: string; }
@@ -54,6 +65,7 @@ const emptyForm: ProductForm = {
   linhaleve: false, linhapesada: false, linhaagricola: false,
   linhautilitarios: false, motocicletas: false, offroad: false,
   linhaamarela: false,
+  ciclo: 'C',
   precobruto: '', precopromo: '', precoespecial: '',
   ipi: '', st: '', descontoadd: '', grupodesconto: '', prepeso: '',
   replicate: false,
@@ -220,6 +232,9 @@ export default function ProdutosPage() {
   const [saving, setSaving]           = useState(false);
   const [selIndustria, setSelIndustria] = useState('');
   const [selTabela, setSelTabela]       = useState('');
+  const [purchaseHistory, setPurchaseHistory] = useState<PurchaseHistory[]>([]);
+  const [salesSummary, setSalesSummary]       = useState<SalesSummary[]>([]);
+  const [activeSubTab, setActiveSubTab] = useState<'dados' | 'vendas' | 'clientes'>('dados');
 
   // 8-level discount calculator
   const [discounts, setDiscounts] = useState<string[]>(Array(8).fill(''));
@@ -295,6 +310,7 @@ export default function ProdutosPage() {
         linhaagricola: !!d.pro_linhaagricola, linhautilitarios: !!d.pro_linhautilitarios,
         motocicletas: !!d.pro_motocicletas, offroad: !!d.pro_offroad,
         linhaamarela: !!d.pro_linhaamarela,
+        ciclo: d.pro_ciclo || 'C',
         precobruto: d.itab_precobruto != null ? String(d.itab_precobruto) : '',
         precopromo: d.itab_precopromo != null ? String(d.itab_precopromo) : '',
         precoespecial: d.itab_precoespecial != null ? String(d.itab_precoespecial) : '',
@@ -306,6 +322,15 @@ export default function ProdutosPage() {
         replicate: false,
       });
       setActiveTab('cadastro');
+      setActiveSubTab('dados');
+      // Carregar histórico de compras
+      api.get(`/products/${row.pro_id}/purchase-history`)
+        .then(h => setPurchaseHistory(h.data.data || []))
+        .catch(() => setPurchaseHistory([]));
+      // Carregar quantidades vendidas
+      api.get(`/products/${row.pro_id}/sales-summary`)
+        .then(s => setSalesSummary(s.data.data || []))
+        .catch(() => setSalesSummary([]));
     } catch (err: any) {
       alert(err?.response?.data?.message || 'Erro ao carregar produto.');
     }
@@ -329,6 +354,7 @@ export default function ProdutosPage() {
         linhaagricola: editing.linhaagricola, linhautilitarios: editing.linhautilitarios,
         motocicletas: editing.motocicletas, offroad: editing.offroad,
         linhaamarela: editing.linhaamarela,
+        ciclo: editing.ciclo || 'C',
         precobruto: editing.precobruto || undefined, precopromo: editing.precopromo || undefined,
         precoespecial: editing.precoespecial || undefined,
         ipi: editing.ipi || undefined, st: editing.st || undefined,
@@ -573,6 +599,24 @@ export default function ProdutosPage() {
           <input style={{ ...inp, maxWidth: 240 }} value={editing.codigoBarras}
             onChange={e => set('codigoBarras', e.target.value)} onKeyDown={onEnterTab} placeholder="EAN-13" />
         </Field>
+        <Field label="Ciclo de Vida">
+          <div style={{ display: 'flex', gap: 8 }}>
+            {([['C', 'Corrente'], ['L', 'Lançamento']] as [string, string][]).map(([val, lbl]) => (
+              <label key={val} style={{
+                display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer',
+                padding: '8px 16px', borderRadius: 10,
+                border: `2px solid ${editing.ciclo === val ? (val === 'L' ? '#F59E0B' : G.border) : G.border}`,
+                background: editing.ciclo === val ? (val === 'L' ? '#FFFBEB' : G.cardHi) : 'transparent',
+                fontWeight: 700, fontSize: 13,
+                color: editing.ciclo === val ? (val === 'L' ? '#92400E' : G.text) : G.textMuted,
+              }}>
+                <input type="radio" name="ciclo" value={val} checked={editing.ciclo === val}
+                  onChange={() => set('ciclo', val)} style={{ display: 'none' }} />
+                {val === 'L' ? '🚀' : '✓'} {lbl}
+              </label>
+            ))}
+          </div>
+        </Field>
       </FormSection>
 
       <FormSection title="Características">
@@ -688,6 +732,129 @@ export default function ProdutosPage() {
     </>
   );
 
+  const subTabs = (
+    <div style={{ display: 'flex', borderBottom: `1px solid ${G.border}`, marginBottom: 20 }}>
+      <button
+        onClick={() => setActiveSubTab('dados')}
+        style={{
+          padding: '10px 20px', border: 'none', background: 'transparent',
+          fontSize: 13, fontWeight: 800, cursor: 'pointer',
+          color: activeSubTab === 'dados' ? G.mustard : G.textMuted,
+          borderBottom: activeSubTab === 'dados' ? `2px solid ${G.mustard}` : 'none',
+        }}
+      >
+        DADOS DO PRODUTO
+      </button>
+      {editing.pro_id && (
+        <>
+          <button
+            onClick={() => setActiveSubTab('vendas')}
+            style={{
+              padding: '10px 20px', border: 'none', background: 'transparent',
+              fontSize: 13, fontWeight: 800, cursor: 'pointer',
+              color: activeSubTab === 'vendas' ? G.mustard : G.textMuted,
+              borderBottom: activeSubTab === 'vendas' ? `2px solid ${G.mustard}` : 'none',
+            }}
+          >
+            QUANTIDADES VENDIDAS
+          </button>
+          <button
+            onClick={() => setActiveSubTab('clientes')}
+            style={{
+              padding: '10px 20px', border: 'none', background: 'transparent',
+              fontSize: 13, fontWeight: 800, cursor: 'pointer',
+              color: activeSubTab === 'clientes' ? G.mustard : G.textMuted,
+              borderBottom: activeSubTab === 'clientes' ? `2px solid ${G.mustard}` : 'none',
+            }}
+          >
+            CLIENTES QUE COMPRARAM
+          </button>
+        </>
+      )}
+    </div>
+  );
+
+  const salesGrid = (
+    <div style={{ marginTop: 10, overflowX: 'auto', background: G.card, border: `1px solid ${G.border}`, borderRadius: 12 }}>
+      <table style={{ width: 'max-content', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: G.cardHi }}>
+            {salesSummary.map((s, i) => (
+              <th key={i} style={{
+                padding: '12px 20px', fontSize: 11, fontWeight: 800,
+                color: G.textSec, borderBottom: `1px solid ${G.border}`,
+                borderRight: `1px solid ${G.border}`, textAlign: 'center'
+              }}>
+                {s.periodo}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            {salesSummary.length === 0 ? (
+              <td style={{ padding: 40, textAlign: 'center', color: G.textMuted, fontSize: 13 }}>
+                Sem histórico de vendas no período.
+              </td>
+            ) : (
+              salesSummary.map((s, i) => (
+                <td key={i} style={{
+                  padding: '16px 20px', fontSize: 14, fontWeight: 700,
+                  color: '#1D4ED8', borderRight: `1px solid ${G.border}`,
+                  textAlign: 'center', fontFamily: 'monospace'
+                }}>
+                  {s.total_qtd.toLocaleString('pt-BR')}
+                </td>
+              ))
+            )}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const historyGrid = (
+    <div style={{ marginTop: 10 }}>
+      <CadastroTable>
+        <thead>
+          <tr>
+            <Th>Cliente</Th>
+            <Th align="center">Data da Última Compra</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {purchaseHistory.length === 0 ? (
+            <tr>
+              <td colSpan={2} style={{ padding: 40, textAlign: 'center', color: G.textMuted, fontSize: 13 }}>
+                Este produto ainda não possui histórico de vendas.
+              </td>
+            </tr>
+          ) : (
+            purchaseHistory.map((h, i) => (
+              <tr key={i} style={{ borderBottom: `1px solid ${G.border}` }}>
+                <Td><span style={{ fontWeight: 600, color: '#1D4ED8' }}>{h.cliente_nome}</span></Td>
+                <Td align="center">
+                  <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700 }}>
+                    {fmtDate(h.ultima_compra)}
+                  </span>
+                </Td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </CadastroTable>
+    </div>
+  );
+
+  const formWithTabs = (
+    <div>
+      {subTabs}
+      {activeSubTab === 'dados' && form}
+      {activeSubTab === 'vendas' && salesGrid}
+      {activeSubTab === 'clientes' && historyGrid}
+    </div>
+  );
+
   return (
     <>
       <CadastroShell
@@ -705,7 +872,7 @@ export default function ProdutosPage() {
         onSave={save}
         onCancel={cancel}
         saving={saving}
-        form={form}
+        form={formWithTabs}
       >
         {importBar}
 
@@ -762,7 +929,18 @@ export default function ProdutosPage() {
                           {row.pro_codprod}
                         </span>
                       </Td>
-                      <Td><span style={{ fontWeight: 600 }}>{row.pro_nome}</span></Td>
+                      <Td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontWeight: 600 }}>{row.pro_nome}</span>
+                          {(row as any).pro_ciclo === 'L' && (
+                            <span style={{
+                              fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 4,
+                              background: '#FFFBEB', color: '#92400E',
+                              border: '1px solid #FDE68A', letterSpacing: 0.3, flexShrink: 0,
+                            }}>LANÇAMENTO</span>
+                          )}
+                        </div>
+                      </Td>
                       <Td align="right">
                         <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }}>
                           {row.itab_precobruto ? `R$ ${fmtBR(row.itab_precobruto)}` : '—'}

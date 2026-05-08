@@ -8,6 +8,7 @@ import {
   wppDashboardHandler, listContatosHandler,
   wppResumoPortalHandler,
 } from './whatsapp.controller';
+import { getIrisCartaHandler, saveIrisCartaHandler } from './iris-config.controller';
 
 const router = Router();
 
@@ -27,5 +28,7 @@ authRouter.post('/conversas/:id/takeover',     takeoverHandler);
 authRouter.post('/conversas/:id/devolver-ia',  devolverIAHandler);
 authRouter.post('/conversas/:id/encerrar',     encerrarConversaHandler);
 authRouter.get ('/contatos',                   listContatosHandler);
+authRouter.get ('/iris-carta',                 getIrisCartaHandler);
+authRouter.put ('/iris-carta',                 saveIrisCartaHandler);
 
 export { router as webhookRouter, authRouter as whatsappAuthRouter };

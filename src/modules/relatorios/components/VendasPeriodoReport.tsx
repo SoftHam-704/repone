@@ -207,7 +207,7 @@ export default function VendasPeriodoReport() {
               Nenhum pedido encontrado no período.
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: 860 }}>
               <thead>
                 <tr>
                   <th style={{ ...th, width: 82 }}>Data</th>

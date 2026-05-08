@@ -886,13 +886,19 @@ function IaTab({ supplierId }: { supplierId: number }) {
   const set = (field: keyof IaData, value: string) =>
     setData(prev => ({ ...prev, [field]: value }));
 
+  const [saveError, setSaveError] = useState('');
+
   const save = async () => {
     setSaving(true);
     setSaved(false);
+    setSaveError('');
     try {
       await api.post(`/suppliers/${supplierId}/ia-knowledge`, data);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
+    } catch (err: any) {
+      setSaveError(err?.response?.data?.message || 'Erro ao salvar. Tente novamente.');
+      setTimeout(() => setSaveError(''), 4000);
     } finally {
       setSaving(false);
     }
@@ -935,13 +941,18 @@ function IaTab({ supplierId }: { supplierId: number }) {
           {saved ? '✓ Salvo!' : 'Salvar Conhecimento'}
         </button>
       </div>
+      {saveError && (
+        <div style={{ fontSize: 12, color: '#EF4444', fontWeight: 600, padding: '6px 4px' }}>
+          ⚠ {saveError}
+        </div>
+      )}
 
       {/* Campos — linha 1: 2 colunas */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <IaField label="Nome da Marca (Para a IA)" hint="Como a IA deve chamar a empresa nas conversas.">
           <input style={inp} value={data.nome_marca || ''} onChange={e => set('nome_marca', e.target.value)} placeholder="Ex: Moraes, Vanucci, Auto Peças XPTO" />
         </IaField>
-        <IaField label="Persona / Tom de Voz" hint='Define como a IA se comporta. Ex: "Técnico e formal", "Amigável e consultivo".'>
+        <IaField label="Persona / Tom de Voz" hint='Como a IRIS deve se comportar com os lojistas. Ex: "Atendente simpática e objetiva" ou "Consultora técnica, linguagem profissional". Quanto mais detalhado, melhor.'>
           <input style={inp} value={data.persona_ia || ''} onChange={e => set('persona_ia', e.target.value)} placeholder="Ex: Consultor Técnico Especialista" />
         </IaField>
       </div>
@@ -965,15 +976,47 @@ function IaTab({ supplierId }: { supplierId: number }) {
 }
 
 function IaField({ label: l, hint, children }: { label: string; hint: string; children: React.ReactNode }) {
+  const [show, setShow] = useState(false);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const btnRef = useRef<HTMLSpanElement>(null);
+
+  const handleShow = (v: boolean) => {
+    if (v && btnRef.current) setRect(btnRef.current.getBoundingClientRect());
+    setShow(v);
+  };
+
+  const above = rect ? rect.top > 180 : true;
+
   return (
     <div style={{ background: '#FAFAF8', border: `1px solid ${G.border}`, borderRadius: 10, padding: '12px 14px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: G.text, letterSpacing: 0.3 }}>{l}</span>
-        <span title={hint} style={{
-          width: 15, height: 15, borderRadius: '50%', border: `1px solid ${G.border}`,
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 9, color: G.textMuted, cursor: 'help', flexShrink: 0,
-        }}>?</span>
+        <span
+          ref={btnRef}
+          onMouseEnter={() => handleShow(true)}
+          onMouseLeave={() => handleShow(false)}
+          onClick={() => handleShow(!show)}
+          style={{
+            width: 15, height: 15, borderRadius: '50%', border: `1px solid ${G.border}`,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 9, color: G.textMuted, cursor: 'help', flexShrink: 0,
+            background: show ? G.border : 'transparent', transition: 'background .15s',
+          }}>?</span>
+        {show && rect && (
+          <div style={{
+            position: 'fixed',
+            top: above ? rect.top - 8 : rect.bottom + 8,
+            left: Math.min(rect.left + rect.width / 2, window.innerWidth - 140),
+            transform: above ? 'translate(-50%, -100%)' : 'translate(-50%, 0)',
+            background: '#1E2D3D', color: '#E2D9C8', fontSize: 11, lineHeight: 1.6,
+            padding: '8px 12px', borderRadius: 8, whiteSpace: 'normal', maxWidth: 260,
+            zIndex: 99999, boxShadow: '0 4px 16px rgba(0,0,0,0.25)', pointerEvents: 'none',
+          }}>
+            {above && <div style={{ position: 'absolute', bottom: -5, left: '50%', transform: 'translateX(-50%)', width: 10, height: 10, background: '#1E2D3D', clipPath: 'polygon(0 0, 100% 0, 50% 100%)' }} />}
+            {!above && <div style={{ position: 'absolute', top: -5, left: '50%', transform: 'translateX(-50%)', width: 10, height: 10, background: '#1E2D3D', clipPath: 'polygon(50% 0, 100% 100%, 0 100%)' }} />}
+            {hint}
+          </div>
+        )}
       </div>
       {children}
     </div>

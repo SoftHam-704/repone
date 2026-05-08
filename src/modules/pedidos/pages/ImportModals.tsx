@@ -1,15 +1,17 @@
 import React, { useState, useRef } from 'react';
-import { Upload, FileCode, FileText, Table2, Wand2, X, AlertTriangle, CheckCircle2, Download } from 'lucide-react';
+import { Upload, FileCode, FileText, Table2, Wand2, X, AlertTriangle, CheckCircle2, Download, Tag, DollarSign, ArrowLeft } from 'lucide-react';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { toast } from 'sonner';
 import type { ItemRow } from './ConferenciaSection';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface CatalogItem {
+export interface CatalogItem {
   pro_codigo: string;
   pro_embalagem?: number;
   pro_codigooriginal?: string;
+  pro_conversao?: string;
+  pro_codbarras?: string;
   pro_nome?: string;
   pro_grupo?: number;
   preco_bruto?: number;
@@ -18,7 +20,6 @@ interface CatalogItem {
   ipi?: number;
   st?: number;
   grupo_desconto?: number;
-  pro_codbarras?: string;
 }
 
 interface OrderFull {
@@ -39,39 +40,59 @@ const LINE_H = 19.2; // matches monospace 12px × 1.6 line-height
 const normalize = (s: string) =>
   String(s || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
 
-function matchProduct(rawCode: string, items: CatalogItem[]): CatalogItem | null {
+export function matchProduct(rawCode: string, items: CatalogItem[]): CatalogItem | null {
   const code = String(rawCode || '').trim().replace(/^["']|["']$/g, '');
   if (!code) return null;
 
-  // Pass 1: Exact
-  const exact = items.find(p => p.pro_codigo === code);
+  const codeUp = code.toUpperCase();
+
+  // Pass 1: Exact (case-insensitive)
+  const exact = items.find(p => p.pro_codigo.toUpperCase() === codeUp);
   if (exact) return exact;
 
-  // Pass 2: EAN/barcode
-  const ean = items.find(p => p.pro_codbarras === code);
+  // Pass 2: EAN/barcode (case-insensitive)
+  const ean = items.find(p => p.pro_codbarras && p.pro_codbarras.toUpperCase() === codeUp);
   if (ean) return ean;
 
-  // Pass 3: Code original
-  const orig = items.find(p => p.pro_codigooriginal === code);
+  // Pass 3: Código original do fabricante (case-insensitive)
+  const orig = items.find(p => p.pro_codigooriginal && p.pro_codigooriginal.toUpperCase() === codeUp);
   if (orig) return orig;
 
-  // Pass 4: Normalized (remove all non-alphanumeric)
-  const normCode = normalize(code);
+  // Pass 3b: Código de conversão (case-insensitive)
+  const conv = items.find(p => p.pro_conversao && p.pro_conversao.toUpperCase() === codeUp);
+  if (conv) return conv;
+
+  // Pass 4: Normalized (remove all non-alphanumeric, uppercase)
+  const normCode = normalize(code); // already uppercases
   if (normCode) {
-    const norm = items.find(p => 
-      normalize(p.pro_codigo) === normCode ||
+    const norm = items.find(p =>
+      normalize(p.pro_codigo)             === normCode ||
       normalize(p.pro_codigooriginal || '') === normCode ||
-      normalize(p.pro_codbarras || '') === normCode
+      normalize(p.pro_codbarras || '')     === normCode ||
+      normalize(p.pro_conversao || '')     === normCode
     );
     if (norm) return norm;
   }
 
-  // Pass 5: Numeric strict (≥ 3 digits)
+  // Pass 4b: Normalized + strip leading zeros (NF-e usa códigos com zeros à esquerda)
+  const stripZero = (s: string) => { const n = normalize(s); return n.replace(/^0+/, '') || n; };
+  const normNoZero = stripZero(code);
+  if (normNoZero !== normCode) {
+    const noZero = items.find(p =>
+      stripZero(p.pro_codigo)             === normNoZero ||
+      stripZero(p.pro_codigooriginal || '') === normNoZero ||
+      stripZero(p.pro_codbarras || '')     === normNoZero ||
+      stripZero(p.pro_conversao || '')     === normNoZero
+    );
+    if (noZero) return noZero;
+  }
+
+  // Pass 5: Numeric strict (≥ 3 digits) — compara como inteiro
   if (/^\d{3,}$/.test(code)) {
     const n = parseInt(code);
     const num = items.find(p => {
-       if (!/^\d+$/.test(p.pro_codigo)) return false;
-       return parseInt(p.pro_codigo) === n;
+      if (!/^\d+$/.test(p.pro_codigo)) return false;
+      return parseInt(p.pro_codigo) === n;
     });
     if (num) return num;
   }
@@ -79,7 +100,7 @@ function matchProduct(rawCode: string, items: CatalogItem[]): CatalogItem | null
   // Pass 6: Fragment (split / | ; , space -)
   const frags = code.split(/[\/|;,\s\-]+/).filter(f => f.length >= 3);
   for (const frag of frags) {
-    const fm = items.find(p => p.pro_codigo === frag || normalize(p.pro_codigo) === normalize(frag));
+    const fm = items.find(p => normalize(p.pro_codigo) === normalize(frag) || normalize(p.pro_codigooriginal || '') === normalize(frag));
     if (fm) return fm;
   }
 
@@ -665,8 +686,9 @@ export function XmlModal({ order, priceTableItems, orderItems, setOrderItems, on
         const ipiXml  = ipiTxt  ? (parseFloat(ipiTxt)  || null) : null;
         const stXml   = stTxt   ? (parseFloat(stTxt)   || null) : null;
 
-        // Try EAN first, then code
-        const product = (ean ? matchProduct(ean, priceTableItems) : null) || matchProduct(rawCode, priceTableItems);
+        // Try EAN first (ignora "SEM GTIN" e zeros puros), depois cProd
+        const validEan = ean && !/^SEM\s*GTIN$/i.test(ean) && !/^0+$/.test(ean);
+        const product = (validEan ? matchProduct(ean, priceTableItems) : null) || matchProduct(rawCode, priceTableItems);
         if (!product) { unmatched.push(rawCode || ean); return; }
 
         let qty   = parseFloat(rawQty)   || 1;
@@ -805,6 +827,197 @@ export function XmlModal({ order, priceTableItems, orderItems, setOrderItems, on
   );
 }
 
+// ─── XML Section (inline, embedded in order form — V1 pattern) ───────────────
+
+export function XmlSection({ order, priceTableItems, orderItems, setOrderItems, onBack, onDone }: {
+  order: OrderFull; priceTableItems: CatalogItem[];
+  orderItems: ItemRow[]; setOrderItems: React.Dispatch<React.SetStateAction<ItemRow[]>>;
+  onBack: () => void; onDone: () => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const [errors,   setErrors]   = useState<string[]>([]);
+  const [preview,  setPreview]  = useState<ItemRow[]>([]);
+  const [fileName, setFileName] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function getText(el: Element, tag: string) {
+    return el.querySelector(tag)?.textContent?.trim() || '';
+  }
+
+  function parseXml(file: File) {
+    file.text().then(text => {
+      const parser = new DOMParser();
+      const doc    = parser.parseFromString(text, 'application/xml');
+      if (doc.querySelector('parsererror')) { toast.error('XML inválido ou corrompido.'); return; }
+      const dets = Array.from(doc.querySelectorAll('det'));
+      if (dets.length === 0) { toast.error('Nenhum item (<det>) encontrado no XML.'); return; }
+
+      const matched: ItemRow[] = [];
+      const unmatched: string[] = [];
+      const startSeq = orderItems.length + 1;
+
+      dets.forEach(det => {
+        const prod  = det.querySelector('prod');
+        if (!prod) return;
+        const rawCode  = getText(prod, 'cProd');
+        const ean      = getText(prod, 'cEAN');
+        const rawQty   = getText(prod, 'qCom');
+        const rawPrice = getText(prod, 'vUnCom');
+        const unit     = getText(prod, 'uCom').toUpperCase();
+        const imposto  = det.querySelector('imposto');
+        const ipiTxt   = imposto?.querySelector('pIPI')?.textContent?.trim() || '';
+        const stTxt    = imposto?.querySelector('pICMSST, pMVAST')?.textContent?.trim() || '';
+        const ipiXml   = ipiTxt ? (parseFloat(ipiTxt)  || null) : null;
+        const stXml    = stTxt  ? (parseFloat(stTxt)   || null) : null;
+
+        const validEan = ean && !/^SEM\s*GTIN$/i.test(ean) && !/^0+$/.test(ean);
+        const product  = (validEan ? matchProduct(ean, priceTableItems) : null) || matchProduct(rawCode, priceTableItems);
+        if (!product) { unmatched.push(rawCode || ean); return; }
+
+        let qty = parseFloat(rawQty) || 1;
+        const price = parseFloat(rawPrice) || null;
+        if (unit.startsWith('CX')) qty = qty * (product.pro_embalagem || 1);
+
+        matched.push(buildItem(product, qty, price, '', ipiXml, stXml, order, startSeq + matched.length));
+      });
+
+      setErrors(unmatched);
+      setPreview(matched);
+      setFileName(file.name);
+    });
+  }
+
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault(); setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file?.name.endsWith('.xml')) parseXml(file);
+    else toast.error('Selecione um arquivo .xml');
+  }
+
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) parseXml(file);
+    e.target.value = '';
+  }
+
+  function handleConfirm() {
+    if (preview.length === 0) { toast.error('Nenhum item para importar.'); return; }
+    setOrderItems(prev => {
+      const merged = [...prev];
+      preview.forEach(newItem => {
+        const existingIdx = merged.findIndex(it => it.ite_produto === newItem.ite_produto);
+        if (existingIdx >= 0) {
+          const existing = merged[existingIdx];
+          const totalQuant = existing.ite_quant + newItem.ite_quant;
+          const totbruto   = (existing.ite_puni    || 0) * totalQuant;
+          const totliquido = (existing.ite_puniliq || 0) * totalQuant;
+          const valcomipi  = totliquido * (1 + (existing.ite_ipi || 0) / 100);
+          const valcomst   = valcomipi  * (1 + (existing.ite_st  || 0) / 100);
+          merged[existingIdx] = { ...existing, ite_quant: totalQuant, ite_totbruto: totbruto, ite_totliquido: totliquido, ite_valcomipi: valcomipi, ite_valcomst: valcomst };
+        } else {
+          merged.push({ ...newItem, ite_seq: merged.length + 1 });
+        }
+      });
+      return merged.map((it, i) => ({ ...it, ite_seq: i + 1 }));
+    });
+    toast.success(`${preview.length} item(s) importados da NF-e.`);
+    onDone();
+  }
+
+  const PURPLE = '#8B5CF6';
+
+  return (
+    <div style={{ padding: '24px 28px', background: G.bg, height: '100%', display: 'flex', flexDirection: 'column', gap: 18, overflowY: 'auto', boxSizing: 'border-box' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+        <button onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9, border: `1px solid ${G.border}`, background: G.card, fontSize: 11, fontWeight: 700, cursor: 'pointer', color: G.textMuted, flexShrink: 0 }}>
+          <ArrowLeft size={12} /> Voltar
+        </button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 900, color: G.text, letterSpacing: 0.3 }}>IMPORTAÇÃO NFE (XML)</div>
+          <div style={{ fontSize: 11, color: G.textMuted, marginTop: 3 }}>Selecione o arquivo XML da Nota Fiscal para extrair os itens automaticamente</div>
+        </div>
+      </div>
+
+      {/* Info cards */}
+      <div style={{ display: 'flex', gap: 12 }}>
+        {[
+          { icon: Tag,        color: PURPLE,    title: 'IDENTIFICAÇÃO', desc: 'Código do fabricante · tag <cProd> + <cEAN>' },
+          { icon: DollarSign, color: '#16A34A', title: 'VALORES',       desc: 'Quantidades · preços unitários · IPI · ST' },
+        ].map(({ icon: Icon, color, title, desc }) => (
+          <div key={title} style={{ flex: 1, background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: '12px 16px', borderLeft: `3px solid ${color}`, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 9, background: `${color}18`, border: `1px solid ${color}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Icon size={14} style={{ color }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 800, color: G.textMuted, textTransform: 'uppercase', letterSpacing: 0.6 }}>{title}</div>
+              <div style={{ fontSize: 11, color: G.textSec, marginTop: 2 }}>{desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Drop zone */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+        onClick={() => fileRef.current?.click()}
+        style={{ border: `2px dashed ${dragging ? PURPLE : G.border}`, borderRadius: 16, padding: '48px 24px', textAlign: 'center', background: dragging ? '#F5F3FF' : G.card, cursor: 'pointer', transition: 'all 0.15s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}
+      >
+        <input ref={fileRef} type="file" accept=".xml" style={{ display: 'none' }} onChange={onFileChange} />
+        <div style={{ width: 56, height: 56, borderRadius: 16, background: `${PURPLE}18`, border: `1px solid ${PURPLE}30`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <FileCode size={26} style={{ color: dragging ? PURPLE : G.textMuted }} />
+        </div>
+        {fileName
+          ? <p style={{ fontWeight: 800, fontSize: 14, color: PURPLE, margin: 0 }}>{fileName}</p>
+          : <><p style={{ fontWeight: 800, fontSize: 14, color: G.text, margin: 0 }}>Arraste o XML aqui</p>
+               <p style={{ fontSize: 12, color: G.textMuted, margin: 0 }}>ou clique para selecionar o arquivo .xml da NF-e</p></>
+        }
+      </div>
+
+      <ErrorPanel codes={errors} onDownload={() => downloadErrors(errors)} />
+
+      {preview.length > 0 && (
+        <div style={{ borderRadius: 12, border: `1px solid ${G.border}`, overflow: 'hidden' }}>
+          <div style={{ padding: '10px 14px', background: G.cardHi, borderBottom: `1px solid ${G.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <CheckCircle2 size={13} style={{ color: '#10B981' }} />
+            <span style={{ fontSize: 11, fontWeight: 800, color: G.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{preview.length} item(s) extraídos da NF-e</span>
+          </div>
+          <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead><tr style={{ background: G.cardHi }}>
+                {['Código', 'Descrição', 'Qtd', 'Preço Unit.', 'IPI', 'ST'].map(h => (
+                  <th key={h} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 800, color: G.textMuted, fontSize: 9, textTransform: 'uppercase', borderBottom: `1px solid ${G.border}` }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {preview.map((it, i) => (
+                  <tr key={it.tempId} style={{ background: i % 2 === 0 ? G.card : G.cardHi }}>
+                    <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontWeight: 700, color: G.textSec }}>{it.ite_produto}</td>
+                    <td style={{ padding: '6px 12px', color: G.text }}>{it.ite_nomeprod}</td>
+                    <td style={{ padding: '6px 12px', fontFamily: 'monospace' }}>{it.ite_quant}</td>
+                    <td style={{ padding: '6px 12px', fontFamily: 'monospace' }}>{(it.ite_puni || 0).toFixed(2)}</td>
+                    <td style={{ padding: '6px 12px', fontFamily: 'monospace', color: it.ite_ipi > 0 ? '#DC2626' : G.textMuted }}>{(it.ite_ipi || 0).toFixed(1)}%</td>
+                    <td style={{ padding: '6px 12px', fontFamily: 'monospace', color: it.ite_st > 0 ? '#D97600' : G.textMuted }}>{(it.ite_st || 0).toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {preview.length > 0 && (
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 4 }}>
+          <button onClick={onBack} style={{ padding: '9px 22px', borderRadius: 9, border: `1px solid ${G.border}`, background: G.cardHi, fontSize: 12, fontWeight: 700, cursor: 'pointer', color: G.textMuted }}>Cancelar</button>
+          <button onClick={handleConfirm} style={{ padding: '9px 28px', borderRadius: 9, border: 'none', background: PURPLE, fontSize: 12, fontWeight: 900, cursor: 'pointer', color: '#fff' }}>Confirmar {preview.length} item(s)</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Magic Load Modal ─────────────────────────────────────────────────────────
 
 type AiItem = { codigo: string; quantidade: number; preco?: number; descricao?: string };
@@ -816,9 +1029,11 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
 }) {
   const [dragging,  setDragging]  = useState(false);
   const [loading,   setLoading]   = useState(false);
-  // V1 flow: aiItems = ALL items returned by AI (shown for review before confirm)
   const [aiItems,   setAiItems]   = useState<AiItem[]>([]);
   const [fileName,  setFileName]  = useState('');
+  const [editIdx,   setEditIdx]   = useState<number | null>(null);
+  const [editCode,  setEditCode]  = useState('');
+  const [editQty,   setEditQty]   = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const ACCEPTED = '.pdf,.xlsx,.xls,.jpg,.jpeg,.png,.webp';
@@ -857,7 +1072,23 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
 
   function removeItem(idx: number) {
     setAiItems(prev => prev.filter((_, i) => i !== idx));
+    if (editIdx === idx) setEditIdx(null);
   }
+
+  function startEdit(idx: number) {
+    setEditIdx(idx);
+    setEditCode(aiItems[idx].codigo);
+    setEditQty(String(aiItems[idx].quantidade));
+  }
+
+  function commitEdit() {
+    if (editIdx === null) return;
+    const qty = parseFloat(editQty.replace(',', '.')) || 1;
+    setAiItems(prev => prev.map((it, i) => i === editIdx ? { ...it, codigo: editCode.trim(), quantidade: qty } : it));
+    setEditIdx(null);
+  }
+
+  const matchedCount = aiItems.filter(it => matchProduct(it.codigo, priceTableItems) !== null).length;
 
   function onDrop(e: React.DragEvent) {
     e.preventDefault(); setDragging(false);
@@ -1172,49 +1403,113 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
             </div>
           </div>
 
-          {/* V1-style: Preview table of ALL AI-extracted items */}
+          {/* Aviso: catálogo vazio */}
+          {priceTableItems.length === 0 && aiItems.length === 0 && !loading && (
+            <div style={{ borderRadius: 10, padding: '10px 14px', background: '#1C1000', border: '1px solid #F59E0B44', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <span style={{ fontSize: 15 }}>⚠️</span>
+              <span style={{ fontSize: 11, color: '#FCD34D', fontWeight: 600 }}>
+                Nenhuma tabela de preços carregada. Selecione a indústria e a tabela no pedido antes de usar o Magic Load.
+              </span>
+            </div>
+          )}
+
+          {/* Review table */}
           {aiItems.length > 0 && !loading && (
             <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #0A1E35', animation: 'ml-slide 0.3s ease-out' }}>
               <div style={{ padding: '8px 14px', background: '#071525', borderBottom: '1px solid #0A1E35', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', display: 'inline-block', boxShadow: '0 0 6px #10B981' }} />
                   <span style={{ fontSize: 10, fontWeight: 800, color: '#6EE7B7', textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                    Conferência de Itens ({aiItems.length})
+                    Conferência — {aiItems.length} item(s)
                   </span>
                 </div>
-                <span style={{ fontSize: 9, color: '#2E7A97', textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                  Revise antes de confirmar
-                </span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#10B981' }}>{matchedCount} encontrado(s)</span>
+                  {aiItems.length - matchedCount > 0 && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#F87171' }}>{aiItems.length - matchedCount} não encontrado(s)</span>
+                  )}
+                  <span style={{ fontSize: 9, color: '#2E7A97', letterSpacing: 0.5 }}>· clique no código para editar</span>
+                </div>
               </div>
-              <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+              <div style={{ maxHeight: 280, overflowY: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                   <thead>
                     <tr style={{ background: '#071020' }}>
-                      {['Código', 'Descrição', 'Qtd', 'Preço', ''].map(h => (
-                        <th key={h} style={{ padding: '7px 12px', textAlign: h === 'Qtd' || h === 'Preço' ? 'center' : 'left', fontWeight: 800, color: '#0A3558', fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8 }}>{h}</th>
+                      <th style={{ padding: '6px 10px', width: 20 }}></th>
+                      {['Código', 'Produto (tabela)', 'Qtd', 'Preço', ''].map(h => (
+                        <th key={h} style={{ padding: '6px 10px', textAlign: h === 'Qtd' || h === 'Preço' ? 'center' : 'left', fontWeight: 800, color: '#0A3558', fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8 }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {aiItems.map((it, i) => (
-                      <tr key={i} style={{ background: i % 2 === 0 ? '#030D1A' : '#071525', borderBottom: '1px solid #061525' }}>
-                        <td style={{ padding: '6px 12px', fontFamily: 'monospace', fontWeight: 700, color: '#38BDF8' }}>{it.codigo}</td>
-                        <td style={{ padding: '6px 12px', color: '#BAE6FD' }}>{it.descricao || 'Item importado via IA'}</td>
-                        <td style={{ padding: '6px 12px', fontFamily: 'monospace', color: '#4BAAC0', textAlign: 'center' }}>{it.quantidade}</td>
-                        <td style={{ padding: '6px 12px', fontFamily: 'monospace', color: '#4BAAC0', textAlign: 'center' }}>
-                          {it.preco && it.preco > 0
-                            ? it.preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                            : <span style={{ color: '#2E7A97', fontStyle: 'italic' }}>sob consulta</span>
-                          }
-                        </td>
-                        <td style={{ padding: '6px 8px', textAlign: 'center' }}>
-                          <button onClick={() => removeItem(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center' }}
-                            title="Remover">
-                            <X size={12} style={{ color: '#F87171' }} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {aiItems.map((it, i) => {
+                      const matched = matchProduct(it.codigo, priceTableItems);
+                      const isEditing = editIdx === i;
+                      const rowBg = i % 2 === 0 ? '#030D1A' : '#071525';
+                      return (
+                        <tr key={i} style={{ background: rowBg, borderBottom: '1px solid #061525' }}>
+                          {/* status indicator */}
+                          <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                            {matched
+                              ? <span style={{ color: '#10B981', fontSize: 14 }}>✓</span>
+                              : <span style={{ color: '#F87171', fontSize: 14 }}>✗</span>
+                            }
+                          </td>
+                          {/* código (clicável para editar) */}
+                          <td style={{ padding: '5px 10px' }}>
+                            {isEditing ? (
+                              <input
+                                autoFocus
+                                value={editCode}
+                                onChange={e => setEditCode(e.target.value)}
+                                onBlur={commitEdit}
+                                onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditIdx(null); }}
+                                style={{ background: '#0A2040', border: '1px solid #38BDF8', borderRadius: 4, color: '#38BDF8', fontFamily: 'monospace', fontWeight: 700, fontSize: 11, padding: '2px 6px', width: 90, outline: 'none' }}
+                              />
+                            ) : (
+                              <span
+                                onClick={() => startEdit(i)}
+                                title="Clique para editar o código"
+                                style={{ fontFamily: 'monospace', fontWeight: 700, color: matched ? '#38BDF8' : '#F87171', cursor: 'pointer', borderBottom: '1px dashed', borderColor: matched ? '#38BDF840' : '#F8717140', paddingBottom: 1 }}
+                              >{it.codigo}</span>
+                            )}
+                          </td>
+                          {/* nome do produto na tabela */}
+                          <td style={{ padding: '6px 10px', color: matched ? '#BAE6FD' : '#4B5563', fontStyle: matched ? 'normal' : 'italic', fontSize: 10 }}>
+                            {matched ? (matched.pro_nome || it.descricao || '—') : (it.descricao || 'não encontrado na tabela')}
+                          </td>
+                          {/* qtd editável */}
+                          <td style={{ padding: '5px 10px', textAlign: 'center' }}>
+                            {isEditing ? (
+                              <input
+                                value={editQty}
+                                onChange={e => setEditQty(e.target.value)}
+                                onBlur={commitEdit}
+                                onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditIdx(null); }}
+                                style={{ background: '#0A2040', border: '1px solid #38BDF8', borderRadius: 4, color: '#4BAAC0', fontFamily: 'monospace', fontSize: 11, padding: '2px 4px', width: 55, outline: 'none', textAlign: 'center' }}
+                              />
+                            ) : (
+                              <span
+                                onClick={() => startEdit(i)}
+                                title="Clique para editar a quantidade"
+                                style={{ fontFamily: 'monospace', color: '#4BAAC0', cursor: 'pointer' }}
+                              >{it.quantidade}</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: '#4BAAC0', textAlign: 'center' }}>
+                            {it.preco && it.preco > 0
+                              ? it.preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                              : <span style={{ color: '#2E7A97', fontStyle: 'italic' }}>tabela</span>
+                            }
+                          </td>
+                          <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                            <button onClick={() => removeItem(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center' }} title="Remover">
+                              <X size={12} style={{ color: '#F87171' }} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1229,14 +1524,14 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
             background: '#061525', fontSize: 12, fontWeight: 700, cursor: 'pointer', color: '#2E7A97',
           }}>Cancelar</button>
           {aiItems.length > 0 && !loading && (
-            <button onClick={handleConfirm} style={{
+            <button onClick={handleConfirm} disabled={matchedCount === 0} style={{
               padding: '9px 26px', borderRadius: 10, border: 'none',
-              background: 'linear-gradient(135deg, #0EA5E9, #06B6D4)',
-              fontSize: 12, fontWeight: 900, cursor: 'pointer', color: '#fff',
-              boxShadow: '0 0 20px #0EA5E955, 0 4px 12px rgba(0,0,0,0.3)',
+              background: matchedCount === 0 ? '#1F2937' : 'linear-gradient(135deg, #0EA5E9, #06B6D4)',
+              fontSize: 12, fontWeight: 900, cursor: matchedCount === 0 ? 'not-allowed' : 'pointer', color: matchedCount === 0 ? '#4B5563' : '#fff',
+              boxShadow: matchedCount === 0 ? 'none' : '0 0 20px #0EA5E955, 0 4px 12px rgba(0,0,0,0.3)',
               display: 'flex', alignItems: 'center', gap: 7,
             }}>
-              <Wand2 size={13} /> Confirmar Tudo ({aiItems.length})
+              <Wand2 size={13} /> Importar {matchedCount} de {aiItems.length}
             </button>
           )}
         </div>

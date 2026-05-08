@@ -610,3 +610,129 @@ export async function exportOspinaHandler(req: Request, res: Response): Promise<
         res.status(500).json({ success: false, message: error.message });
     }
 }
+
+// ─── 9. SINALSUL (.txt) — Fixed-width positional ─────────────────────────────
+export async function exportSinalsulHandler(req: Request, res: Response): Promise<void> {
+    const pedPedido = String(req.params.id);
+    const db = req.db!;
+    try {
+        const items = (await db.query(`
+            SELECT i.ite_produto, i.ite_quant, i.ite_seq, p.ped_cliind
+            FROM itens_ped i
+            JOIN pedidos p ON TRIM(p.ped_pedido) = TRIM(i.ite_pedido)
+            WHERE TRIM(i.ite_pedido) = TRIM($1)
+            ORDER BY i.ite_lancto
+        `, [pedPedido])).rows;
+
+        if (!items.length) { res.status(404).json({ success: false, message: 'Pedido sem itens.' }); return; }
+
+        const padR     = (s: any, n: number) => String(s || '').substring(0, n).padEnd(n, ' ');
+        const strZero  = (n: any, digits: number) => String(Math.trunc(Number(n) || 0)).padStart(digits, '0');
+
+        let content = '';
+        items.forEach((item: any) => {
+            let line = padR(item.ite_produto, 15);
+            line += strZero(item.ite_quant, 6) + ',0000';
+            line += padR(item.ped_cliind, 40);
+            line += strZero(item.ite_seq, 6);
+            content += line + '\r\n';
+        });
+
+        handleFileDownload(res, content, `${pedPedido}.txt`);
+    } catch (error: any) {
+        console.error('❌ [PORTAL] Erro SINALSUL:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+}
+
+// ─── 10. PHINIA (.xlsx) — Codigo | Quantidade ────────────────────────────────
+export async function exportPhiniaHandler(req: Request, res: Response): Promise<void> {
+    const pedPedido = String(req.params.id);
+    const db = req.db!;
+    try {
+        const items = (await db.query(`
+            SELECT ite_produto, ite_quant
+            FROM itens_ped WHERE TRIM(ite_pedido) = TRIM($1) ORDER BY ite_lancto
+        `, [pedPedido])).rows;
+        if (!items.length) { res.status(404).json({ success: false, message: 'Pedido sem itens.' }); return; }
+
+        let content = '';
+        items.forEach((item: any) => {
+            content += `${item.ite_produto || ''};${Math.trunc(item.ite_quant || 0)}\r\n`;
+        });
+
+        handleFileDownload(res, content, `${pedPedido}.csv`, 'text/csv', 'utf8');
+    } catch (error: any) {
+        console.error('❌ [PORTAL] Erro PHINIA:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+}
+
+// ─── 11. TSA (.xlsx) — Ítem | Descrição | Quantidade | Data de entrega ────────
+export async function exportBorgHandler(req: Request, res: Response): Promise<void> {
+    const pedPedido = String(req.params.id);
+    const db = req.db!;
+    try {
+        const items = (await db.query(`
+            SELECT ite_produto, ite_quant
+            FROM itens_ped WHERE TRIM(ite_pedido) = TRIM($1) ORDER BY ite_lancto
+        `, [pedPedido])).rows;
+        if (!items.length) { res.status(404).json({ success: false, message: 'Pedido sem itens.' }); return; }
+
+        let content = '';
+        items.forEach((item: any) => {
+            content += `${item.ite_produto || ''};${Math.trunc(item.ite_quant || 0)}\r\n`;
+        });
+
+        handleFileDownload(res, content, `${pedPedido}.csv`, 'text/csv', 'utf8');
+    } catch (error: any) {
+        console.error('❌ [PORTAL] Erro BORG:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+}
+
+export async function exportTsaHandler(req: Request, res: Response): Promise<void> {
+    const pedPedido = String(req.params.id);
+    const db = req.db!;
+    try {
+        const items = (await db.query(
+            `SELECT ite_produto, ite_nomeprod, ite_quant
+             FROM itens_ped
+             WHERE TRIM(ite_pedido) = TRIM($1)
+             ORDER BY ite_seq`,
+            [pedPedido]
+        )).rows;
+
+        if (!items.length) {
+            res.status(404).json({ success: false, message: 'Nenhum item encontrado para este pedido.' });
+            return;
+        }
+
+        const rows = [
+            ['Ítem', 'Descrição', 'Quantidade', 'Data de entrega'],
+            ...items.map((item: any) => [
+                item.ite_produto,
+                item.ite_nomeprod,
+                Number(item.ite_quant),
+                '',
+            ]),
+        ];
+
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        // Largura de colunas
+        ws['!cols'] = [{ wch: 18 }, { wch: 50 }, { wch: 14 }, { wch: 20 }];
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Pedido');
+
+        const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        const filename = `TSA_${pedPedido}.xlsx`;
+        res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        console.log(`✅ [PORTAL] Arquivo gerado: ${filename}`);
+        res.send(buf);
+    } catch (error: any) {
+        console.error('❌ [PORTAL] Erro TSA:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+}

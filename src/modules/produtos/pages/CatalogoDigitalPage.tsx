@@ -29,6 +29,7 @@ interface CatalogProduct {
   pro_codigonormalizado: string | null;
   pro_conversao: string | null;
   pro_codigooriginal: string | null;
+  pro_ciclo: string | null;
 }
 
 interface ProductForm {
@@ -39,6 +40,7 @@ interface ProductForm {
   linhaleve: boolean; linhapesada: boolean; linhaagricola: boolean;
   linhautilitarios: boolean; motocicletas: boolean; offroad: boolean;
   linhaamarela: boolean;
+  ciclo: string;
 }
 
 interface SelectOption { value: string | number; label: string }
@@ -49,6 +51,7 @@ const emptyForm: ProductForm = {
   linhaleve: false, linhapesada: false, linhaagricola: false,
   linhautilitarios: false, motocicletas: false, offroad: false,
   linhaamarela: false,
+  ciclo: 'C',
 };
 
 const sel: React.CSSProperties = {
@@ -179,6 +182,7 @@ export default function CatalogoDigitalPage() {
         linhaagricola: !!d.pro_linhaagricola, linhautilitarios: !!d.pro_linhautilitarios,
         motocicletas: !!d.pro_motocicletas, offroad: !!d.pro_offroad,
         linhaamarela: !!d.pro_linhaamarela,
+        ciclo: d.pro_ciclo || 'C',
       });
       setView('form');
     } catch (err: any) {
@@ -207,6 +211,7 @@ export default function CatalogoDigitalPage() {
         linhaagricola: editing.linhaagricola, linhautilitarios: editing.linhautilitarios,
         motocicletas: editing.motocicletas, offroad: editing.offroad,
         linhaamarela: editing.linhaamarela,
+        ciclo: editing.ciclo || 'C',
       });
       toast.success(editing.pro_id ? 'Produto atualizado.' : 'Produto cadastrado.');
       cancel(); load();
@@ -312,7 +317,12 @@ export default function CatalogoDigitalPage() {
                 value={editing.peso} onChange={e => set('peso', e.target.value)}
                 onKeyDown={onEnterTab} placeholder="0.000" />
             </Field>
-            <div />
+            <Field label="Ciclo">
+              <select style={sel} value={editing.ciclo} onChange={e => set('ciclo', e.target.value)}>
+                <option value="C">C — Corrente</option>
+                <option value="L">L — Lançamento</option>
+              </select>
+            </Field>
           </FormRow>
           <Field label="Conversão">
             <input style={inp} value={editing.conversao}
@@ -437,6 +447,7 @@ export default function CatalogoDigitalPage() {
                 <th style={{ ...thBase, width: 70, textAlign: 'right' }}>Peso</th>
                 <th style={{ ...thBase, width: 50, textAlign: 'center' }}>EMB</th>
                 <th style={{ ...thBase, width: 46, textAlign: 'center' }}>GRP</th>
+                <th style={{ ...thBase, width: 52, textAlign: 'center' }}>CICLO</th>
                 {LINE_COLS.map(c => (
                   <th key={c.key} style={{ ...thBase, width: 46, textAlign: 'center', color: c.color }}>
                     {c.label}
@@ -449,14 +460,14 @@ export default function CatalogoDigitalPage() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={13} style={{ ...tdBase, textAlign: 'center', color: G.textMuted, padding: '40px 0' }}>
+                  <td colSpan={14} style={{ ...tdBase, textAlign: 'center', color: G.textMuted, padding: '40px 0' }}>
                     Carregando...
                   </td>
                 </tr>
               )}
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={13} style={{ ...tdBase, textAlign: 'center', color: G.textMuted, padding: '40px 0' }}>
+                  <td colSpan={14} style={{ ...tdBase, textAlign: 'center', color: G.textMuted, padding: '40px 0' }}>
                     Nenhum produto encontrado.
                   </td>
                 </tr>
@@ -504,6 +515,23 @@ export default function CatalogoDigitalPage() {
                   {/* Grupo */}
                   <td style={{ ...tdBase, textAlign: 'center', color: G.textMuted, fontSize: 12 }}>
                     {row.pro_grupo || ''}
+                  </td>
+
+                  {/* Ciclo */}
+                  <td style={{ ...tdBase, textAlign: 'center' }}>
+                    {row.pro_ciclo === 'L' ? (
+                      <span style={{
+                        display: 'inline-block', padding: '1px 7px', borderRadius: 6,
+                        fontSize: 11, fontWeight: 800, letterSpacing: '0.05em',
+                        background: '#FEF9C3', color: '#854D0E', border: '1px solid #FDE047',
+                      }}>L</span>
+                    ) : (
+                      <span style={{
+                        display: 'inline-block', padding: '1px 7px', borderRadius: 6,
+                        fontSize: 11, fontWeight: 800, letterSpacing: '0.05em',
+                        background: '#DBEAFE', color: '#1E40AF', border: '1px solid #BFDBFE',
+                      }}>C</span>
+                    )}
                   </td>
 
                   {/* Line flags — individual columns */}

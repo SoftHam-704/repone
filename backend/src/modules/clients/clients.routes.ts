@@ -21,6 +21,7 @@ import {
   upsertProspeccaoHandler,
   listAreasHandler,
   upsertAreasHandler,
+  vincularRegioesHandler,
 } from './clients.controller';
 
 const router = Router();
@@ -28,6 +29,7 @@ const router = Router();
 router.use(authMiddleware, tenantMiddleware);
 
 router.get('/',      listClientsHandler);
+router.post('/vincular-regioes', vincularRegioesHandler);
 router.get('/:id',   getClientHandler);
 router.post('/',     createClientHandler);
 router.put('/:id',   updateClientHandler);

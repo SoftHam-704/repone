@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { BarChart2 } from 'lucide-react';
+import { BarChart2, FileDown } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 
 interface Props { dataInicio: string; dataFim: string; }
-interface RawRow { industria_nome: string; mes: string; valor: number; qtd: number; }
+interface RawRow { industria_nome: string; vendedor_nome: string; mes: string; valor: number; qtd: number; }
 interface IndOpt  { id: number; nome: string; }
 interface CliOpt  { id: number; nome: string; }
 interface VenOpt  { id: number; nome: string; }
@@ -57,39 +58,65 @@ export default function VendaMensalIndustria({ dataInicio, dataFim }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  const { meses, indNomes, pivot, totalPorMes, totalPorInd, grandVal, grandQtd } = useMemo(() => {
-    const mesSet = new Set<string>();
-    const indSet = new Set<string>();
-    for (const r of rows) { mesSet.add(r.mes); indSet.add(r.industria_nome); }
+  type RowKey = { key: string; industria: string; vendedor: string };
 
-    const meses    = [...mesSet].sort((a, b) => parseMonthKey(a) - parseMonthKey(b));
-    const indNomes = [...indSet].sort();
+  const { meses, rowKeys, pivot, totalPorMes, totalPorRow, grandVal, grandQtd } = useMemo(() => {
+    const mesSet = new Set<string>();
+    const keySet = new Map<string, RowKey>();
+    for (const r of rows) {
+      mesSet.add(r.mes);
+      const key = `${r.industria_nome}||${r.vendedor_nome}`;
+      if (!keySet.has(key)) keySet.set(key, { key, industria: r.industria_nome, vendedor: r.vendedor_nome });
+    }
+
+    const meses   = [...mesSet].sort((a, b) => parseMonthKey(a) - parseMonthKey(b));
+    const rowKeys = [...keySet.values()].sort((a, b) => a.industria.localeCompare(b.industria) || a.vendedor.localeCompare(b.vendedor));
 
     const pivotV: Record<string, Record<string, number>> = {};
     const pivotQ: Record<string, Record<string, number>> = {};
     for (const r of rows) {
-      if (!pivotV[r.industria_nome]) { pivotV[r.industria_nome] = {}; pivotQ[r.industria_nome] = {}; }
-      pivotV[r.industria_nome][r.mes] = r.valor;
-      pivotQ[r.industria_nome][r.mes] = r.qtd;
+      const k = `${r.industria_nome}||${r.vendedor_nome}`;
+      if (!pivotV[k]) { pivotV[k] = {}; pivotQ[k] = {}; }
+      pivotV[k][r.mes] = (pivotV[k][r.mes] || 0) + r.valor;
+      pivotQ[k][r.mes] = (pivotQ[k][r.mes] || 0) + r.qtd;
     }
 
     const totalPorMes: Record<string, { v: number; q: number }> = {};
-    const totalPorInd: Record<string, { v: number; q: number }> = {};
+    const totalPorRow: Record<string, { v: number; q: number }> = {};
     let grandVal = 0, grandQtd = 0;
 
     for (const m of meses) {
       totalPorMes[m] = { v: 0, q: 0 };
-      for (const ind of indNomes) {
-        const v = pivotV[ind]?.[m] || 0, q = pivotQ[ind]?.[m] || 0;
+      for (const rk of rowKeys) {
+        const v = pivotV[rk.key]?.[m] || 0, q = pivotQ[rk.key]?.[m] || 0;
         totalPorMes[m].v += v; totalPorMes[m].q += q;
-        if (!totalPorInd[ind]) totalPorInd[ind] = { v: 0, q: 0 };
-        totalPorInd[ind].v += v; totalPorInd[ind].q += q;
+        if (!totalPorRow[rk.key]) totalPorRow[rk.key] = { v: 0, q: 0 };
+        totalPorRow[rk.key].v += v; totalPorRow[rk.key].q += q;
         grandVal += v; grandQtd += q;
       }
     }
 
-    return { meses, indNomes, pivot: { v: pivotV, q: pivotQ }, totalPorMes, totalPorInd, grandVal, grandQtd };
+    return { meses, rowKeys, pivot: { v: pivotV, q: pivotQ }, totalPorMes, totalPorRow, grandVal, grandQtd };
   }, [rows]);
+
+  const exportExcel = () => {
+    if (!rows.length) return;
+    const header = ['Indústria', 'Vendedor', ...meses.flatMap(m => showV && showQ ? [`${m} R$`, `${m} Qtd`] : showV ? [`${m} R$`] : [`${m} Qtd`]), 'Total R$', 'Total Qtd'];
+    const data = rowKeys.map(rk => [
+      rk.industria,
+      rk.vendedor,
+      ...meses.flatMap(m => {
+        const v = pivot.v[rk.key]?.[m] || 0, q = pivot.q[rk.key]?.[m] || 0;
+        return showV && showQ ? [v, q] : showV ? [v] : [q];
+      }),
+      totalPorRow[rk.key]?.v || 0,
+      totalPorRow[rk.key]?.q || 0,
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Venda Mensal Indústria');
+    XLSX.writeFile(wb, `VendaMensalIndustria_${dataInicio}_${dataFim}.xlsx`);
+  };
 
   const showV = viewMode === 'ambos' || viewMode === 'valor';
   const showQ = viewMode === 'ambos' || viewMode === 'qtd';
@@ -136,37 +163,50 @@ export default function VendaMensalIndustria({ dataInicio, dataFim }: Props) {
           Rede de Lojas
         </label>
 
-        <button onClick={load} disabled={loading} style={{
-          padding: '7px 20px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-          background: G.mustard, color: G.text, border: 'none', cursor: 'pointer',
-          marginLeft: 'auto', alignSelf: 'flex-end',
-        }}>
-          {loading ? 'Carregando...' : 'Buscar'}
-        </button>
+        <div style={{ marginLeft: 'auto', alignSelf: 'flex-end', display: 'flex', gap: 8 }}>
+          {rows.length > 0 && (
+            <button onClick={exportExcel} style={{
+              padding: '7px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+              background: '#16A34A', color: '#fff', border: 'none', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <FileDown size={14} /> Excel
+            </button>
+          )}
+          <button onClick={load} disabled={loading} style={{
+            padding: '7px 20px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+            background: G.mustard, color: G.text, border: 'none', cursor: 'pointer',
+          }}>
+            {loading ? 'Carregando...' : 'Buscar'}
+          </button>
+        </div>
       </div>
 
       {error && <div style={{ padding: '10px 16px', borderRadius: 10, background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', fontSize: 12, fontWeight: 600 }}>{error}</div>}
 
-      {!loading && indNomes.length === 0 && (
+      {!loading && rowKeys.length === 0 && (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: G.textMuted }}>
           <BarChart2 size={40} style={{ opacity: 0.3 }} />
           <span style={{ fontSize: 13, fontWeight: 600 }}>Nenhum dado encontrado para o período</span>
         </div>
       )}
 
-      {!loading && indNomes.length > 0 && (
+      {!loading && rowKeys.length > 0 && (
         <div style={{ fontSize: 11, color: G.textMuted, fontWeight: 600 }}>
-          {indNomes.length} indústria{indNomes.length !== 1 ? 's' : ''} · {meses.length} meses · Total: <strong style={{ color: G.text }}>{fmtVal(grandVal)}</strong>
+          {rowKeys.length} linha{rowKeys.length !== 1 ? 's' : ''} · {meses.length} meses · Total: <strong style={{ color: G.text }}>{fmtVal(grandVal)}</strong>
         </div>
       )}
 
-      {!loading && indNomes.length > 0 && (
+      {!loading && rowKeys.length > 0 && (
         <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', borderRadius: 12, border: `1px solid ${G.border}` }}>
           <table style={{ borderCollapse: 'collapse', fontSize: 11, width: '100%' }}>
             <thead>
               <tr>
                 <th style={{ position: 'sticky', left: 0, zIndex: 3, background: NAVY_DARK, color: G.mustard, padding: '10px 14px', textAlign: 'left', fontWeight: 700, borderRight: `1px solid ${NAVY}`, borderBottom: `1px solid ${NAVY}`, whiteSpace: 'nowrap', minWidth: 180 }}>
                   Indústria
+                </th>
+                <th style={{ position: 'sticky', left: 180, zIndex: 3, background: NAVY_DARK, color: G.mustard, padding: '10px 14px', textAlign: 'left', fontWeight: 700, borderRight: `1px solid ${NAVY}`, borderBottom: `1px solid ${NAVY}`, whiteSpace: 'nowrap', minWidth: 140 }}>
+                  Vendedor
                 </th>
                 {meses.map(m => (
                   <th key={m} colSpan={showV && showQ ? 2 : 1} style={{ background: NAVY_DARK, color: G.mustard, padding: '10px 12px', textAlign: 'center', fontWeight: 700, borderRight: `1px solid ${NAVY}`, borderBottom: `1px solid ${NAVY}`, whiteSpace: 'nowrap', minWidth: showV && showQ ? 160 : 110 }}>
@@ -180,6 +220,7 @@ export default function VendaMensalIndustria({ dataInicio, dataFim }: Props) {
               {showV && showQ && (
                 <tr>
                   <th style={{ position: 'sticky', left: 0, zIndex: 3, background: NAVY_DARK, borderRight: `1px solid ${NAVY}`, borderBottom: `2px solid ${NAVY}` }} />
+                  <th style={{ position: 'sticky', left: 180, zIndex: 3, background: NAVY_DARK, borderRight: `1px solid ${NAVY}`, borderBottom: `2px solid ${NAVY}` }} />
                   {meses.map(m => [
                     <th key={`${m}-v`} style={{ background: `${NAVY_DARK}CC`, color: '#94A3B8', padding: '4px 10px', textAlign: 'right', fontWeight: 600, fontSize: 9, borderRight: `1px solid ${NAVY}55`, borderBottom: `2px solid ${NAVY}`, whiteSpace: 'nowrap' }}>R$</th>,
                     <th key={`${m}-q`} style={{ background: `${NAVY_DARK}CC`, color: '#94A3B8', padding: '4px 10px', textAlign: 'right', fontWeight: 600, fontSize: 9, borderRight: `1px solid ${NAVY}`, borderBottom: `2px solid ${NAVY}`, whiteSpace: 'nowrap' }}>Qtd</th>,
@@ -189,30 +230,37 @@ export default function VendaMensalIndustria({ dataInicio, dataFim }: Props) {
               )}
             </thead>
             <tbody>
-              {indNomes.map((ind, idx) => (
-                <tr key={ind} style={{ background: idx % 2 === 0 ? G.card : G.bg }}>
-                  <td style={{ position: 'sticky', left: 0, zIndex: 2, background: idx % 2 === 0 ? G.card : G.bg, padding: '7px 14px', fontWeight: 700, color: G.text, borderRight: `1px solid ${G.border}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 200 }}>
-                    {ind}
-                  </td>
-                  {meses.map(m => {
-                    const v = pivot.v[ind]?.[m] || 0;
-                    const q = pivot.q[ind]?.[m] || 0;
-                    return [
-                      showV && <td key={`${m}-v`} style={{ padding: '7px 10px', textAlign: 'right', color: v === 0 ? G.textMuted : G.text, fontWeight: v === 0 ? 400 : 600, borderRight: showQ ? `1px solid ${G.border}55` : `1px solid ${G.border}` }}>{v === 0 ? '—' : fmtVal(v)}</td>,
-                      showQ && <td key={`${m}-q`} style={{ padding: '7px 10px', textAlign: 'right', color: q === 0 ? G.textMuted : G.text, fontWeight: q === 0 ? 400 : 500, borderRight: `1px solid ${G.border}` }}>{fmtQtd(q)}</td>,
-                    ];
-                  })}
-                  <td style={{ position: 'sticky', right: 0, zIndex: 2, background: NAVY, color: G.mustard, padding: '7px 14px', textAlign: 'right', fontWeight: 700, borderLeft: `2px solid ${NAVY_DARK}` }}>
-                    {showV && fmtVal(totalPorInd[ind]?.v || 0)}
-                    {showV && showQ && <br />}
-                    {showQ && <span style={{ fontSize: 10, opacity: 0.8 }}>{fmtQtd(totalPorInd[ind]?.q || 0)}</span>}
-                  </td>
-                </tr>
-              ))}
+              {rowKeys.map((rk, idx) => {
+                const bg = idx % 2 === 0 ? G.card : G.bg;
+                return (
+                  <tr key={rk.key} style={{ background: bg }}>
+                    <td style={{ position: 'sticky', left: 0, zIndex: 2, background: bg, padding: '7px 14px', fontWeight: 700, color: G.text, borderRight: `1px solid ${G.border}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>
+                      {rk.industria}
+                    </td>
+                    <td style={{ position: 'sticky', left: 180, zIndex: 2, background: bg, padding: '7px 14px', fontWeight: 500, color: G.textSec, borderRight: `1px solid ${G.border}`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
+                      {rk.vendedor}
+                    </td>
+                    {meses.map(m => {
+                      const v = pivot.v[rk.key]?.[m] || 0;
+                      const q = pivot.q[rk.key]?.[m] || 0;
+                      return [
+                        showV && <td key={`${m}-v`} style={{ padding: '7px 10px', textAlign: 'right', color: v === 0 ? G.textMuted : G.text, fontWeight: v === 0 ? 400 : 600, borderRight: showQ ? `1px solid ${G.border}55` : `1px solid ${G.border}` }}>{v === 0 ? '—' : fmtVal(v)}</td>,
+                        showQ && <td key={`${m}-q`} style={{ padding: '7px 10px', textAlign: 'right', color: q === 0 ? G.textMuted : G.text, fontWeight: q === 0 ? 400 : 500, borderRight: `1px solid ${G.border}` }}>{fmtQtd(q)}</td>,
+                      ];
+                    })}
+                    <td style={{ position: 'sticky', right: 0, zIndex: 2, background: NAVY, color: G.mustard, padding: '7px 14px', textAlign: 'right', fontWeight: 700, borderLeft: `2px solid ${NAVY_DARK}` }}>
+                      {showV && fmtVal(totalPorRow[rk.key]?.v || 0)}
+                      {showV && showQ && <br />}
+                      {showQ && <span style={{ fontSize: 10, opacity: 0.8 }}>{fmtQtd(totalPorRow[rk.key]?.q || 0)}</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr>
                 <td style={{ position: 'sticky', left: 0, zIndex: 3, background: NAVY_DARK, color: G.mustard, padding: '9px 14px', fontWeight: 800, fontSize: 11, borderTop: `2px solid ${NAVY}`, textTransform: 'uppercase', letterSpacing: 0.5 }}>TOTAL</td>
+                <td style={{ position: 'sticky', left: 180, zIndex: 3, background: NAVY_DARK, borderTop: `2px solid ${NAVY}`, borderRight: `1px solid ${NAVY}` }} />
                 {meses.map(m => [
                   showV && <td key={`${m}-v`} style={{ background: NAVY, color: G.mustard, padding: '9px 10px', textAlign: 'right', fontWeight: 700, borderTop: `2px solid ${NAVY}`, borderRight: showQ ? `1px solid ${NAVY_DARK}` : `1px solid ${NAVY}` }}>{fmtVal(totalPorMes[m]?.v || 0)}</td>,
                   showQ && <td key={`${m}-q`} style={{ background: NAVY, color: '#94A3B8', padding: '9px 10px', textAlign: 'right', fontWeight: 600, borderTop: `2px solid ${NAVY}`, borderRight: `1px solid ${NAVY}` }}>{fmtQtd(totalPorMes[m]?.q || 0)}</td>,

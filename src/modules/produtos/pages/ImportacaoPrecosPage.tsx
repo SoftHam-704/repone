@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, CSSProperties } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Upload, AlertCircle, CheckCircle2, Info, Sparkles, X, FileSpreadsheet,
   Calendar, Factory, Tag, Package, FileText, Barcode,
-  ChevronLeft, ChevronRight, Plus, Wand2, ArrowLeft, Loader2,
+  ChevronLeft, ChevronRight, Plus, Wand2, ArrowLeft, Loader2, HelpCircle,
 } from 'lucide-react';
 import { api } from '@/shared/lib/api';
 import { toast } from 'sonner';
@@ -16,7 +17,7 @@ interface ErroDetalhe   { codigo: string; descricao: string; erro: string; }
 type TextareaKey =
   | 'codigo' | 'complemento' | 'nome' | 'linha' | 'precobruto' | 'precopromo' | 'precoespecial'
   | 'grupo'  | 'aplicacao'   | 'embalagem' | 'peso' | 'prepeso' | 'itab_grupodesconto' | 'ipi' | 'st'
-  | 'codigooriginal' | 'codbarras' | 'descontoadd' | 'ncm' | 'curva' | 'categoria' | 'conversao';
+  | 'codigooriginal' | 'codbarras' | 'descontoadd' | 'ncm' | 'curva' | 'categoria' | 'conversao' | 'ciclo';
 
 type TextareasState = Record<TextareaKey, string>;
 
@@ -75,13 +76,13 @@ const TABS = [
   { id: 1, label: 'Detalhes do Produto',       Icon: FileText, color: C.blue,
     fields: ['grupo','aplicacao','embalagem','peso','prepeso','itab_grupodesconto','ipi','st'] as TextareaKey[] },
   { id: 2, label: 'Códigos e Classificações',  Icon: Barcode, color: C.purple,
-    fields: ['codigooriginal','codbarras','descontoadd','ncm','curva','categoria','conversao'] as TextareaKey[] },
+    fields: ['codigooriginal','codbarras','descontoadd','ncm','curva','categoria','conversao','ciclo'] as TextareaKey[] },
 ];
 
 const FIELD_LABELS: Record<TextareaKey, { label: string; required: boolean; fullWidth?: boolean; wide?: boolean }> = {
   codigo:             { label: 'Código',             required: true  },
   complemento:        { label: 'Complemento',         required: false },
-  nome:               { label: 'Nome do Produto',     required: true, wide: true },
+  nome:               { label: 'Nome do Produto',     required: true, fullWidth: true },
   linha:              { label: 'Marca / Linha',       required: false },
   precobruto:         { label: 'Preço Bruto',         required: true  },
   precopromo:         { label: 'Preço Promoção',      required: false },
@@ -101,13 +102,14 @@ const FIELD_LABELS: Record<TextareaKey, { label: string; required: boolean; full
   categoria:          { label: 'Categoria',           required: false },
   conversao:          { label: 'Conversão',           required: false },
   itab_grupodesconto: { label: 'Grupo de Desconto',   required: false },
+  ciclo:              { label: 'Ciclo (C=Corrente / L=Lançamento)', required: false },
 };
 
 const EMPTY: TextareasState = {
   codigo:'', complemento:'', nome:'', linha:'', precobruto:'', precopromo:'', precoespecial:'',
   grupo:'', aplicacao:'', embalagem:'', peso:'', ipi:'', st:'', prepeso:'',
   codigooriginal:'', codbarras:'', descontoadd:'', ncm:'', curva:'',
-  categoria:'', conversao:'', itab_grupodesconto:'',
+  categoria:'', conversao:'', itab_grupodesconto:'', ciclo:'',
 };
 
 // ─── Inline style helpers ─────────────────────────────────────────────────────
@@ -122,21 +124,20 @@ const btnBase: CSSProperties = {
 
 // ─── Classic Import ───────────────────────────────────────────────────────────
 function ClassicImport() {
-  const [activeTab, setActiveTab]         = useState(0);
-  const [direction, setDirection]         = useState(0);
-  const [formData, setFormData]           = useState({
+  const [activeTab, setActiveTab]           = useState(0);
+  const [formData, setFormData]             = useState({
     industria: '', nomeTabela: '',
     dataTabela: new Date().toISOString().split('T')[0], dataVencimento: '',
   });
-  const [textareas, setTextareas]         = useState<TextareasState>(EMPTY);
-  const [lineCounts, setLineCounts]       = useState<Record<string,number>>({});
-  const [adjustments, setAdjustments]    = useState<Record<string,number>>({});
-  const [isValid, setIsValid]             = useState(false);
-  const [industries, setIndustries]       = useState<Industry[]>([]);
+  const [textareas, setTextareas]           = useState<TextareasState>(EMPTY);
+  const [lineCounts, setLineCounts]         = useState<Record<string,number>>({});
+  const [adjustments, setAdjustments]       = useState<Record<string,number>>({});
+  const [isValid, setIsValid]               = useState(false);
+  const [industries, setIndustries]         = useState<Industry[]>([]);
   const [existingTables, setExistingTables] = useState<ExistingTable[]>([]);
-  const [importing, setImporting]         = useState(false);
-  const [result, setResult]               = useState<ImportResult | null>(null);
-  const [progress, setProgress]           = useState({ current:0, total:0, percentage:0 });
+  const [importing, setImporting]           = useState(false);
+  const [result, setResult]                 = useState<ImportResult | null>(null);
+  const [progress, setProgress]             = useState({ current:0, total:0, percentage:0 });
   const [showNewTableInput, setShowNewTableInput] = useState(false);
 
   useEffect(() => {
@@ -164,8 +165,6 @@ function ClassicImport() {
     const active = (Object.keys(textareas) as TextareaKey[]).filter(k => raw[k] > 0);
     setIsValid(active.length > 0 && active.every(k => raw[k] === raw[active[0]]) && (raw.codigo || 0) > 0);
   }, [textareas]);
-
-  const navigateTab = (n: number) => { setDirection(n > activeTab ? 1 : -1); setActiveTab(n); };
 
   const parseValue = (val: string | undefined): number | null => {
     if (!val && val !== '0') return null;
@@ -202,6 +201,7 @@ function ClassicImport() {
           descontoadd:   hasField('descontoadd')   ? parseValue(get('descontoadd',i))   : null,
           ncm: get('ncm',i), curva: get('curva',i), categoria: get('categoria',i), conversao: get('conversao',i),
           grupodesconto: hasField('itab_grupodesconto') ? get('itab_grupodesconto',i) : null,
+          ciclo: (['C','c','L','l'].includes(get('ciclo',i))) ? get('ciclo',i).toUpperCase() : 'C',
         });
       }
       const lotes: typeof produtos[] = [];
@@ -228,318 +228,253 @@ function ClassicImport() {
     } finally { setImporting(false); }
   };
 
-  const getCountColor = (field: TextareaKey) => {
-    const cur = smartSplit(textareas[field]).lines.length;
-    if (cur === 0) return C.slate400;
-    return cur === smartSplit(textareas.codigo).lines.length ? C.emerald : C.red500;
-  };
-
   const getTabCount = (idx: number) => {
-    const tab = TABS[idx];
-    const counts = tab.fields.map(f => lineCounts[f] || 0).filter(c => c > 0);
+    const t = TABS[idx];
+    const counts = t.fields.map(f => lineCounts[f] || 0).filter(c => c > 0);
     return counts.length > 0 ? counts[0] : 0;
   };
 
-  const slideVariants = {
-    enter: (d: number) => ({ x: d > 0 ? 500 : -500, opacity: 0 }),
-    center: { zIndex: 1, x: 0, opacity: 1 },
-    exit:  (d: number) => ({ zIndex: 0, x: d < 0 ? 500 : -500, opacity: 0 }),
+  const isExisting = existingTables.some(t => t.nome_tabela === formData.nomeTabela);
+  const canImport  = isValid && !importing && !!formData.industria && !!formData.nomeTabela;
+
+  // ── Design tokens ──
+  const V = {
+    bg: '#E8E1D4', bgField: '#F5F0E8', bgCard: '#FDFCFA',
+    navy: '#1E2D3D', navyMid: '#28374A', navyBorder: '#334155',
+    gold: '#B8962E', goldLight: '#D4A843',
+    border: '#D4C9B8',
+    textLight: '#E2D9C8', textMuted: '#94A3B8', textDim: '#64748B',
+    white: '#ffffff', red: '#ef4444',
   };
 
-  const tabBg = (color: string) =>
-    color === C.emerald ? `linear-gradient(to right,${C.emerald},${C.emeraldDark})`
-    : color === C.blue  ? 'linear-gradient(to right,#3b82f6,#2563eb)'
-    :                     'linear-gradient(to right,#8b5cf6,#7c3aed)';
-
-  // ── TextareaField (inline component) ──
+  // ── TextareaField ──
   const TextareaField = ({ field }: { field: TextareaKey }) => {
-    const cfg = FIELD_LABELS[field];
+    const cfg   = FIELD_LABELS[field];
     const count = lineCounts[field] || 0;
     const adj   = adjustments[field] || 0;
-    const color = getCountColor(field);
-    const isFullW = cfg.fullWidth ? { gridColumn: 'span 3' } : cfg.wide ? { gridColumn: 'span 2' } : {};
+    const codigoCount = lineCounts.codigo || 0;
+    const mismatch = count > 0 && codigoCount > 0 && count !== codigoCount;
+    const span = cfg.fullWidth ? { gridColumn:'span 3' } : cfg.wide ? { gridColumn:'span 2' } : {};
     return (
-      <div style={{ ...card, display:'flex', flexDirection:'column', ...isFullW, transition:'box-shadow .2s, border-color .2s' }}
-        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = C.emerald; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 8px 32px -8px rgba(16,185,129,0.15)'; }}
-        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = C.slate200; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 24px -8px rgba(0,0,0,0.08)'; }}>
-        {/* Card header */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', background:`linear-gradient(to right,${C.slate50},${C.slate100})`, borderBottom:`1px solid ${C.slate200}` }}>
-          <span style={{ fontSize:12, fontWeight:700, color:C.slate700, textTransform:'uppercase', letterSpacing:'0.05em', display:'flex', alignItems:'center', gap:6 }}>
-            {cfg.label}
-            {cfg.required && <span style={{ color:C.red500, fontSize:16 }}>*</span>}
+      <div style={{ background:V.white, borderRadius:9, border:`1px solid ${mismatch ? V.red : V.border}`, overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.05)', display:'flex', flexDirection:'column', ...span }}>
+        <div style={{ background:cfg.required ? V.navy : V.navyMid, padding:'7px 11px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <span style={{ fontSize:9, fontWeight:900, color:cfg.required ? V.gold : V.textMuted, letterSpacing:'0.8px', textTransform:'uppercase' }}>
+            {cfg.label}{cfg.required && <span style={{ color:V.red, marginLeft:3 }}>*</span>}
           </span>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            {adj > 0 && (
-              <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, color:C.amber600, background:C.amber50, padding:'3px 8px', borderRadius:20, fontWeight:600 }}>
-                <Sparkles size={11} />{adj} ajustadas
-              </span>
-            )}
-            <span onClick={() => setTextareas(p => ({ ...p, [field]:'' }))}
-              title="Clique para limpar"
-              style={{ fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:20, cursor:'pointer', background:C.slate100, color, transition:'background .15s' }}>
-              {count} linhas
+          <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+            {adj > 0 && <span style={{ fontSize:8, color:V.gold, fontWeight:700 }}>{adj}↓</span>}
+            <span onClick={() => setTextareas(p => ({ ...p, [field]:'' }))} title="Limpar"
+              style={{ background:cfg.required ? V.navyMid : V.navy, borderRadius:10, padding:'2px 9px', fontSize:9, color:mismatch ? V.red : V.textMuted, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+              <span style={{ fontSize:13, fontWeight:900, color:mismatch ? V.red : V.gold, lineHeight:1 }}>{count}</span>
+              <span style={{ fontSize:8, color:mismatch ? V.red : V.textLight, letterSpacing:'0.3px' }}>linhas</span>
             </span>
           </div>
         </div>
-        {/* Textarea */}
         <textarea
           value={textareas[field]}
           onChange={e => setTextareas(p => ({ ...p, [field]:e.target.value }))}
-          placeholder={`Cole aqui os dados de ${cfg.label.toLowerCase()}...`}
-          style={{ width:'100%', height:180, padding:14, fontFamily:'monospace', fontSize:12, resize:'none', border:'none', outline:'none', background:C.white, color:C.slate700, whiteSpace:'pre', overflowWrap:'normal', overflowX:'auto', lineHeight:1.5 }}
+          placeholder="Cole aqui..."
+          style={{ width:'100%', flex:1, minHeight:160, padding:14, fontFamily:'monospace', fontSize:15, resize:'vertical', border:'none', outline:'none', background:V.bgCard, color:V.navy, whiteSpace:'pre', overflowWrap:'normal', overflowX:'auto', lineHeight:1.7, boxSizing:'border-box' }}
         />
       </div>
     );
   };
 
-  const isExisting = existingTables.some(t => t.nome_tabela === formData.nomeTabela);
-
   return (
-    <div style={{ minHeight:'100vh', background:'linear-gradient(135deg,#f1f5f9 0%,#ffffff 50%,#ecfdf5 100%)', padding:24 }}>
-      <div style={{ maxWidth:1400, margin:'0 auto', display:'flex', flexDirection:'column', gap:24 }}>
+    <div style={{ fontFamily:'system-ui', background:V.bg }}>
 
-        {/* ── Header ── */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-            <div style={{ padding:16, background:`linear-gradient(135deg,${C.emerald},${C.emeraldDark})`, borderRadius:16, boxShadow:`0 8px 24px -4px ${C.emerald}55` }}>
-              <FileSpreadsheet size={40} color={C.white} />
-            </div>
-            <div>
-              <h1 style={{ fontSize:28, fontWeight:900, color:C.slate800, margin:0, letterSpacing:'-0.03em' }}>
-                Importação de <span style={{ color:C.emerald }}>Tabela de Preços</span>
-              </h1>
-              <p style={{ fontSize:13, color:C.slate500, margin:'4px 0 0', fontWeight:500 }}>
-                Cole os dados do Excel nos campos correspondentes
-              </p>
-            </div>
+      {/* ── Navy Header ── */}
+      <div style={{ background:V.navy, padding:'16px 20px' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
+          <div style={{ width:36, height:36, background:V.gold, borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            <FileSpreadsheet size={18} color={V.navy} />
+          </div>
+          <div>
+            <div style={{ fontSize:14, fontWeight:900, color:'white', letterSpacing:'-0.3px' }}>Importação de Tabela de Preços</div>
+            <div style={{ fontSize:10, color:V.textMuted, marginTop:1 }}>Cole as colunas do Excel nos campos correspondentes</div>
           </div>
           {isValid && (
-            <motion.div initial={{ scale:0, opacity:0 }} animate={{ scale:1, opacity:1 }}
-              style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 20px', background:C.emeraldBg, border:`2px solid ${C.emeraldBorder}`, borderRadius:16, boxShadow:'0 4px 16px -4px rgba(16,185,129,0.2)' }}>
-              <CheckCircle2 size={22} color={C.emerald} />
-              <span style={{ fontSize:15, fontWeight:900, color:C.emeraldDark }}>{lineCounts.codigo} produtos prontos!</span>
-            </motion.div>
+            <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, background:'rgba(184,150,46,0.15)', border:`1px solid ${V.gold}66`, borderRadius:8, padding:'5px 12px', flexShrink:0 }}>
+              <CheckCircle2 size={14} color={V.gold} />
+              <span style={{ fontSize:11, fontWeight:900, color:V.gold }}>{lineCounts.codigo} prontos</span>
+            </div>
           )}
         </div>
 
-        {/* ── Config Card ── */}
-        <div style={card}>
-          <div style={{ padding:24 }}>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 160px 160px', gap:16 }}>
+        {/* Config fields */}
+        <div style={{ display:'grid', gridTemplateColumns:'2.5fr 2fr 1.2fr 1.2fr auto', gap:10, alignItems:'end' }}>
+          <div>
+            <div style={{ fontSize:8, color:V.gold, fontWeight:800, letterSpacing:'0.8px', marginBottom:4 }}>INDÚSTRIA *</div>
+            <select value={String(formData.industria)}
+              onChange={e => setFormData(p => ({ ...p, industria:e.target.value, nomeTabela:'' }))}
+              style={{ width:'100%', height:34, padding:'0 10px', borderRadius:7, border:`1px solid ${V.navyBorder}`, background:V.navyMid, fontSize:11, fontWeight:600, color:V.textLight, outline:'none', cursor:'pointer', appearance:'none' }}>
+              <option value="">Selecione a indústria...</option>
+              {industries.map(i => <option key={i.value} value={String(i.value)}>{i.label}</option>)}
+            </select>
+          </div>
 
-              {/* Indústria */}
-              <div>
-                <label style={{ fontSize:11, fontWeight:700, color:C.slate600, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
-                  <Factory size={14} color={C.emerald} />Indústria *
-                </label>
-                <select value={String(formData.industria)}
-                  onChange={e => setFormData(p => ({ ...p, industria:e.target.value, nomeTabela:'' }))}
-                  style={{ width:'100%', height:48, padding:'0 12px', borderRadius:12, border:`2px solid ${C.slate200}`, background:C.white, fontSize:13, fontWeight:600, color:C.slate700, outline:'none', cursor:'pointer', appearance:'none' }}>
-                  <option value="">Selecione a indústria...</option>
-                  {industries.map(i => <option key={i.value} value={String(i.value)}>{i.label}</option>)}
-                </select>
-              </div>
-
-              {/* Nome da Tabela */}
-              <div>
-                <label style={{ fontSize:11, fontWeight:700, color:C.slate600, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                  <span style={{ display:'flex', alignItems:'center', gap:6 }}>
-                    <Tag size={14} color="#3b82f6" />
-                    {showNewTableInput ? 'Nova Tabela *' : 'Tabela *'}
-                  </span>
-                  {formData.industria && existingTables.length > 0 && !showNewTableInput && (
-                    <button onClick={() => setShowNewTableInput(true)}
-                      style={{ fontSize:10, color:C.emerald, fontWeight:700, background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:3 }}>
-                      <Plus size={11} />NOVA
-                    </button>
-                  )}
-                </label>
-                {formData.industria && existingTables.length > 0 && !showNewTableInput ? (
-                  <select value={formData.nomeTabela}
-                    onChange={e => { if (e.target.value === '__NEW__') { setFormData(p => ({ ...p, nomeTabela:'' })); setShowNewTableInput(true); } else setFormData(p => ({ ...p, nomeTabela:e.target.value })); }}
-                    style={{ width:'100%', height:48, padding:'0 12px', borderRadius:12, border:`2px solid ${C.slate200}`, background:C.white, fontSize:13, fontWeight:700, color:C.slate700, outline:'none', cursor:'pointer', appearance:'none', textTransform:'uppercase' }}>
-                    <option value="">Selecione...</option>
-                    <option value="__NEW__">➕ CRIAR NOVA TABELA</option>
-                    {existingTables.map((t,i) => (
-                      <option key={i} value={t.nome_tabela}>{t.nome_tabela} — {t.total_produtos} produtos</option>
-                    ))}
-                  </select>
-                ) : (
-                  <div style={{ position:'relative' }}>
-                    <Sparkles size={15} color={C.emerald} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }} />
-                    <input type="text" value={formData.nomeTabela}
-                      onChange={e => setFormData(p => ({ ...p, nomeTabela:e.target.value.toUpperCase() }))}
-                      placeholder="Ex: PADRAO, PROMOCIONAL..."
-                      disabled={!formData.industria}
-                      style={{ width:'100%', height:48, paddingLeft:36, paddingRight: existingTables.length > 0 ? 36 : 12, borderRadius:12, border:`2px solid ${C.emeraldBorder}`, background:C.white, fontSize:13, fontWeight:700, color:C.slate800, outline:'none', textTransform:'uppercase', boxSizing:'border-box' }} />
-                    {existingTables.length > 0 && (
-                      <button onClick={() => { setShowNewTableInput(false); setFormData(p => ({ ...p, nomeTabela:'' })); }}
-                        style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:C.slate400, display:'flex', padding:4 }}>
-                        <X size={18} />
-                      </button>
-                    )}
-                  </div>
+          <div>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4 }}>
+              <div style={{ fontSize:8, color:V.gold, fontWeight:800, letterSpacing:'0.8px' }}>TABELA *</div>
+              {formData.industria && existingTables.length > 0 && !showNewTableInput && (
+                <button onClick={() => setShowNewTableInput(true)}
+                  style={{ fontSize:8, color:V.gold, fontWeight:800, background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:2 }}>
+                  <Plus size={8} />NOVA
+                </button>
+              )}
+            </div>
+            {formData.industria && existingTables.length > 0 && !showNewTableInput ? (
+              <select value={formData.nomeTabela}
+                onChange={e => { if (e.target.value === '__NEW__') { setFormData(p => ({ ...p, nomeTabela:'' })); setShowNewTableInput(true); } else setFormData(p => ({ ...p, nomeTabela:e.target.value })); }}
+                style={{ width:'100%', height:34, padding:'0 10px', borderRadius:7, border:`1px solid ${V.gold}`, background:V.navyMid, fontSize:11, fontWeight:800, color:V.textLight, outline:'none', cursor:'pointer', appearance:'none', textTransform:'uppercase' }}>
+                <option value="">Selecione...</option>
+                <option value="__NEW__">➕ CRIAR NOVA</option>
+                {existingTables.map((t,i) => (
+                  <option key={i} value={t.nome_tabela}>{t.nome_tabela} ({t.total_produtos})</option>
+                ))}
+              </select>
+            ) : (
+              <div style={{ position:'relative' }}>
+                <input type="text" value={formData.nomeTabela}
+                  onChange={e => setFormData(p => ({ ...p, nomeTabela:e.target.value.toUpperCase() }))}
+                  placeholder="Ex: PADRAO..."
+                  disabled={!formData.industria}
+                  style={{ width:'100%', height:34, padding:'0 10px', paddingRight:existingTables.length > 0 ? 28 : 10, borderRadius:7, border:`1px solid ${V.gold}`, background:V.navyMid, fontSize:11, fontWeight:800, color:V.textLight, outline:'none', textTransform:'uppercase', boxSizing:'border-box' }} />
+                {existingTables.length > 0 && (
+                  <button onClick={() => { setShowNewTableInput(false); setFormData(p => ({ ...p, nomeTabela:'' })); }}
+                    style={{ position:'absolute', right:6, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:V.textDim, display:'flex', padding:2 }}>
+                    <X size={14} />
+                  </button>
                 )}
               </div>
-
-              {/* Data Tabela */}
-              <div>
-                <label style={{ fontSize:11, fontWeight:700, color:C.slate600, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8, display:'flex', alignItems:'center', gap:6 }}>
-                  <Calendar size={13} color="#8b5cf6" />Data Tabela
-                </label>
-                <input type="date" value={formData.dataTabela}
-                  onChange={e => setFormData(p => ({ ...p, dataTabela:e.target.value }))}
-                  style={{ width:'100%', height:48, padding:'0 12px', borderRadius:12, border:`2px solid ${C.slate200}`, background:C.white, fontSize:13, fontWeight:600, color:C.slate700, outline:'none', boxSizing:'border-box' }} />
-              </div>
-
-              {/* Validade */}
-              <div>
-                <label style={{ fontSize:11, fontWeight:700, color:C.slate600, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8, display:'block' }}>Validade</label>
-                <input type="date" value={formData.dataVencimento}
-                  onChange={e => setFormData(p => ({ ...p, dataVencimento:e.target.value }))}
-                  style={{ width:'100%', height:48, padding:'0 12px', borderRadius:12, border:`2px solid ${C.slate200}`, background:C.white, fontSize:13, fontWeight:600, color:C.slate700, outline:'none', boxSizing:'border-box' }} />
-              </div>
-            </div>
-
-            {/* Status Banner */}
-            {formData.nomeTabela && (
-              <motion.div initial={{ opacity:0, y:-8 }} animate={{ opacity:1, y:0 }}
-                style={{ marginTop:16, padding:'12px 16px', borderRadius:12, display:'flex', alignItems:'center', gap:10,
-                  background: isExisting ? C.amber50 : C.emeraldBg,
-                  border: `2px solid ${isExisting ? C.amber200 : C.emeraldBorder}` }}>
-                {isExisting
-                  ? <><AlertCircle size={18} color={C.amber600} />
-                      <div><p style={{ margin:0, fontSize:13, fontWeight:700, color:C.amber800 }}>Modo: ATUALIZAR TABELA</p>
-                           <p style={{ margin:0, fontSize:11, color:C.amber600 }}>Códigos existentes serão atualizados</p></div></>
-                  : <><CheckCircle2 size={18} color={C.emerald} />
-                      <div><p style={{ margin:0, fontSize:13, fontWeight:700, color:C.emeraldDark }}>Modo: CRIAR NOVA TABELA</p>
-                           <p style={{ margin:0, fontSize:11, color:C.emerald }}>Tabela "{formData.nomeTabela}" será criada</p></div></>
-                }
-              </motion.div>
             )}
           </div>
-        </div>
 
-        {/* ── Tab Navigation ── */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:C.white, borderRadius:16, border:`2px solid ${C.slate200}`, padding:8, boxShadow:'0 4px 16px -4px rgba(0,0,0,0.06)' }}>
-          <button onClick={() => navigateTab(Math.max(0, activeTab-1))} disabled={activeTab===0}
-            style={{ ...btnBase, padding:12, borderRadius:12, background:'none', color: activeTab===0 ? C.slate200 : C.slate600, cursor: activeTab===0 ? 'not-allowed':'pointer' }}>
-            <ChevronLeft size={24} />
-          </button>
-
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            {TABS.map((tab, idx) => {
-              const Icon = tab.Icon;
-              const count = getTabCount(idx);
-              const isActive = activeTab === idx;
-              return (
-                <motion.button key={tab.id} onClick={() => navigateTab(idx)}
-                  whileHover={{ scale:1.02 }} whileTap={{ scale:0.98 }}
-                  style={{ ...btnBase, padding:'10px 20px', borderRadius:12,
-                    background: isActive ? tabBg(tab.color) : 'transparent',
-                    color: isActive ? C.white : C.slate600,
-                    boxShadow: isActive ? `0 4px 16px -4px ${tab.color}88` : 'none' }}>
-                  <Icon size={18} color={isActive ? C.white : C.slate400} />
-                  <span style={{ fontSize:13, fontWeight:700, whiteSpace:'nowrap' }}>{tab.label}</span>
-                  {count > 0 && (
-                    <span style={{ fontSize:10, fontWeight:900, padding:'2px 7px', borderRadius:20,
-                      background: isActive ? 'rgba(255,255,255,0.2)' : C.emeraldBg,
-                      color: isActive ? C.white : C.emerald }}>
-                      {count}
-                    </span>
-                  )}
-                </motion.button>
-              );
-            })}
+          <div>
+            <div style={{ fontSize:8, color:V.textMuted, fontWeight:800, letterSpacing:'0.8px', marginBottom:4 }}>DATA TABELA</div>
+            <input type="date" className="classic-date-input" value={formData.dataTabela}
+              onChange={e => setFormData(p => ({ ...p, dataTabela:e.target.value }))}
+              style={{ width:'100%', height:34, padding:'0 8px', borderRadius:7, border:`1px solid ${V.navyBorder}`, background:V.navyMid, fontSize:11, color:V.textLight, outline:'none', boxSizing:'border-box', colorScheme:'dark' }} />
           </div>
 
-          <button onClick={() => navigateTab(Math.min(TABS.length-1, activeTab+1))} disabled={activeTab===TABS.length-1}
-            style={{ ...btnBase, padding:12, borderRadius:12, background:'none', color: activeTab===TABS.length-1 ? C.slate200 : C.slate600, cursor: activeTab===TABS.length-1 ? 'not-allowed':'pointer' }}>
-            <ChevronRight size={24} />
+          <div>
+            <div style={{ fontSize:8, color:V.textMuted, fontWeight:800, letterSpacing:'0.8px', marginBottom:4 }}>VALIDADE</div>
+            <input type="date" className="classic-date-input" value={formData.dataVencimento}
+              onChange={e => setFormData(p => ({ ...p, dataVencimento:e.target.value }))}
+              style={{ width:'100%', height:34, padding:'0 8px', borderRadius:7, border:`1px solid ${V.navyBorder}`, background:V.navyMid, fontSize:11, color:V.textLight, outline:'none', boxSizing:'border-box', colorScheme:'dark' }} />
+          </div>
+
+          <button onClick={handleImport} disabled={!canImport}
+            style={{ background:canImport ? `linear-gradient(135deg,${V.gold} 0%,${V.goldLight} 60%,#E8B84B 100%)` : V.navyBorder, borderRadius:9, padding:'0 20px', height:36, border: canImport ? `1px solid ${V.goldLight}88` : 'none', cursor:canImport ? 'pointer' : 'not-allowed', whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:7, boxShadow: canImport ? `0 4px 16px rgba(184,150,46,0.45), inset 0 1px 0 rgba(255,255,255,0.2)` : 'none', transition:'box-shadow .2s' }}>
+            {importing
+              ? <><div style={{ width:13, height:13, border:`2px solid rgba(0,0,0,0.25)`, borderTopColor:V.navy, borderRadius:'50%', animation:'spin 1s linear infinite' }} /><span style={{ fontSize:11, fontWeight:900, color:V.navy }}>Importando...</span></>
+              : <><Upload size={13} color={canImport ? V.navy : V.textDim} /><span style={{ fontSize:12, fontWeight:900, color:canImport ? V.navy : V.textDim, letterSpacing:'0.2px' }}>⚡ Importar</span></>
+            }
           </button>
         </div>
 
-        {/* Dot indicators */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-          {TABS.map((_, i) => (
-            <div key={i} style={{ height:8, borderRadius:4, background: activeTab===i ? C.emerald : C.slate200, width: activeTab===i ? 32 : 8, transition:'all .3s' }} />
-          ))}
-        </div>
-
-        {/* ── Tab Content ── */}
-        <div style={{ ...card, minHeight:500, overflow:'hidden', position:'relative' }}>
-          <motion.div key={activeTab} custom={direction}
-              variants={slideVariants} initial="enter" animate="center"
-              transition={{ x:{ type:'spring', stiffness:300, damping:30 }, opacity:{ duration:0.2 } }}
-              style={{ padding:24 }}>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:20 }}>
-                {TABS[activeTab].fields.map(field => <TextareaField key={field} field={field} />)}
-              </div>
-            </motion.div>
-        </div>
-
-        {/* ── Alerta de linhas inconsistentes ── */}
-        {!isValid && Object.values(lineCounts).some(c => c > 0) && (
-          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'14px 18px', background:C.red50, border:`2px solid ${C.red200}`, borderRadius:12 }}>
-            <AlertCircle size={18} color={C.red500} />
-            <span style={{ fontSize:13, fontWeight:600, color:'#7f1d1d' }}>
-              <strong>Atenção!</strong> Número de linhas inconsistente entre os campos. Todos os campos preenchidos devem ter o mesmo total de linhas.
+        {/* Status banner */}
+        {formData.nomeTabela && (
+          <div style={{ marginTop:10, background:V.navyMid, borderRadius:7, padding:'8px 12px', display:'flex', alignItems:'center', gap:8, border:`1px solid ${(isExisting ? '#D97706' : V.gold)}33` }}>
+            <div style={{ width:7, height:7, background:isExisting ? '#D97706' : V.gold, borderRadius:'50%', flexShrink:0 }} />
+            <span style={{ fontSize:10, color:isExisting ? '#D97706' : V.gold, fontWeight:700 }}>
+              Modo: {isExisting ? 'ATUALIZAR TABELA' : 'CRIAR NOVA TABELA'}
+            </span>
+            <span style={{ fontSize:10, color:V.textDim }}>
+              — Tabela "{formData.nomeTabela}" {isExisting
+                ? `(${existingTables.find(t => t.nome_tabela === formData.nomeTabela)?.total_produtos || 0} produtos)`
+                : 'será criada'}
             </span>
           </div>
         )}
-
-        {/* ── Progress Bar ── */}
-        {importing && progress.total > 0 && (
-          <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }}
-            style={{ padding:24, background:C.blueBg, border:`2px solid #bfdbfe`, borderRadius:16 }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-              <span style={{ fontSize:14, fontWeight:700, color:'#1e3a5f' }}>Processando lote {progress.current} de {progress.total}</span>
-              <span style={{ fontSize:24, fontWeight:900, color:C.blue }}>{progress.percentage}%</span>
-            </div>
-            <div style={{ width:'100%', height:16, background:'#bfdbfe', borderRadius:8, overflow:'hidden' }}>
-              <motion.div style={{ height:'100%', background:`linear-gradient(to right,${C.blue},${C.emerald})` }}
-                initial={{ width:0 }} animate={{ width:`${progress.percentage}%` }} transition={{ duration:0.3 }} />
-            </div>
-          </motion.div>
-        )}
-
-        {/* ── Result ── */}
-        {result && <ResultBox result={result} />}
-
-        {/* ── Action Buttons ── */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', paddingTop:16, borderTop:`2px solid ${C.slate200}` }}>
-          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px', background:C.blueBg, border:`2px solid #bfdbfe`, borderRadius:12, flex:1, marginRight:16 }}>
-            <Info size={16} color={C.blue} />
-            <span style={{ fontSize:12, color:'#1e3a5f', fontWeight:600 }}>
-              <strong>Dica:</strong> Use as setas ← → ou clique nas abas para navegar entre as categorias de campos.
-            </span>
-          </div>
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <button onClick={() => { setTextareas(EMPTY); setResult(null); }}
-              style={{ ...btnBase, height:48, padding:'0 24px', border:`2px solid ${C.slate200}`, background:C.white, color:C.slate600, fontSize:13 }}>
-              <X size={16} />Limpar Tudo
-            </button>
-            <button onClick={handleImport}
-              disabled={!isValid || importing || !formData.industria || !formData.nomeTabela}
-              style={{ ...btnBase, height:48, padding:'0 32px', fontSize:14, fontWeight:800,
-                background: (!isValid || !formData.industria || !formData.nomeTabela)
-                  ? C.slate200 : `linear-gradient(to right,${C.emerald},${C.emeraldDark})`,
-                color: (!isValid || !formData.industria || !formData.nomeTabela) ? C.slate400 : C.white,
-                boxShadow: (!isValid || !formData.industria || !formData.nomeTabela) ? 'none' : `0 8px 24px -4px ${C.emerald}66`,
-                cursor: (!isValid || !formData.industria || !formData.nomeTabela) ? 'not-allowed' : 'pointer',
-              }}>
-              {importing ? (
-                <><div style={{ width:18, height:18, border:`2px solid rgba(255,255,255,0.3)`, borderTopColor:C.white, borderRadius:'50%', animation:'spin 1s linear infinite' }} />Importando...</>
-              ) : !formData.industria ? <><Factory size={18} />Selecione a Indústria</>
-                : !formData.nomeTabela ? <><Tag size={18} />Nomeie a Tabela</>
-                : !isValid ? <><AlertCircle size={18} />Verifique as Linhas</>
-                : <><Upload size={18} />Importar Tabela</>}
-            </button>
-          </div>
-        </div>
-
       </div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+      {/* ── Tabs ── */}
+      <div style={{ background:V.bg, borderBottom:`2px solid ${V.border}`, padding:'0 20px', display:'flex', gap:2 }}>
+        {TABS.map((tab, idx) => {
+          const Icon = tab.Icon;
+          const count = getTabCount(idx);
+          const isActive = activeTab === idx;
+          return (
+            <button key={tab.id} onClick={() => setActiveTab(idx)}
+              style={{ padding:'10px 16px', fontSize:11, fontWeight:isActive ? 900 : 700, color:isActive ? V.navy : V.textMuted, border:'none', background:'transparent', cursor:'pointer', borderBottom:`3px solid ${isActive ? V.gold : 'transparent'}`, marginBottom:'-2px', display:'flex', alignItems:'center', gap:6, transition:'all .15s', flexShrink:0 }}>
+              <Icon size={13} color={isActive ? V.navy : V.textMuted} />
+              {tab.label}
+              {count > 0 && (
+                <span style={{ background:isActive ? V.gold : V.border, color:isActive ? V.navy : V.textDim, borderRadius:10, padding:'1px 7px', fontSize:9, fontWeight:900 }}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Field grid ── */}
+      <div style={{ padding:'16px 20px', background:V.bgField }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:12 }}>
+          {TABS[activeTab].fields.map(field => <TextareaField key={field} field={field} />)}
+        </div>
+
+        {!isValid && Object.values(lineCounts).some(c => c > 0) && (
+          <div style={{ marginTop:12, display:'flex', alignItems:'center', gap:8, padding:'10px 14px', background:'#fef2f2', border:`1px solid #fecaca`, borderRadius:8 }}>
+            <AlertCircle size={14} color={V.red} />
+            <span style={{ fontSize:11, fontWeight:600, color:'#7f1d1d' }}>
+              Número de linhas inconsistente. Todos os campos preenchidos devem ter o mesmo total.
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* ── Progress Bar ── */}
+      {importing && progress.total > 0 && (
+        <div style={{ padding:'12px 20px', background:V.navyMid, borderTop:`1px solid ${V.navyBorder}` }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+            <span style={{ fontSize:11, fontWeight:700, color:V.textLight }}>Lote {progress.current} / {progress.total}</span>
+            <span style={{ fontSize:14, fontWeight:900, color:V.gold }}>{progress.percentage}%</span>
+          </div>
+          <div style={{ width:'100%', height:6, background:V.navyBorder, borderRadius:3, overflow:'hidden' }}>
+            <motion.div style={{ height:'100%', background:`linear-gradient(to right,${V.gold},${V.goldLight})` }}
+              initial={{ width:0 }} animate={{ width:`${progress.percentage}%` }} transition={{ duration:0.3 }} />
+          </div>
+        </div>
+      )}
+
+      {/* ── Result ── */}
+      {result && (
+        <div style={{ padding:'16px 20px', background:V.bgField }}>
+          <ResultBox result={result} />
+        </div>
+      )}
+
+      {/* ── Footer ── */}
+      <div style={{ background:V.bg, padding:'12px 20px', borderTop:`1px solid ${V.border}`, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8, background:V.bgField, border:`1px solid ${V.border}`, borderRadius:8, padding:'8px 12px' }}>
+          <Info size={13} color={V.textDim} />
+          <span style={{ fontSize:10, color:V.textDim, fontWeight:600 }}>Use as abas para navegar entre os grupos de campos</span>
+        </div>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          <button onClick={() => { setTextareas(EMPTY); setResult(null); }}
+            style={{ border:`1px solid ${V.border}`, borderRadius:7, padding:'7px 14px', fontSize:11, color:V.textDim, fontWeight:700, background:V.white, cursor:'pointer' }}>
+            Limpar Tudo
+          </button>
+          <button onClick={handleImport} disabled={!canImport}
+            style={{ background:canImport ? `linear-gradient(135deg,${V.gold} 0%,${V.goldLight} 60%,#E8B84B 100%)` : V.border, borderRadius:10, padding:'11px 30px', fontSize:13, fontWeight:900, color:canImport ? V.navy : V.textDim, cursor:canImport ? 'pointer' : 'not-allowed', border: canImport ? `1px solid ${V.goldLight}99` : `1px solid ${V.border}`, display:'flex', alignItems:'center', gap:8, boxShadow: canImport ? `0 6px 24px rgba(184,150,46,0.5), 0 2px 8px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.25)` : 'none', letterSpacing:'0.3px', transition:'box-shadow .2s' }}>
+            {importing
+              ? <><div style={{ width:15, height:15, border:`2px solid rgba(0,0,0,0.2)`, borderTopColor:V.navy, borderRadius:'50%', animation:'spin 1s linear infinite' }} /><span>Importando...</span></>
+              : <><Upload size={15} /><span>⚡ Importar Tabela</span></>
+            }
+          </button>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .classic-date-input::-webkit-calendar-picker-indicator { filter: brightness(0) invert(0.75); cursor: pointer; }
+        .classic-date-input::-webkit-datetime-edit { color: #E2D9C8; }
+        .classic-date-input::-webkit-datetime-edit-fields-wrapper { color: #E2D9C8; }
+        .classic-date-input::-webkit-datetime-edit-text { color: #94A3B8; }
+      `}</style>
     </div>
   );
 }
@@ -611,19 +546,20 @@ function ResultBox({ result }: { result: ImportResult }) {
 
 // ─── Magic Import ─────────────────────────────────────────────────────────────
 const MAGIC_FIELDS = [
-  { key:'codigo',        label:'Código *',        required:true  },
-  { key:'descricao',     label:'Descrição *',      required:true  },
-  { key:'linha',         label:'Marca / Linha',    required:false },
-  { key:'precobruto',    label:'Preço Normal *',   required:true  },
-  { key:'precopromo',    label:'Preço Promoção',   required:false },
-  { key:'precoespecial', label:'Preço Especial',   required:false },
-  { key:'ipi',           label:'IPI %',            required:false },
-  { key:'st',            label:'ST %',             required:false },
-  { key:'embalagem',     label:'Embalagem',        required:false },
-  { key:'peso',          label:'Peso (kg)',         required:false },
-  { key:'conversao',     label:'Conversão',        required:false },
-  { key:'aplicacao',     label:'Aplicação',        required:false },
-  { key:'codbarras',     label:'Código de Barras', required:false },
+  { key:'codigo',        label:'Código *',          required:true  },
+  { key:'descricao',     label:'Descrição *',        required:true  },
+  { key:'linha',         label:'Marca / Linha',      required:false },
+  { key:'precobruto',    label:'Preço Normal *',     required:true  },
+  { key:'precopromo',    label:'Preço Promoção',     required:false },
+  { key:'precoespecial', label:'Preço Especial',     required:false },
+  { key:'ipi',           label:'IPI %',              required:false },
+  { key:'st',            label:'ST %',               required:false },
+  { key:'embalagem',     label:'Embalagem',          required:false },
+  { key:'peso',          label:'Peso (kg)',           required:false },
+  { key:'conversao',     label:'Conversão',          required:false },
+  { key:'aplicacao',     label:'Aplicação',          required:false },
+  { key:'grupo',         label:'Grupo de Produto',   required:false },
+  { key:'codbarras',     label:'Código de Barras',   required:false },
 ];
 
 function MagicImport() {
@@ -658,7 +594,8 @@ function MagicImport() {
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
       if (rows.length < 2) { toast.error('Planilha vazia.'); return; }
       const hdrs = rows[0].map((h:any) => String(h));
-      setHeaders(hdrs); setRawData(rows.slice(1)); setPreview(rows.slice(1,6));
+      const dataRows = rows.slice(1).filter((row: any[]) => row.some(cell => String(cell).trim() !== ''));
+      setHeaders(hdrs); setRawData(dataRows); setPreview(dataRows.slice(0, 6));
       const auto: Record<string,string> = {};
       const norm = (s:string) => s.toLowerCase().replace(/[^a-z0-9]/g,'');
       MAGIC_FIELDS.forEach(f => {
@@ -674,10 +611,12 @@ function MagicImport() {
     if (!selInd || !tabelaFinal) { toast.error('Selecione indústria e tabela.'); return; }
     const get = (row:any[], key:string) => { const idx = mapping[key]; if (idx===undefined||idx==='') return ''; return String(row[parseInt(idx)]??'').trim(); };
     const produtos = rawData.map(row => ({
-      codigo:get(row,'codigo'), descricao:get(row,'descricao'), precobruto:get(row,'precobruto'),
+      codigo:get(row,'codigo'), descricao:get(row,'descricao'), linha:get(row,'linha'),
+      precobruto:get(row,'precobruto'),
       precopromo:get(row,'precopromo'), precoespecial:get(row,'precoespecial'), ipi:get(row,'ipi'),
       st:get(row,'st'), embalagem:get(row,'embalagem'), peso:get(row,'peso'),
-      conversao:get(row,'conversao'), aplicacao:get(row,'aplicacao'), codbarras:get(row,'codbarras'),
+      conversao:get(row,'conversao'), aplicacao:get(row,'aplicacao'),
+      grupo:get(row,'grupo'), codbarras:get(row,'codbarras'),
     })).filter(p => p.codigo);
     setStep('importing');
     try {
@@ -821,27 +760,148 @@ function MagicImport() {
   );
 }
 
+// ─── Modal de Ajuda — Tabela de Preços ───────────────────────────────────────
+
+function TabelaHelpModal({ onClose }: { onClose: () => void }) {
+  const navy = '#0F1E2E', gold = '#B8962E', dim = '#7A9BB5', light = '#E8F0F7';
+  const sec: React.CSSProperties = { marginBottom: 28 };
+  const h2: React.CSSProperties = { fontSize: 12, fontWeight: 900, color: gold, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7 };
+  const p: React.CSSProperties = { fontSize: 12, color: dim, lineHeight: 1.8, marginBottom: 8 };
+  const tip = (accent = gold): React.CSSProperties => ({ background: 'rgba(184,150,46,0.08)', border: `1px solid ${accent}33`, borderLeft: `3px solid ${accent}`, borderRadius: 8, padding: '10px 14px', fontSize: 12, color: light, lineHeight: 1.75, marginBottom: 8 });
+  const step = (n: number): React.CSSProperties => ({ width: 22, height: 22, borderRadius: '50%', background: gold, color: navy, fontWeight: 900, fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 });
+  const badge = (txt: string, color = gold) => (
+    <span style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, background: `${color}22`, border: `1px solid ${color}55`, color, fontWeight: 900, fontSize: 10, marginRight: 4 }}>{txt}</span>
+  );
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(5,15,25,0.7)' }} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 1101, width: 600, background: '#0D1B2A', boxShadow: '-8px 0 40px rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+        <div style={{ background: '#0F1E2E', borderBottom: '1px solid #1E3A52', padding: '20px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 38, height: 38, background: gold, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <FileSpreadsheet size={18} color={navy} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 15, color: '#fff' }}>Guia — Tabela de Preços</div>
+              <div style={{ fontSize: 11, color: dim, marginTop: 1 }}>Como importar e manter as tabelas atualizadas</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '6px 8px', color: dim, display: 'flex' }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', color: light }}>
+
+          <div style={sec}>
+            <div style={h2}><Package size={13} color={gold} /> Para que serve a Tabela de Preços?</div>
+            <p style={p}>A tabela de preços é a <strong style={{ color: light }}>base de referência para precificação dos pedidos</strong>. Quando o rep cria um pedido, o sistema consulta automaticamente a tabela ativa da indústria para sugerir os preços dos produtos.</p>
+            <p style={p}>Manter as tabelas atualizadas garante que os pedidos reflitam os preços corretos — especialmente após reajustes da indústria.</p>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><FileText size={13} color={gold} /> O que é cada campo</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[
+                { campo: 'INDÚSTRIA', desc: 'Fornecedor dono desta tabela. Cada tabela pertence a uma única indústria.' },
+                { campo: 'TABELA', desc: 'Nome que identifica a tabela. Use nomes claros como TABELA_JAN2026 ou STANDARD_2026. A mesma indústria pode ter múltiplas tabelas (ex: tabela padrão + tabela especial para rede).' },
+                { campo: 'DATA', desc: 'Data de vigência — quando os preços entram em vigor.' },
+                { campo: 'VENCIMENTO', desc: 'Data limite de validade. Opcional — deixe em branco para tabelas sem prazo.' },
+              ].map(f => (
+                <div key={f.campo} style={{ display: 'flex', gap: 10, padding: '10px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid #1E3A52' }}>
+                  <div style={{ minWidth: 110, fontWeight: 900, fontSize: 11, color: gold, textTransform: 'uppercase', letterSpacing: 0.5 }}>{f.campo}</div>
+                  <div style={{ fontSize: 12, color: dim, lineHeight: 1.65 }}>{f.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><Upload size={13} color={gold} /> Como preparar o Excel e importar</div>
+
+            {[
+              { n: 1, titulo: 'Abra a tabela da indústria no Excel', texto: 'A indústria envia a lista de preços geralmente em .xlsx ou .xls. Abra no Excel normalmente.' },
+              { n: 2, titulo: 'Identifique as colunas necessárias', texto: 'Você precisa de: (1) código do produto, (2) descrição/nome, (3) preço. Podem ter nomes diferentes — "Cód.", "Referência", "Produto", "Preço Tab.", "PMC", etc.' },
+              { n: 3, titulo: 'Selecione e copie cada coluna', texto: 'Clique no cabeçalho da coluna para selecionar tudo, depois Ctrl+C. Cole no campo correspondente aqui no sistema. Repita para as 3 colunas.' },
+              { n: 4, titulo: 'Preencha indústria, nome da tabela e datas', texto: 'Selecione a indústria e escolha uma tabela existente (para atualizar) ou crie uma nova.' },
+              { n: 5, titulo: 'Clique em Importar', texto: 'O sistema valida e importa os produtos. Produtos já existentes na tabela são atualizados automaticamente.' },
+            ].map(item => (
+              <div key={item.n} style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+                <div style={step(item.n)}>{item.n}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 900, fontSize: 12, color: light, marginBottom: 3 }}>{item.titulo}</div>
+                  <div style={{ fontSize: 12, color: dim, lineHeight: 1.7 }}>{item.texto}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><Tag size={13} color={gold} /> Tabela existente vs Nova tabela</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={tip()}>
+                <strong style={{ color: gold }}>Atualizar tabela existente</strong> — Selecione o nome da tabela já cadastrada. Os produtos serão atualizados com os novos preços. Use quando a indústria envia um reajuste sobre a mesma tabela.
+              </div>
+              <div style={tip('#7C3AED')}>
+                <strong style={{ color: '#A78BFA' }}>Criar nova tabela</strong> — Clique em "+ NOVA" e dê um nome diferente. Os produtos antigos da outra tabela continuam intactos. Use quando a indústria lança uma tabela completamente nova (ex: novo ano, nova linha de produtos).
+              </div>
+            </div>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><Sparkles size={13} color={gold} /> Dicas Práticas</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[
+                'Se a coluna de preços no Excel tiver R$ ou separador de milhar, o sistema interpreta automaticamente — não precisa limpar.',
+                'Códigos com zeros à esquerda (ex: 00123) são preservados. Não altere o formato da coluna.',
+                'Se a indústria mandar colunas extras (margem, desconto, SKU), ignore-as — copie apenas código, nome e preço.',
+                'Use nomes de tabela padronizados: TABELA_2026, ESPECIAL_REDE_2026. Facilita encontrar depois.',
+                'Após importar, abra um pedido e verifique se os preços estão aparecendo corretamente para essa indústria.',
+              ].map((t, i) => (
+                <div key={i} style={{ display: 'flex', gap: 10, ...tip(), alignItems: 'flex-start' }}>
+                  <CheckCircle2 size={12} color={gold} style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span>{t}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Página Principal ─────────────────────────────────────────────────────────
 export default function ImportacaoPrecosPage() {
-  const [tab, setTab] = useState<'classic'|'magic'>('classic');
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<'classic'|'magic'>(searchParams.get('tab') === 'magic' ? 'magic' : 'classic');
+  const [showHelp, setShowHelp] = useState(false);
   return (
-    <div style={{ minHeight:'100vh', background:'linear-gradient(135deg,#f1f5f9 0%,#ffffff 50%,#ecfdf5 100%)' }}>
+    <div style={{ minHeight:'100vh', background: tab==='classic' ? '#E8E1D4' : 'linear-gradient(135deg,#f1f5f9 0%,#ffffff 50%,#ecfdf5 100%)' }}>
+      {showHelp && <TabelaHelpModal onClose={() => setShowHelp(false)} />}
       {/* Tab switcher */}
-      <div style={{ display:'flex', borderBottom:`2px solid ${C.slate200}`, background:C.white, position:'sticky', top:0, zIndex:10, boxShadow:'0 2px 8px -2px rgba(0,0,0,0.06)', padding:'0 24px' }}>
+      <div style={{ display:'flex', alignItems:'center', background:'#1E2D3D', position:'sticky', top:0, zIndex:10, boxShadow:'0 2px 8px -2px rgba(0,0,0,0.3)', padding:'0 20px' }}>
         {([
           { key:'classic', label:'📋  Importar Tabela',  desc:'Colar colunas do Excel' },
           { key:'magic',   label:'✨  Magic Import',     desc:'Upload Excel com detecção automática' },
         ] as const).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
-            style={{ padding:'14px 24px', border:'none', background:'transparent', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2, borderBottom:`3px solid ${tab===t.key ? C.emerald : 'transparent'}`, transition:'border-color .2s' }}>
-            <span style={{ fontSize:13, fontWeight: tab===t.key ? 800:600, color: tab===t.key ? C.slate800 : C.slate400 }}>{t.label}</span>
-            <span style={{ fontSize:10, fontWeight:600, color:C.slate400 }}>{t.desc}</span>
+            style={{ padding:'12px 20px', border:'none', background:'transparent', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2, borderBottom:`3px solid ${tab===t.key ? '#B8962E' : 'transparent'}`, transition:'border-color .2s' }}>
+            <span style={{ fontSize:13, fontWeight:tab===t.key ? 800:600, color:tab===t.key ? 'white' : '#94A3B8' }}>{t.label}</span>
+            <span style={{ fontSize:10, fontWeight:600, color:'#64748B' }}>{t.desc}</span>
           </button>
         ))}
+        <button onClick={() => setShowHelp(true)}
+          style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:5, padding:'6px 12px', borderRadius:8, border:'1px solid #2E4A66', background:'rgba(184,150,46,0.08)', cursor:'pointer', color:'#B8962E', fontSize:11, fontWeight:800 }}>
+          <HelpCircle size={13} /> Ajuda
+        </button>
       </div>
-      <div style={{ padding:24 }}>
-        {tab==='classic' ? <ClassicImport /> : <MagicImport />}
-      </div>
+      {tab==='classic' ? <ClassicImport /> : (
+        <div style={{ padding:24 }}><MagicImport /></div>
+      )}
     </div>
   );
 }

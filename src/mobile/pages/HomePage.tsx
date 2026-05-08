@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ShoppingCart, CalendarDays, Users, Package, BarChart3,
   Target, Sparkles, Wifi, WifiOff, ArrowUpRight,
-  AlertTriangle, Shield, ChevronRight, Zap,
+  AlertTriangle, Shield, ChevronRight, Zap, LogOut,
 } from 'lucide-react';
 import { api }           from '@/shared/lib/api';
 import { useAuthStore }  from '@/shared/stores/useAuthStore';
@@ -12,7 +12,15 @@ import { useOffline }    from '../hooks/useOffline';
 import { useSync }       from '../hooks/useSync';
 import { SyncButton }    from '../components/SyncButton';
 
-/* ─── types ────────────────────────────────────────────────────────────────── */
+/* ─── consts ────────────────────────────────────────────────────────────────── */
+const NOW   = new Date();
+const ANOS  = [2023, 2024, 2025, 2026];
+const MESES = [
+  'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+  'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro',
+];
+
+/* ─── types ─────────────────────────────────────────────────────────────────── */
 interface DashStats {
   total_sales:    number;
   monthly_goal:   number;
@@ -24,7 +32,6 @@ interface DashStats {
   recent_orders:  RecentOrder[];
   insights:       Insight[];
 }
-
 interface RecentOrder {
   ped_pedido:  string;
   ped_data:    string;
@@ -32,7 +39,6 @@ interface RecentOrder {
   for_nomered: string;
   ped_totliq:  number;
 }
-
 interface Insight {
   cli_codigo:       number;
   cliente_fantasia: string;
@@ -41,62 +47,140 @@ interface Insight {
   tipo:             string;
 }
 
-const fmtBRL  = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const fmtBRL   = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const fmtShort = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 
-/* ─── HEADER ────────────────────────────────────────────────────────────────── */
-function SalesHeader({ nome, empresa, loading }: { nome: string; empresa?: string; loading: boolean }) {
+/* ─── PILL BUTTON HELPERS ────────────────────────────────────────────────────── */
+function pillStyle(active: boolean, disabled = false): React.CSSProperties {
+  return {
+    background:   active   ? 'rgba(255,210,0,0.22)' : 'rgba(255,255,255,0.08)',
+    border:       active   ? '1.5px solid rgba(255,210,0,0.75)' : '1px solid rgba(255,255,255,0.14)',
+    borderRadius: 9,
+    color:        disabled ? 'rgba(255,255,255,0.18)' : active ? '#FFD200' : 'rgba(255,255,255,0.65)',
+    fontSize:     12,
+    fontWeight:   900,
+    padding:      '8px 12px',
+    cursor:       disabled ? 'default' : 'pointer',
+    minHeight:    36,
+    flexShrink:   0,
+    fontFamily:   'inherit',
+    lineHeight:   1,
+    transition:   'background 0.15s, border-color 0.15s, color 0.15s',
+  };
+}
+
+/* ─── HEADER ─────────────────────────────────────────────────────────────────── */
+interface HeaderProps {
+  nome: string; empresa?: string; loading: boolean;
+  selectedYear: number; selectedMonth: number;
+  onYearChange: (y: number) => void; onMonthChange: (m: number) => void;
+}
+
+function SalesHeader({ nome, empresa, loading, selectedYear, selectedMonth, onYearChange, onMonthChange }: HeaderProps) {
   const { isOnline } = useOffline();
+  const { logout }   = useAuthStore();
+  const navigate     = useNavigate();
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite';
+  const currentYear  = NOW.getFullYear();
+  const currentMonth = NOW.getMonth() + 1;
 
   return (
     <div style={{
       background: 'var(--navy)', padding: '28px 20px 48px',
       position: 'relative', overflow: 'hidden', flexShrink: 0,
     }}>
-      {/* subtle radial glows */}
       <div style={{
         position: 'absolute', inset: 0, pointerEvents: 'none',
         background: 'radial-gradient(circle at 70% 20%, rgba(255,210,0,0.08) 0%, transparent 60%)',
       }} />
 
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', position: 'relative' }}>
-        <motion.div initial={{ x: -16, opacity: 0 }} animate={{ x: 0, opacity: 1 }}
+      {/* ── Row 1: greeting + status badges ── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', position: 'relative', gap: 10 }}>
+        <motion.div style={{ flex: 1 }} initial={{ x: -16, opacity: 0 }} animate={{ x: 0, opacity: 1 }}
           transition={{ type: 'spring', stiffness: 200, damping: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <h1 style={{ fontSize: 26, fontWeight: 900, color: '#FFF', lineHeight: 1.2, margin: 0 }}>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 900, color: '#FFF', lineHeight: 1.2, margin: 0 }}>
               {greeting},<br />{nome}!
             </h1>
-            <motion.span style={{ fontSize: 28, marginTop: 4 }}
+            <motion.span style={{ fontSize: 26, marginTop: 4 }}
               animate={{ rotate: [0, 14, -8, 14, -4, 10, 0] }}
               transition={{ duration: 1.5, delay: 0.6 }}>
               👋
             </motion.span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', animation: 'pulse 2s infinite' }} />
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>
-              {loading ? 'Sincronizando dados...' : `Analisando ${empresa || 'seu progresso'}`}
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>
+              {loading ? 'Carregando dados...' : `Analisando ${empresa || 'seu progresso'}`}
             </span>
+          </div>
+
+          {/* ── Ano pills ── */}
+          <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
+            {ANOS.map(a => (
+              <button key={a} onClick={() => onYearChange(a)} style={pillStyle(selectedYear === a)}>
+                {a}
+              </button>
+            ))}
           </div>
         </motion.div>
 
+        {/* connectivity + logout */}
         <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-          transition={{ delay: 0.3, type: 'spring', stiffness: 300 }}>
+          transition={{ delay: 0.3, type: 'spring', stiffness: 300 }}
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 8, marginTop: 4, flexShrink: 0 }}>
+
           <div style={{
             background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(8px)',
-            borderRadius: 14, padding: '8px 12px', border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 12, padding: '8px 12px', border: '1px solid rgba(255,255,255,0.1)',
             display: 'flex', alignItems: 'center', gap: 8,
           }}>
             <div style={{
-              width: 10, height: 10, borderRadius: '50%',
+              width: 8, height: 8, borderRadius: '50%',
               background: isOnline ? '#4ade80' : '#f87171',
               boxShadow: isOnline ? '0 0 8px rgba(74,222,128,0.6)' : 'none',
             }} />
-            {isOnline ? <Wifi size={14} color="rgba(255,255,255,0.8)" /> : <WifiOff size={14} color="rgba(255,255,255,0.4)" />}
+            {isOnline
+              ? <Wifi size={13} color="rgba(255,255,255,0.7)" />
+              : <WifiOff size={13} color="rgba(255,255,255,0.35)" />}
           </div>
+
+          <button
+            onClick={() => { logout(); navigate('/mobile/login'); }}
+            style={{
+              background: 'rgba(248,71,71,0.15)', border: '1px solid rgba(248,71,71,0.3)',
+              borderRadius: 12, padding: '8px 10px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+            }}>
+            <LogOut size={13} color="#f87171" />
+            <span style={{ fontSize: 10, fontWeight: 900, color: '#f87171', fontFamily: 'inherit', letterSpacing: 0.5 }}>
+              SAIR
+            </span>
+          </button>
         </motion.div>
+      </div>
+
+      {/* ── Row 2: Mês pills (scroll horizontal) ── */}
+      <div style={{ margin: '12px -20px 0', paddingLeft: 20, overflowX: 'auto', WebkitOverflowScrolling: 'touch', position: 'relative' }}>
+        <div style={{ display: 'flex', gap: 6, paddingRight: 20, width: 'max-content' }}>
+          {MESES.map((m, i) => {
+            const mesNum  = i + 1;
+            const isFuture = selectedYear === currentYear && mesNum > currentMonth;
+            return (
+              <button
+                key={mesNum}
+                onClick={() => !isFuture && onMonthChange(mesNum)}
+                disabled={isFuture}
+                style={pillStyle(selectedMonth === mesNum, isFuture)}
+              >
+                {m.slice(0, 3)}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* curved bottom */}
@@ -108,11 +192,10 @@ function SalesHeader({ nome, empresa, loading }: { nome: string; empresa?: strin
   );
 }
 
-/* ─── ANALYTICS CARD ────────────────────────────────────────────────────────── */
-function AnalyticsCard({ stats }: { stats: DashStats }) {
-  const month = new Date().toLocaleDateString('pt-BR', { month: 'long' });
-  const year  = new Date().getFullYear();
-  const pct   = Math.min(stats.progress, 100);
+/* ─── ANALYTICS CARD ─────────────────────────────────────────────────────────── */
+function AnalyticsCard({ stats, year, month }: { stats: DashStats; year: number; month: number }) {
+  const mesNome = MESES[month - 1];
+  const pct     = Math.min(stats.progress, 100);
 
   return (
     <motion.div initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
@@ -127,7 +210,6 @@ function AnalyticsCard({ stats }: { stats: DashStats }) {
         background: 'radial-gradient(circle, rgba(255,210,0,0.08) 0%, transparent 70%)',
         borderRadius: '0 20px 0 100%', pointerEvents: 'none' }} />
 
-      {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -141,7 +223,7 @@ function AnalyticsCard({ stats }: { stats: DashStats }) {
             background: 'rgba(255,210,0,0.1)', border: '1px solid rgba(255,210,0,0.3)',
           }}>
             <span style={{ fontSize: 9, fontWeight: 900, color: 'var(--navy-muted)', textTransform: 'uppercase', letterSpacing: 2 }}>
-              {month} <span style={{ opacity: 0.4 }}>·</span> {year}
+              {mesNome.slice(0, 3)} <span style={{ opacity: 0.4 }}>·</span> {year}
             </span>
           </div>
         </div>
@@ -162,7 +244,6 @@ function AnalyticsCard({ stats }: { stats: DashStats }) {
         )}
       </div>
 
-      {/* Big number */}
       <p style={{ fontSize: 36, fontWeight: 900, color: 'var(--navy)', margin: '0 0 2px', letterSpacing: -1 }}>
         {fmtBRL(stats.total_sales)}
       </p>
@@ -172,7 +253,6 @@ function AnalyticsCard({ stats }: { stats: DashStats }) {
         </p>
       )}
 
-      {/* Progress bar */}
       {stats.monthly_goal > 0 && (
         <div style={{ height: 10, background: '#f1f5f9', borderRadius: 10, overflow: 'hidden', marginBottom: 18, border: '1px solid #e2e8f0' }}>
           <motion.div
@@ -183,7 +263,6 @@ function AnalyticsCard({ stats }: { stats: DashStats }) {
         </div>
       )}
 
-      {/* 3-stat row */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
         {[
           { label: 'Ticket Médio', value: fmtShort(stats.ticket_medio), sub: 'por pedido', color: '#059669', bg: 'rgba(5,150,105,0.06)' },
@@ -206,11 +285,11 @@ function AnalyticsCard({ stats }: { stats: DashStats }) {
 /* ─── QUICK ACTIONS ──────────────────────────────────────────────────────────── */
 const ACTIONS = [
   { icon: ShoppingCart, label: 'Novo Pedido', bg: '#28374A', path: '/mobile/pedido' },
-  { icon: CalendarDays, label: 'Agenda',      bg: '#7c3aed', path: '#' },
+  { icon: CalendarDays, label: 'Agenda',      bg: '#7c3aed', path: '/mobile/agenda' },
   { icon: Users,        label: 'Clientes',    bg: '#2563eb', path: '/mobile/clientes' },
   { icon: Package,      label: 'Catálogo',    bg: '#0891b2', path: '/mobile/precos' },
   { icon: BarChart3,    label: 'Sell-Out',    bg: '#059669', path: '/mobile/sellout' },
-  { icon: Target,       label: 'Campanhas',   bg: '#dc2626', path: '#' },
+  { icon: Target,       label: 'Campanhas',   bg: '#dc2626', path: '/mobile/campanhas' },
   { icon: Sparkles,     label: 'Smart Mix',   bg: '#d97706', path: '#' },
   { icon: BarChart3,    label: 'BI',          bg: '#6b7280', path: '/mobile/bi' },
   { icon: Sparkles,     label: 'Soon',        bg: '#9ca3af', path: '#' },
@@ -238,10 +317,7 @@ function QuickActions() {
                 boxShadow: '0 2px 8px rgba(40,55,74,0.06)',
                 opacity: a.path === '#' ? 0.5 : 1,
               }}>
-              <div style={{
-                width: 44, height: 44, borderRadius: 14, background: a.bg,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
+              <div style={{ width: 44, height: 44, borderRadius: 14, background: a.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Icon size={20} color="#FFF" strokeWidth={2.5} />
               </div>
               <span style={{ fontSize: 9, fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.8 }}>
@@ -266,10 +342,7 @@ function SmartInsights({ insights }: { insights: Insight[] }) {
           </div>
           <h2 style={{ fontSize: 13, fontWeight: 900, color: 'var(--navy)', textTransform: 'uppercase', letterSpacing: 0.8 }}>Smart Insights</h2>
         </div>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
-          borderRadius: 20, background: 'rgba(255,210,0,0.12)', border: '1px solid rgba(255,210,0,0.3)',
-        }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 20, background: 'rgba(255,210,0,0.12)', border: '1px solid rgba(255,210,0,0.3)' }}>
           <Sparkles size={9} color="var(--mustard)" />
           <span style={{ fontSize: 8, fontWeight: 900, color: 'var(--mustard)', textTransform: 'uppercase', letterSpacing: 1 }}>IA Engine</span>
         </div>
@@ -278,11 +351,7 @@ function SmartInsights({ insights }: { insights: Insight[] }) {
       {insights.length > 0 ? insights.map((ins, i) => (
         <motion.div key={ins.cli_codigo} initial={{ x: -16, opacity: 0 }} animate={{ x: 0, opacity: 1 }}
           transition={{ delay: 0.2 + i * 0.05 }}
-          style={{
-            background: '#FFF', borderRadius: 14, padding: '14px 14px 14px 18px',
-            border: '1px solid var(--border)', marginBottom: 10, position: 'relative', overflow: 'hidden',
-            boxShadow: '0 2px 8px rgba(40,55,74,0.06)',
-          }}>
+          style={{ background: '#FFF', borderRadius: 14, padding: '14px 14px 14px 18px', border: '1px solid var(--border)', marginBottom: 10, position: 'relative', overflow: 'hidden', boxShadow: '0 2px 8px rgba(40,55,74,0.06)' }}>
           <div style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderRadius: '0 3px 3px 0', background: ins.tipo === 'AUTO' ? '#059669' : 'var(--mustard)' }} />
           <p style={{ fontSize: 8, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 }}>
             {ins.tipo === 'AUTO' ? 'Sugestão de Giro' : 'Oportunidade de Campanha'}
@@ -324,11 +393,7 @@ function RiskInsights({ churnCount }: { churnCount: number }) {
         <h2 style={{ fontSize: 13, fontWeight: 900, color: 'var(--navy)', textTransform: 'uppercase', letterSpacing: 0.8 }}>Saúde da Carteira</h2>
       </div>
       <motion.div initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.1 }}
-        style={{
-          background: '#FFF', borderRadius: 14, padding: '14px 14px 14px 18px',
-          border: '1px solid var(--border)', position: 'relative', overflow: 'hidden',
-          boxShadow: '0 2px 8px rgba(40,55,74,0.06)',
-        }}>
+        style={{ background: '#FFF', borderRadius: 14, padding: '14px 14px 14px 18px', border: '1px solid var(--border)', position: 'relative', overflow: 'hidden', boxShadow: '0 2px 8px rgba(40,55,74,0.06)' }}>
         <div style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderRadius: '0 3px 3px 0', background: hasRisk ? '#dc2626' : '#059669' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
@@ -362,7 +427,7 @@ function RecentOrders({ orders }: { orders: RecentOrder[] }) {
           </div>
           <h2 style={{ fontSize: 13, fontWeight: 900, color: 'var(--navy)', textTransform: 'uppercase', letterSpacing: 0.8 }}>Atividade Recente</h2>
         </div>
-        <button onClick={() => navigate('/mobile/pedido')}
+        <button onClick={() => navigate('/mobile/pedidos')}
           style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: 'var(--mustard)', fontSize: 9, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1 }}>
           Ver tudo <ChevronRight size={13} />
         </button>
@@ -371,16 +436,8 @@ function RecentOrders({ orders }: { orders: RecentOrder[] }) {
       {orders.length > 0 ? orders.slice(0, 5).map((o, i) => (
         <motion.div key={o.ped_pedido} initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.1 + i * 0.06 }}
-          style={{
-            background: '#FFF', borderRadius: 14, padding: 14, marginBottom: 10,
-            border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12,
-            boxShadow: '0 2px 8px rgba(40,55,74,0.06)',
-          }}>
-          <div style={{
-            width: 44, height: 44, borderRadius: 14,
-            background: 'rgba(40,55,74,0.06)', border: '1px solid rgba(40,55,74,0.1)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
+          style={{ background: '#FFF', borderRadius: 14, padding: 14, marginBottom: 10, border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 2px 8px rgba(40,55,74,0.06)' }}>
+          <div style={{ width: 44, height: 44, borderRadius: 14, background: 'rgba(40,55,74,0.06)', border: '1px solid rgba(40,55,74,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <span style={{ fontSize: 14, fontWeight: 900, color: 'var(--navy)', textTransform: 'uppercase' }}>
               {(o.cli_nomred || 'C')[0]}
             </span>
@@ -416,42 +473,93 @@ function RecentOrders({ orders }: { orders: RecentOrder[] }) {
   );
 }
 
+/* ─── period persistence ─────────────────────────────────────────────────────── */
+const SS_YEAR  = 'home_period_year';
+const SS_MONTH = 'home_period_month';
+
+function readYear()  { const v = sessionStorage.getItem(SS_YEAR);  return v ? parseInt(v) : NOW.getFullYear(); }
+function readMonth() { const v = sessionStorage.getItem(SS_MONTH); return v ? parseInt(v) : NOW.getMonth() + 1; }
+
 /* ─── MAIN PAGE ──────────────────────────────────────────────────────────────── */
 export default function HomePage() {
-  const [stats,   setStats]   = useState<DashStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const { user }              = useAuthStore();
-  const { isOnline }          = useOffline();
+  const [selectedYear,  setSelectedYear]  = useState(readYear);
+  const [selectedMonth, setSelectedMonth] = useState(readMonth);
+  const [stats,         setStats]         = useState<DashStats | null>(null);
+  const [loading,       setLoading]       = useState(true);
+
+  const { user }    = useAuthStore();
+  const { isOnline } = useOffline();
   const { sync, syncing, progress, queueCount } = useSync();
   const { lastSync } = useOffline();
-  const loaded = useRef(false);
 
-  useEffect(() => {
-    if (loaded.current) return;
-    loaded.current = true;
-    (async () => {
-      setLoading(true);
-      try {
-        if (isOnline) {
-          const r = await api.get('/dashboard/mobile-summary');
-          if (r.data.success) { setStats(r.data.data); return; }
-        }
-      } catch { /* fall to zeros */ }
+  // Controla se já houve o primeiro load (evita re-mount duplicado em StrictMode)
+  const firstLoad = useRef(false);
+  // Guarda o valor anterior de syncing para detectar transição true→false
+  const prevSyncing = useRef(false);
+
+  const fetchStats = useMemo(() => async (year: number, month: number) => {
+    if (!isOnline) {
       setStats({ total_sales: 0, monthly_goal: 0, progress: 0, ticket_medio: 0, total_orders: 0, active_clients: 0, churn_count: 0, recent_orders: [], insights: [] });
-    })().finally(() => setLoading(false));
+      return;
+    }
+    setLoading(true);
+    try {
+      const r = await api.get(`/dashboard/mobile-summary?ano=${year}&mes=${month}`);
+      if (r.data.success) setStats(r.data.data);
+      else throw new Error('no data');
+    } catch {
+      setStats({ total_sales: 0, monthly_goal: 0, progress: 0, ticket_medio: 0, total_orders: 0, active_clients: 0, churn_count: 0, recent_orders: [], insights: [] });
+    } finally {
+      setLoading(false);
+    }
   }, [isOnline]);
+
+  // Carrega ao montar
+  useEffect(() => {
+    if (firstLoad.current) return;
+    firstLoad.current = true;
+    fetchStats(selectedYear, selectedMonth);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Recarrega quando o período muda
+  useEffect(() => {
+    if (!firstLoad.current) return;
+    fetchStats(selectedYear, selectedMonth);
+  }, [selectedYear, selectedMonth, fetchStats]);
+
+  // Recarrega quando o sync termina (syncing: true → false)
+  useEffect(() => {
+    if (prevSyncing.current && !syncing) {
+      fetchStats(selectedYear, selectedMonth);
+    }
+    prevSyncing.current = syncing;
+  }, [syncing, selectedYear, selectedMonth, fetchStats]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--sand-bg)' }}>
       <div className="screen-scroll" style={{ flex: 1, overflowY: 'auto' }}>
-        <SalesHeader nome={user?.nome || 'Vendedor'} empresa={user?.empresa} loading={loading} />
+        <SalesHeader
+          nome={user?.nome || 'Vendedor'}
+          empresa={user?.empresa}
+          loading={loading}
+          selectedYear={selectedYear}
+          selectedMonth={selectedMonth}
+          onYearChange={y  => { sessionStorage.setItem(SS_YEAR,  String(y)); setSelectedYear(y);  }}
+          onMonthChange={m => { sessionStorage.setItem(SS_MONTH, String(m)); setSelectedMonth(m); }}
+        />
 
-        <SyncButton onSync={() => sync(true)} syncing={syncing} progress={progress} queueCount={queueCount} lastSync={lastSync}
-          style={{ margin: '0 16px 0', position: 'relative', zIndex: 5 }} />
+        <SyncButton
+          onSync={() => sync(true)}
+          syncing={syncing}
+          progress={progress}
+          queueCount={queueCount}
+          lastSync={lastSync}
+          style={{ margin: '8px 16px 0', position: 'relative', zIndex: 5 }}
+        />
 
         {stats ? (
           <>
-            <AnalyticsCard stats={stats} />
+            <AnalyticsCard stats={stats} year={selectedYear} month={selectedMonth} />
             <QuickActions />
             <SmartInsights insights={stats.insights} />
             <RiskInsights churnCount={stats.churn_count} />

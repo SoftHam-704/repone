@@ -12,12 +12,13 @@ export async function getLinkedSellerId(db: DB, userId: number | undefined): Pro
 
   try {
     const userCheck = await db.query(
-      'SELECT master FROM user_nomes WHERE codigo = $1',
+      'SELECT master, gerencia FROM user_nomes WHERE codigo = $1',
       [userId]
     );
 
     if (!userCheck.rows.length) return null;
     if (userCheck.rows[0].master === true) return null;
+    if (userCheck.rows[0].gerencia === true) return null;
 
     const sellerRes = await db.query(
       'SELECT ven_codigo FROM vendedores WHERE ven_codusu = $1',

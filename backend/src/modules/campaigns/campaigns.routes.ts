@@ -9,6 +9,7 @@ import {
   getTrackingHandler,
   addTrackingHandler,
   deleteTrackingHandler,
+  autoProgressHandler,
 } from './campaigns.controller';
 
 const router = Router();
@@ -18,6 +19,7 @@ router.get('/',                        listCampaignsHandler);
 router.post('/simulate',               simulateCampaignHandler);
 router.post('/',                       createCampaignHandler);
 router.put('/:id',                     updateCampaignHandler);
+router.get('/:id/auto-progress',       autoProgressHandler);
 router.get('/:id/tracking',            getTrackingHandler);
 router.post('/:id/tracking',           addTrackingHandler);
 router.delete('/tracking/:tid',        deleteTrackingHandler);

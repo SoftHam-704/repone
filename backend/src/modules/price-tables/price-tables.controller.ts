@@ -235,6 +235,7 @@ export async function getPriceTableItemsHandler(req: Request, res: Response): Pr
         t.itab_ipi           AS ipi,
         t.itab_st            AS st,
         p.pro_codigooriginal AS pro_codigooriginal,
+        p.pro_codbarras      AS pro_codbarras,
         t.itab_grupodesconto AS grupo_desconto,
         t.itab_descontoadd   AS desconto_add
       FROM cad_tabelaspre t
@@ -361,7 +362,6 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
     const grpMap: Record<string, number> = {};
     grpRes.rows.forEach((g: any) => {
       if (g.gru_nome) grpMap[String(g.gru_nome).toUpperCase().trim()] = g.gru_codigo;
-      grpMap[String(g.gru_codigo)] = g.gru_codigo;
     });
 
     // ── Pré-processar produtos no JS (zero round-trips) ───────────────────────
@@ -373,6 +373,7 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
       precobruto: number; precopromo: number | null; precoespecial: number | null;
       ipi: number | null; st: number | null; grupoDesc: number | null;
       descontoadd: number | null; prepeso: number | null;
+      ciclo: string;
     };
 
     const processed: ProdProcessed[] = [];
@@ -386,12 +387,12 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
         nome:          p.descricao ? String(p.descricao).substring(0, 100) : null,
         peso:          safeFloat(p.peso),
         embalagem:     safeInt(p.embalagem),
-        grupoProd:     p.grupo ? (grpMap[String(p.grupo).toUpperCase().trim()] ?? safeInt(p.grupo)) : null,
+        grupoProd:     p.grupo ? (grpMap[String(p.grupo).toUpperCase().trim()] ?? null) : null,
         linha:         p.linha ? String(p.linha).substring(0, 50) : null,
-        ncm:           p.ncm || null,
-        aplicacao:     p.aplicacao || null,
-        codbarras:     p.codbarras || null,
-        conversao:     p.conversao || null,
+        ncm:           p.ncm ? String(p.ncm).substring(0, 20) : null,
+        aplicacao:     p.aplicacao ? String(p.aplicacao).substring(0, 200) : null,
+        codbarras:     p.codbarras ? String(p.codbarras).substring(0, 13) : null,
+        conversao:     p.conversao ? String(p.conversao) : null,
         precobruto:    safeFloat(p.precobruto) ?? 0,
         precopromo:    safeFloat(p.precopromo),
         precoespecial: safeFloat(p.precoespecial),
@@ -400,6 +401,7 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
         grupoDesc:     gDescVal ? (discMap[String(gDescVal).toUpperCase().trim()] ?? safeInt(gDescVal)) : null,
         descontoadd:   safeFloat(p.descontoadd),
         prepeso:       safeFloat(p.prepeso),
+        ciclo:         (p.ciclo === 'L' || p.ciclo === 'l') ? 'L' : 'C',
       });
     }
 
@@ -432,11 +434,12 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
         `INSERT INTO cad_prod
            (pro_industria, pro_codprod, pro_codigonormalizado, pro_nome,
             pro_peso, pro_embalagem, pro_grupo, pro_linha, pro_ncm,
-            pro_aplicacao, pro_codbarras, pro_conversao)
+            pro_aplicacao, pro_codbarras, pro_conversao, pro_ciclo)
          SELECT
            unnest($1::int[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[]),
            unnest($5::float8[]), unnest($6::int[]), unnest($7::int[]), unnest($8::text[]),
-           unnest($9::text[]), unnest($10::text[]), unnest($11::text[]), unnest($12::text[])
+           unnest($9::text[]), unnest($10::text[]), unnest($11::text[]), unnest($12::text[]),
+           unnest($13::char[])
          ON CONFLICT DO NOTHING
          RETURNING pro_id, pro_codigonormalizado`,
         [
@@ -452,6 +455,7 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
           newProds.map(p => p.aplicacao),
           newProds.map(p => p.codbarras),
           newProds.map(p => p.conversao),
+          newProds.map(p => p.ciclo),
         ]
       );
       insRes.rows.forEach((r: any) => insertedMap.set(r.pro_codigonormalizado, r.pro_id));
@@ -469,7 +473,8 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
            pro_ncm         = COALESCE(NULLIF(v.ncm,''),        pro_ncm),
            pro_aplicacao   = COALESCE(NULLIF(v.aplicacao,''),  pro_aplicacao),
            pro_codbarras   = COALESCE(NULLIF(v.codbarras,''),  pro_codbarras),
-           pro_conversao   = COALESCE(NULLIF(v.conversao,''),  pro_conversao)
+           pro_conversao   = COALESCE(NULLIF(v.conversao,''),  pro_conversao),
+           pro_ciclo       = v.ciclo
          FROM (SELECT
            unnest($1::int[])    AS pro_id,
            unnest($2::text[])   AS nome,
@@ -480,7 +485,8 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
            unnest($7::text[])   AS ncm,
            unnest($8::text[])   AS aplicacao,
            unnest($9::text[])   AS codbarras,
-           unnest($10::text[])  AS conversao
+           unnest($10::text[])  AS conversao,
+           unnest($11::char[])  AS ciclo
          ) AS v
          WHERE cad_prod.pro_id = v.pro_id`,
         [
@@ -494,6 +500,7 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
           updProds.map(p => p.aplicacao),
           updProds.map(p => p.codbarras),
           updProds.map(p => p.conversao),
+          updProds.map(p => p.ciclo),
         ]
       );
     }

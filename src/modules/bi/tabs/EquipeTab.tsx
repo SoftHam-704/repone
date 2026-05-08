@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
-import { Users } from 'lucide-react';
+import { Users, AlertTriangle, TrendingUp, Calendar, ShoppingBag } from 'lucide-react';
 import { api } from '@/shared/lib/api';
 import { useBIStore, buildBIParams } from '../store/useBIStore';
 import { BI, fmtBRL } from '../components/biTokens';
@@ -42,10 +42,21 @@ interface SellerRow {
   new_skus_value: string;
 }
 
+interface CockpitRow {
+  ven_codigo: number;
+  ven_nome: string;
+  fat_mes_atual: string;
+  fat_meta: string;
+  pct_meta: string | null;
+  clientes_risco: number;
+  visitas_semana: number;
+  ultima_data: string | null;
+  dias_sem_pedido: number | null;
+}
+
 // ─── Pódio Top 3 ─────────────────────────────────────────────────────────────
-// Ordem clássica: 2º à esquerda, 1º no centro, 3º à direita
-const PODIUM_ORDER   = [1, 0, 2];       // índices do array sellers[]
-const PODIUM_HEIGHTS = [130, 170, 100]; // altura do bloco (esq, centro, dir)
+const PODIUM_ORDER   = [1, 0, 2];
+const PODIUM_HEIGHTS = [130, 170, 100];
 const PODIUM_MEDALS  = ['🥈', '🏆', '🥉'];
 const PODIUM_BG      = [
   'rgba(192,192,192,0.12)',
@@ -83,7 +94,6 @@ const Podium = ({ sellers }: { sellers: SellerRow[] }) => {
           <div key={s.ven_codigo}
             style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
-            {/* Avatar */}
             <div style={{
               width: isTop ? 72 : 56, height: isTop ? 72 : 56,
               borderRadius: '50%',
@@ -98,7 +108,6 @@ const Podium = ({ sellers }: { sellers: SellerRow[] }) => {
               {ini}
             </div>
 
-            {/* Nome */}
             <p style={{
               fontSize: isTop ? 12 : 11, fontWeight: 900,
               color: BI.text, textTransform: 'uppercase',
@@ -109,7 +118,6 @@ const Podium = ({ sellers }: { sellers: SellerRow[] }) => {
               {s.ven_nome}
             </p>
 
-            {/* Valor */}
             <p style={{
               fontSize: isTop ? 13 : 11, fontWeight: 900,
               color, fontFamily: 'monospace', marginBottom: 3,
@@ -117,7 +125,6 @@ const Podium = ({ sellers }: { sellers: SellerRow[] }) => {
               {fmtBRL(total)}
             </p>
 
-            {/* YoY */}
             {mom !== null && (
               <p style={{
                 fontSize: 10, fontWeight: 700, marginBottom: 10,
@@ -127,7 +134,6 @@ const Podium = ({ sellers }: { sellers: SellerRow[] }) => {
               </p>
             )}
 
-            {/* Bloco do pódio */}
             <div style={{
               width: '100%', height: blockH,
               background: PODIUM_BG[posIdx],
@@ -148,17 +154,221 @@ const Podium = ({ sellers }: { sellers: SellerRow[] }) => {
   );
 };
 
+// ─── Rep Card — Cockpit do Gestor ─────────────────────────────────────────────
+function RepCard({ rep }: { rep: CockpitRow }) {
+  const color = avatarColor(rep.ven_nome);
+  const ini   = initials(rep.ven_nome);
+  const fatAtual = parseFloat(rep.fat_mes_atual);
+  const fatMeta  = parseFloat(rep.fat_meta);
+  const pct      = rep.pct_meta !== null ? parseFloat(rep.pct_meta) : null;
+  const risco    = rep.clientes_risco;
+  const visitas  = rep.visitas_semana;
+  const dias     = rep.dias_sem_pedido;
+
+  const barPct   = pct !== null ? Math.min(pct, 100) : 0;
+  const barColor = pct === null ? BI.border
+    : pct >= 100 ? BI.success
+    : pct >= 70  ? BI.warning
+    : BI.danger;
+
+  const diasColor = dias === null ? BI.textMuted
+    : dias <= 7   ? BI.success
+    : dias <= 14  ? BI.warning
+    : BI.danger;
+
+  return (
+    <div style={{
+      background: BI.panel,
+      border: `1px solid ${BI.border}`,
+      borderRadius: 14,
+      padding: '16px 18px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 12,
+      position: 'relative',
+      overflow: 'hidden',
+    }}>
+      {/* accent strip */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: 3,
+        background: color,
+      }} />
+
+      {/* header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: '50%',
+          background: `${color}20`,
+          border: `2px solid ${color}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 14, fontWeight: 900, color,
+          fontFamily: 'monospace', flexShrink: 0,
+        }}>
+          {ini}
+        </div>
+        <p style={{
+          fontSize: 12, fontWeight: 900, color: BI.text,
+          textTransform: 'uppercase', letterSpacing: '0.04em',
+          lineHeight: 1.2,
+        }}>
+          {rep.ven_nome}
+        </p>
+      </div>
+
+      {/* faturamento vs meta */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+          <div>
+            <p style={{ fontSize: 9, fontWeight: 700, color: BI.textMuted, letterSpacing: '0.06em', marginBottom: 2 }}>
+              FAT. MÊS ATUAL
+            </p>
+            <p style={{ fontSize: 14, fontWeight: 900, color, fontFamily: 'monospace' }}>
+              {fmtBRL(fatAtual)}
+            </p>
+          </div>
+          {fatMeta > 0 && (
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ fontSize: 9, fontWeight: 700, color: BI.textMuted, letterSpacing: '0.06em', marginBottom: 2 }}>
+                META (MÊS ANT.)
+              </p>
+              <p style={{ fontSize: 12, fontWeight: 700, color: BI.textSec, fontFamily: 'monospace' }}>
+                {fmtBRL(fatMeta)}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* progress bar */}
+        {fatMeta > 0 && (
+          <div>
+            <div style={{
+              height: 6, borderRadius: 3,
+              background: `${BI.border}`,
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                height: '100%', borderRadius: 3,
+                width: `${barPct}%`,
+                background: barColor,
+                transition: 'width 0.6s ease',
+              }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, color: barColor }}>
+                {pct !== null ? `${pct.toFixed(1)}%` : '—'}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* métricas operacionais */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+
+        <div style={{
+          background: `${risco > 0 ? BI.danger : BI.border}18`,
+          border: `1px solid ${risco > 0 ? BI.danger : BI.border}44`,
+          borderRadius: 8, padding: '8px 10px', textAlign: 'center',
+        }}>
+          <AlertTriangle size={12} style={{ color: risco > 0 ? BI.danger : BI.textMuted, margin: '0 auto 4px' }} />
+          <p style={{ fontSize: 16, fontWeight: 900, color: risco > 0 ? BI.danger : BI.textMuted, lineHeight: 1 }}>
+            {risco}
+          </p>
+          <p style={{ fontSize: 8, fontWeight: 700, color: BI.textMuted, marginTop: 2, letterSpacing: '0.04em' }}>
+            EM RISCO
+          </p>
+        </div>
+
+        <div style={{
+          background: `${BI.border}18`,
+          border: `1px solid ${BI.border}44`,
+          borderRadius: 8, padding: '8px 10px', textAlign: 'center',
+        }}>
+          <Calendar size={12} style={{ color: BI.textMuted, margin: '0 auto 4px' }} />
+          <p style={{ fontSize: 16, fontWeight: 900, color: visitas > 0 ? BI.success : BI.textMuted, lineHeight: 1 }}>
+            {visitas}
+          </p>
+          <p style={{ fontSize: 8, fontWeight: 700, color: BI.textMuted, marginTop: 2, letterSpacing: '0.04em' }}>
+            VISITAS
+          </p>
+        </div>
+
+        <div style={{
+          background: `${BI.border}18`,
+          border: `1px solid ${BI.border}44`,
+          borderRadius: 8, padding: '8px 10px', textAlign: 'center',
+        }}>
+          <ShoppingBag size={12} style={{ color: BI.textMuted, margin: '0 auto 4px' }} />
+          <p style={{ fontSize: 16, fontWeight: 900, color: diasColor, lineHeight: 1 }}>
+            {dias !== null ? dias : '—'}
+          </p>
+          <p style={{ fontSize: 8, fontWeight: 700, color: BI.textMuted, marginTop: 2, letterSpacing: '0.04em' }}>
+            D. S/PEDIDO
+          </p>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// ─── Alertas strip ─────────────────────────────────────────────────────────────
+function AlertasStrip({ cockpit }: { cockpit: CockpitRow[] }) {
+  const alertas: string[] = [];
+
+  for (const r of cockpit) {
+    const nome = r.ven_nome.split(' ')[0];
+    const risco = r.clientes_risco;
+    const visitas = r.visitas_semana;
+    const dias = r.dias_sem_pedido;
+    const pct = r.pct_meta !== null ? parseFloat(r.pct_meta) : null;
+
+    if (risco > 0 && visitas === 0) {
+      alertas.push(`⚠️ ${nome} tem ${risco} cliente${risco > 1 ? 's' : ''} em risco e nenhuma visita registrada esta semana`);
+    }
+    if (dias !== null && dias > 14) {
+      alertas.push(`🔴 ${nome} está há ${dias} dias sem fechar pedido`);
+    }
+    if (pct !== null && pct < 50) {
+      alertas.push(`📉 ${nome} atingiu apenas ${pct.toFixed(0)}% da meta do mês anterior`);
+    }
+  }
+
+  if (!alertas.length) return null;
+
+  return (
+    <div style={{
+      background: `${BI.danger}12`,
+      border: `1px solid ${BI.danger}30`,
+      borderRadius: 12,
+      padding: '14px 18px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 6,
+    }}>
+      <p style={{ fontSize: 10, fontWeight: 900, color: BI.danger, letterSpacing: '0.08em', marginBottom: 4 }}>
+        ALERTAS AUTOMÁTICOS
+      </p>
+      {alertas.map((a, i) => (
+        <p key={i} style={{ fontSize: 12, color: BI.textSec, lineHeight: 1.5 }}>
+          {a}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 // ─── EquipeTab ────────────────────────────────────────────────────────────────
 const EquipeTab = () => {
   const { filters } = useBIStore();
   const p = buildBIParams(filters);
   const anoAtual = Math.max(...filters.anos);
 
-  const [sellers, setSellers] = useState<SellerRow[]>([]);
-  const [crm,     setCrm]     = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [sellers,  setSellers]  = useState<SellerRow[]>([]);
+  const [crm,      setCrm]      = useState<any[]>([]);
+  const [cockpit,  setCockpit]  = useState<CockpitRow[]>([]);
+  const [loading,  setLoading]  = useState(true);
 
-  // ── Parallel fetch ─────────────────────────────────────────────────────────
   useEffect(() => {
     setLoading(true);
     Promise.all([
@@ -168,12 +378,14 @@ const EquipeTab = () => {
       api.get('/crm/interacoes?limit=500')
         .then(r => r.data.success ? r.data.data ?? [] : [])
         .catch(() => [] as any[]),
+      api.get('/bi/equipe-cockpit')
+        .then(r => r.data.success ? r.data.data ?? [] : [])
+        .catch(() => [] as CockpitRow[]),
     ])
-      .then(([s, c]) => { setSellers(s); setCrm(c); })
+      .then(([s, c, ck]) => { setSellers(s); setCrm(c); setCockpit(ck); })
       .finally(() => setLoading(false));
   }, [p]);
 
-  // ── CRM agregado por vendedor ──────────────────────────────────────────────
   const crmBySeller = useMemo(() => {
     const map = new Map<string, { nome: string; count: number }>();
     for (const row of crm) {
@@ -184,7 +396,6 @@ const EquipeTab = () => {
     return Array.from(map.values()).sort((a, b) => b.count - a.count).slice(0, 8);
   }, [crm]);
 
-  // ── Gráfico: faturamento por vendedor ──────────────────────────────────────
   const perfOption = useMemo(() => {
     if (!sellers.length) return null;
     const rows = [...sellers].slice(0, 8).reverse();
@@ -243,7 +454,6 @@ const EquipeTab = () => {
     };
   }, [sellers]);
 
-  // ── Gráfico: interações CRM ────────────────────────────────────────────────
   const crmOption = useMemo(() => {
     if (!crmBySeller.length) return null;
     const rows = [...crmBySeller].reverse();
@@ -288,7 +498,6 @@ const EquipeTab = () => {
     };
   }, [crmBySeller]);
 
-  // ── Loading ────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="space-y-4">
@@ -297,12 +506,13 @@ const EquipeTab = () => {
           <SkeletonCard height={260} />
           <SkeletonCard height={260} />
         </div>
+        <SkeletonCard height={240} />
         <SkeletonCard height={340} />
       </div>
     );
   }
 
-  if (!sellers.length) {
+  if (!sellers.length && !cockpit.length) {
     return (
       <div className="flex flex-col items-center justify-center h-[50vh] gap-3">
         <Users size={40} style={{ color: BI.textMuted }} />
@@ -326,53 +536,87 @@ const EquipeTab = () => {
         </p>
       </div>
 
-      {/* ── Pódio ──────────────────────────────────────────────────────────── */}
-      <div className="glass-card rounded-2xl overflow-hidden"
-        style={{ borderTop: `3px solid ${BI.warning}` }}>
-        <div className="px-6 pt-5">
-          <SL label="Pódio — Top 3 Vendedores" />
+      {/* ── Cockpit do Gestor ──────────────────────────────────────────────── */}
+      {cockpit.length > 0 && (
+        <div className="glass-card rounded-2xl p-5" style={{ borderTop: `3px solid ${BI.teal}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+            <TrendingUp size={16} style={{ color: BI.teal }} />
+            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: BI.textMuted }}>
+              Cockpit do Gestor — Mês Atual
+            </p>
+          </div>
+
+          <AlertasStrip cockpit={cockpit} />
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+            gap: 12,
+            marginTop: cockpit.some(r =>
+              (r.clientes_risco > 0 && r.visitas_semana === 0) ||
+              (r.dias_sem_pedido !== null && r.dias_sem_pedido > 14) ||
+              (r.pct_meta !== null && parseFloat(r.pct_meta) < 50)
+            ) ? 16 : 0,
+          }}>
+            {cockpit.map(rep => (
+              <RepCard key={rep.ven_codigo} rep={rep} />
+            ))}
+          </div>
         </div>
-        <Podium sellers={sellers} />
-        {/* base do pódio */}
-        <div style={{
-          height: 6,
-          background: `linear-gradient(90deg, ${BI.border} 0%, ${BI.borderStrong} 50%, ${BI.border} 100%)`,
-        }} />
-      </div>
+      )}
+
+      {/* ── Pódio ──────────────────────────────────────────────────────────── */}
+      {sellers.length > 0 && (
+        <div className="glass-card rounded-2xl overflow-hidden"
+          style={{ borderTop: `3px solid ${BI.warning}` }}>
+          <div className="px-6 pt-5">
+            <SL label="Pódio — Top 3 Vendedores" />
+          </div>
+          <Podium sellers={sellers} />
+          <div style={{
+            height: 6,
+            background: `linear-gradient(90deg, ${BI.border} 0%, ${BI.borderStrong} 50%, ${BI.border} 100%)`,
+          }} />
+        </div>
+      )}
 
       {/* ── Faturamento + CRM ──────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4">
+      {sellers.length > 0 && (
+        <div className="grid grid-cols-2 gap-4">
 
-        <div className="glass-card rounded-2xl p-5">
-          <SL label="Faturamento por Vendedor" />
-          <p className="text-xs -mt-2 mb-4" style={{ color: BI.textMuted }}>
-            Cor individual · rótulo = total do período
-          </p>
-          {perfOption
-            ? <ReactECharts option={perfOption} style={{ height: 240 }} opts={{ renderer: 'canvas' }} />
-            : <p className="text-center py-10 text-sm font-bold" style={{ color: BI.textMuted }}>Sem dados</p>
-          }
+          <div className="glass-card rounded-2xl p-5">
+            <SL label="Faturamento por Vendedor" />
+            <p className="text-xs -mt-2 mb-4" style={{ color: BI.textMuted }}>
+              Cor individual · rótulo = total do período
+            </p>
+            {perfOption
+              ? <ReactECharts option={perfOption} style={{ height: 240 }} opts={{ renderer: 'canvas' }} />
+              : <p className="text-center py-10 text-sm font-bold" style={{ color: BI.textMuted }}>Sem dados</p>
+            }
+          </div>
+
+          <div className="glass-card rounded-2xl p-5">
+            <SL label="Interações no CRM" />
+            <p className="text-xs -mt-2 mb-4" style={{ color: BI.textMuted }}>
+              Total de contatos registrados por vendedor
+            </p>
+            {crmOption
+              ? <ReactECharts option={crmOption} style={{ height: 240 }} opts={{ renderer: 'canvas' }} />
+              : <p className="text-center py-10 text-sm font-bold" style={{ color: BI.textMuted }}>
+                  Nenhuma interação registrada
+                </p>
+            }
+          </div>
+
         </div>
-
-        <div className="glass-card rounded-2xl p-5">
-          <SL label="Interações no CRM" />
-          <p className="text-xs -mt-2 mb-4" style={{ color: BI.textMuted }}>
-            Total de contatos registrados por vendedor
-          </p>
-          {crmOption
-            ? <ReactECharts option={crmOption} style={{ height: 240 }} opts={{ renderer: 'canvas' }} />
-            : <p className="text-center py-10 text-sm font-bold" style={{ color: BI.textMuted }}>
-                Nenhuma interação registrada
-              </p>
-          }
-        </div>
-
-      </div>
+      )}
 
       {/* ── Tabela de Performance ──────────────────────────────────────────── */}
-      <div className="glass-card rounded-2xl p-5">
-        <SellerPerformanceTable />
-      </div>
+      {sellers.length > 0 && (
+        <div className="glass-card rounded-2xl p-5">
+          <SellerPerformanceTable />
+        </div>
+      )}
 
     </div>
   );

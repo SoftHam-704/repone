@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Package, ChevronDown, ChevronRight } from 'lucide-react';
+import { Package, ChevronDown, ChevronRight, FileDown } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 
@@ -9,10 +10,11 @@ interface Props { dataInicio: string; dataFim: string; }
 interface Row {
   pedido: string; data: string; situacao: string;
   cliente_nome: string; industria_nome: string; vendedor_nome: string;
-  total_bruto: number; total_liq: number; total_ipi: number; num_itens: number;
+  total_bruto: number; total_liq: number; total_ipi: number; num_itens: number; total_quant: number;
 }
 interface IndOpt { id: number; nome: string; }
 interface CliOpt { id: number; nome: string; }
+interface VenOpt { id: number; nome: string; }
 
 const NAVY      = '#1E2D3D';
 const NAVY_DARK = '#162436';
@@ -20,7 +22,7 @@ const NAVY_DARK = '#162436';
 const IND_COLORS = ['#0891B2','#7C3AED','#16A34A','#D97706','#BE185D','#0F766E','#1D4ED8','#DC2626','#B45309','#059669'];
 
 const fmt     = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
+const fmtDate = (d: string) => { if (!d) return '—'; const s = String(d).slice(0, 10); return `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`; };
 
 function StatusBadge({ sit }: { sit: string }) {
   const isFat = sit === 'F';
@@ -81,7 +83,7 @@ function IndustriaSection({ nome, rows, color, defaultOpen }: {
             <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 11 }}>
               <thead>
                 <tr style={{ background: G.cardHi }}>
-                  {['Pedido','Data','Cliente','Vendedor','Status','Itens','Total Bruto','Total IPI','Total Líq.'].map((h, i) => (
+                  {['Pedido','Data','Cliente','Vendedor','Status','Itens','Qtd','Total Bruto','Total IPI','Total Líq.'].map((h, i) => (
                     <th key={h} style={{ padding: '6px 12px', textAlign: i >= 5 ? 'right' : 'left', color: G.textMuted, fontWeight: 700, borderBottom: `1px solid ${G.border}`, whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -95,6 +97,7 @@ function IndustriaSection({ nome, rows, color, defaultOpen }: {
                     <td style={{ padding: '7px 12px', color: G.textMuted, borderBottom: `1px solid ${G.border}`, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.vendedor_nome}</td>
                     <td style={{ padding: '7px 12px', borderBottom: `1px solid ${G.border}` }}><StatusBadge sit={r.situacao} /></td>
                     <td style={{ padding: '7px 12px', textAlign: 'right', color: G.text, fontWeight: 600, borderBottom: `1px solid ${G.border}` }}>{r.num_itens}</td>
+                    <td style={{ padding: '7px 12px', textAlign: 'right', color: '#0891B2', fontWeight: 700, borderBottom: `1px solid ${G.border}` }}>{r.total_quant % 1 === 0 ? r.total_quant.toLocaleString('pt-BR') : r.total_quant.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td style={{ padding: '7px 12px', textAlign: 'right', color: G.textMuted, borderBottom: `1px solid ${G.border}`, whiteSpace: 'nowrap' }}>{fmt(r.total_bruto)}</td>
                     <td style={{ padding: '7px 12px', textAlign: 'right', color: G.textMuted, borderBottom: `1px solid ${G.border}`, whiteSpace: 'nowrap' }}>{fmt(r.total_ipi)}</td>
                     <td style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 700, color: G.text, borderBottom: `1px solid ${G.border}`, whiteSpace: 'nowrap' }}>{fmt(r.total_liq)}</td>
@@ -103,7 +106,9 @@ function IndustriaSection({ nome, rows, color, defaultOpen }: {
               </tbody>
               <tfoot>
                 <tr style={{ background: `${color}10` }}>
-                  <td colSpan={6} style={{ padding: '7px 14px', fontWeight: 800, fontSize: 11, color, textTransform: 'uppercase', letterSpacing: 0.4 }}>Subtotal {nome}</td>
+                  <td colSpan={5} style={{ padding: '7px 14px', fontWeight: 800, fontSize: 11, color, textTransform: 'uppercase', letterSpacing: 0.4 }}>Subtotal {nome}</td>
+                  <td style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 700, color: G.textMuted }}>{rows.reduce((s, r) => s + r.num_itens, 0)}</td>
+                  <td style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: '#0891B2' }}>{rows.reduce((s, r) => s + r.total_quant, 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
                   <td style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 700, color: G.textMuted }}>{fmt(subtBrut)}</td>
                   <td style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 700, color: G.textMuted }}>{fmt(subtIpi)}</td>
                   <td style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: '#16A34A' }}>{fmt(subtLiq)}</td>
@@ -121,20 +126,23 @@ export default function MapaPedidos({ dataInicio, dataFim }: Props) {
   const [rows,       setRows]       = useState<Row[]>([]);
   const [industrias, setIndustrias] = useState<IndOpt[]>([]);
   const [clientes,   setClientes]   = useState<CliOpt[]>([]);
+  const [vendedores, setVendedores] = useState<VenOpt[]>([]);
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState('');
   const [industria,  setIndustria]  = useState('ALL');
   const [cliente,    setCliente]    = useState('ALL');
+  const [vendedor,   setVendedor]   = useState('ALL');
 
   useEffect(() => {
     api.get('/aux/industrias').then(r => setIndustrias((r.data.data || []).map((f: any) => ({ id: f.for_codigo, nome: f.for_nomered || f.for_nome })))).catch(() => {});
     api.get('/clients?limit=2000').then(r => setClientes((r.data.data || []).map((c: any) => ({ id: c.cli_codigo, nome: c.cli_nomred || c.cli_nome })))).catch(() => {});
+    api.get('/aux/vendedores').then(r => setVendedores((r.data.data || []).map((v: any) => ({ id: v.ven_codigo, nome: v.ven_nome })))).catch(() => {});
   }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const params = new URLSearchParams({ dataInicial: dataInicio, dataFinal: dataFim, industria, cliente });
+      const params = new URLSearchParams({ dataInicial: dataInicio, dataFinal: dataFim, industria, cliente, vendedor });
       const r = await api.get(`/estatisticas/mapa-pedidos?${params}`);
       setRows(r.data.data || []);
     } catch (e: any) {
@@ -142,7 +150,61 @@ export default function MapaPedidos({ dataInicio, dataFim }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [dataInicio, dataFim, industria, cliente]);
+  }, [dataInicio, dataFim, industria, cliente, vendedor]);
+
+  const exportExcel = () => {
+    if (!rows.length) return;
+
+    const COL = ['Pedido', 'Data', 'Cliente', 'Vendedor', 'Status', 'Itens', 'Qtd', 'Total Bruto', 'Total IPI', 'Total Líq.'];
+    const aoa: any[][] = [COL];
+
+    for (const [ind, indRows] of grupos) {
+      // Cabeçalho da indústria
+      aoa.push([`${ind.toUpperCase()}  (${indRows.length} pedido${indRows.length !== 1 ? 's' : ''})`]);
+
+      // Linhas de detalhe
+      indRows.forEach(r => aoa.push([
+        r.pedido,
+        fmtDate(r.data),
+        r.cliente_nome,
+        r.vendedor_nome,
+        r.situacao === 'F' ? 'Faturado' : 'Pedido',
+        r.num_itens,
+        r.total_quant,
+        r.total_bruto,
+        r.total_ipi,
+        r.total_liq,
+      ]));
+
+      // Subtotal da indústria
+      aoa.push([
+        `SUBTOTAL ${ind}`, '', '', '', '',
+        indRows.reduce((s, r) => s + r.num_itens,    0),
+        indRows.reduce((s, r) => s + r.total_quant,  0),
+        indRows.reduce((s, r) => s + r.total_bruto,  0),
+        indRows.reduce((s, r) => s + r.total_ipi,    0),
+        indRows.reduce((s, r) => s + r.total_liq,    0),
+      ]);
+
+      aoa.push([]); // linha em branco entre grupos
+    }
+
+    // Total geral
+    aoa.push([
+      'TOTAL GERAL', '', '', '', '',
+      rows.reduce((s, r) => s + r.num_itens,   0),
+      rows.reduce((s, r) => s + r.total_quant, 0),
+      rows.reduce((s, r) => s + r.total_bruto, 0),
+      rows.reduce((s, r) => s + r.total_ipi,   0),
+      rows.reduce((s, r) => s + r.total_liq,   0),
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [14, 12, 30, 22, 10, 6, 10, 16, 16, 16].map(wch => ({ wch }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Mapa de Pedidos');
+    XLSX.writeFile(wb, `MapaPedidos_${dataInicio}_${dataFim}.xlsx`);
+  };
 
   useEffect(() => { load(); }, [load]);
 
@@ -167,6 +229,7 @@ export default function MapaPedidos({ dataInicio, dataFim }: Props) {
         {[
           { label: 'Indústria', val: industria, set: setIndustria, opts: industrias, all: 'Todas as Indústrias' },
           { label: 'Cliente',   val: cliente,   set: setCliente,   opts: clientes,   all: 'Todos os Clientes' },
+          { label: 'Vendedor',  val: vendedor,  set: setVendedor,  opts: vendedores, all: 'Todos os Vendedores' },
         ].map(f => (
           <div key={f.label} style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 180 }}>
             <label style={{ fontSize: 10, fontWeight: 700, color: G.textMuted, letterSpacing: 0.5, textTransform: 'uppercase' }}>{f.label}</label>
@@ -177,13 +240,23 @@ export default function MapaPedidos({ dataInicio, dataFim }: Props) {
             </select>
           </div>
         ))}
-        <button onClick={load} disabled={loading} style={{
-          padding: '7px 20px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-          background: G.mustard, color: G.text, border: 'none', cursor: 'pointer',
-          marginLeft: 'auto', alignSelf: 'flex-end',
-        }}>
-          {loading ? 'Carregando...' : 'Buscar'}
-        </button>
+        <div style={{ marginLeft: 'auto', alignSelf: 'flex-end', display: 'flex', gap: 8 }}>
+          {rows.length > 0 && (
+            <button onClick={exportExcel} style={{
+              padding: '7px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+              background: '#16A34A', color: '#fff', border: 'none', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <FileDown size={14} /> Excel
+            </button>
+          )}
+          <button onClick={load} disabled={loading} style={{
+            padding: '7px 20px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+            background: G.mustard, color: G.text, border: 'none', cursor: 'pointer',
+          }}>
+            {loading ? 'Carregando...' : 'Buscar'}
+          </button>
+        </div>
       </div>
 
       {error && <div style={{ padding: '10px 16px', borderRadius: 10, background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', fontSize: 12, fontWeight: 600 }}>{error}</div>}

@@ -108,6 +108,7 @@ export async function upsertParametrosHandler(req: Request, res: Response): Prom
       par_imap_server:             d.par_imap_server             ?? '',
       par_imap_porta:              d.par_imap_porta              ?? 993,
       par_imap_ssl:                d.par_imap_ssl                ?? true,
+      par_baixa_xml_fecha:         d.par_baixa_xml_fecha         ?? 'N',
     };
 
     let result;
@@ -123,8 +124,9 @@ export async function upsertParametrosHandler(req: Request, res: Response): Prom
           par_emailserver=$23, par_email=$24, par_emailuser=$25, par_emailporta=$26,
           par_emailpassword=$27, par_emailtls=$28, par_emailssl=$29, par_emailalternativo=$30,
           par_email_central_ativo=$31, par_imap_server=$32, par_imap_porta=$33, par_imap_ssl=$34,
+          par_baixa_xml_fecha=$35,
           updated_at=CURRENT_TIMESTAMP
-        WHERE par_usuario=$35
+        WHERE par_usuario=$36
         RETURNING *
       `, [...Object.values(fields), d.par_usuario]);
     } else {
@@ -139,12 +141,13 @@ export async function upsertParametrosHandler(req: Request, res: Response): Prom
           par_separalinhas, par_pedidopadrao, par_iniciapedido, par_obs_padrao,
           par_emailserver, par_email, par_emailuser, par_emailporta,
           par_emailpassword, par_emailtls, par_emailssl, par_emailalternativo,
-          par_email_central_ativo, par_imap_server, par_imap_porta, par_imap_ssl
+          par_email_central_ativo, par_imap_server, par_imap_porta, par_imap_ssl,
+          par_baixa_xml_fecha
         ) VALUES (
-          $35,
+          $36,
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
           $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
-          $31,$32,$33,$34
+          $31,$32,$33,$34,$35
         ) RETURNING *
       `, [...Object.values(fields), d.par_usuario]);
     }

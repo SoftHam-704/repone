@@ -9,11 +9,13 @@ import { MainLayout } from '@/shared/components/layout/MainLayout'
 const BIPage = lazy(() => import('@/modules/bi/pages/BIPage'))
 const MobileApp = lazy(() => import('@/mobile/MobileApp'))
 
-// Se o dispositivo NÃO for móvel, redireciona /mobile/* para /dashboard
-const MobileGuard = () => {
-  const isMobile = window.innerWidth < 768 || navigator.maxTouchPoints > 0
-  return isMobile ? <MobileApp /> : <Navigate to="/dashboard" replace />
-}
+const isMobileDevice = () => window.innerWidth < 768 || navigator.maxTouchPoints > 0
+
+// Rota raiz: mobile vai para /mobile, desktop vai para /dashboard
+const RootRedirect = () => <Navigate to={isMobileDevice() ? '/mobile' : '/dashboard'} replace />
+
+// /mobile/*: bloqueia acesso desktop
+const MobileGuard = () => isMobileDevice() ? <MobileApp /> : <Navigate to="/dashboard" replace />
 
 function App() {
   return (
@@ -23,12 +25,14 @@ function App() {
         <Route path="/print/order/:id" element={<OrderReportEngine />} />
         <Route path="/login" element={<LoginPage />} />
 
+        {/* Raiz: mobile → /mobile, desktop → /dashboard */}
+        <Route path="/" element={<RootRedirect />} />
+
         {/* BI Intelligence — layout próprio dark, fora do MainLayout */}
         <Route path="/bi" element={<AuthGuard><BIPage /></AuthGuard>} />
-        
+
         {/* Layout Protegido — MainLayout gerencia as abas internamente */}
         <Route element={<AuthGuard><MainLayout /></AuthGuard>}>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={null} />
           <Route path="/metas" element={null} />
           <Route path="/industrias" element={null} />
@@ -58,6 +62,8 @@ function App() {
           <Route path="/financeiro/relatorios/dre" element={null} />
           <Route path="/financeiro/plano-contas" element={null} />
           <Route path="/financeiro/centro-custo" element={null} />
+          <Route path="/financeiro/fin-clientes" element={null} />
+          <Route path="/financeiro/fin-fornecedores" element={null} />
           <Route path="/repcrm/radar" element={null} />
           <Route path="/repcrm/carteira" element={null} />
           <Route path="/repcrm/dashboard" element={null} />
@@ -65,6 +71,7 @@ function App() {
           <Route path="/repcrm/relacionamentos" element={null} />
           <Route path="/repcrm/pipeline" element={null} />
           <Route path="/utilitarios/whatsapp-ia" element={null} />
+          <Route path="/utilitarios/iris-config" element={null} />
           <Route path="/nexus-ia" element={null} />
           <Route path="*" element={null} />
         </Route>

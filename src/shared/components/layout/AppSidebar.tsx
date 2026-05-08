@@ -11,7 +11,7 @@ import {
   Wallet, PieChart, Settings, Wrench,
   MessageCircle, ClipboardCheck, ListChecks, Kanban, Activity,
   BookOpen, Gamepad2, LogOut, ChevronRight, MessageSquare,
-  Radar, Users2, CalendarCheck,
+  Radar, Users2, CalendarCheck, Sparkles,
 } from 'lucide-react';
 import { useAuthStore } from '@/shared/stores/useAuthStore';
 import { useAlertasStore } from '@/shared/stores/useAlertasStore';
@@ -33,6 +33,7 @@ interface NavLeaf {
   path: string;
   icon: React.ElementType;
   feature?: 'biEnabled' | 'whatsappEnabled' | 'crmRepEnabled';
+  masterOnly?: boolean;
 }
 interface NavSubGroup {
   id: string;
@@ -95,6 +96,8 @@ const GROUPS: NavGroup[] = [
       { label: 'DRE Gerencial',    path: '/financeiro/relatorios/dre',         icon: PieChart },
       { label: 'Plano de Contas',  path: '/financeiro/plano-contas',           icon: Settings },
       { label: 'Centro de Custo',  path: '/financeiro/centro-custo',           icon: Building2 },
+      { label: 'Clientes Fin.',    path: '/financeiro/fin-clientes',           icon: Users },
+      { label: 'Fornecedores Fin.',path: '/financeiro/fin-fornecedores',       icon: Building2 },
     ],
   },
   {
@@ -119,9 +122,10 @@ const GROUPS: NavGroup[] = [
     items: [
       { label: 'Catálogo Digital',  path: '/utilitarios/catalogo-produtos', icon: Package },
       { label: 'Central de Vídeos',path: '/utilitarios/tutoriais',          icon: BookOpen },
-      { label: 'Usuários',          path: '/utilitarios/usuarios',           icon: Users },
+      { label: 'Usuários',          path: '/utilitarios/usuarios',           icon: Users,     masterOnly: true },
       { label: 'Parâmetros',        path: '/utilitarios/parametros',         icon: Settings },
       { label: 'Configurações',     path: '/utilitarios/configuracoes',      icon: Settings },
+      { label: 'IRIS — Config. IA', path: '/utilitarios/iris-config',        icon: Sparkles, masterOnly: true },
       { label: '🎮 Tetris',          path: '/utilitarios/tetris',            icon: Gamepad2 },
     ],
   },
@@ -294,11 +298,15 @@ export function AppSidebar() {
   const fullName = [user?.nome, user?.sobrenome].filter(Boolean).join(' ') || 'Usuário';
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
-  const canShow  = (f?: NavLeaf['feature']) => !f || user?.[f] !== false;
+  const isMasterRole = user?.role === 'admin' || user?.role === 'superadmin';
+  const canShow  = (f?: NavLeaf['feature'], masterOnly?: boolean) => {
+    if (masterOnly && !isMasterRole) return false;
+    return !f || user?.[f] !== false;
+  };
 
   // ─── Item leaf ──────────────────────────────────────────────────────────────
   const LeafItem = ({ item, indent = false }: { item: NavLeaf; indent?: boolean }) => {
-    if (!canShow(item.feature)) return null;
+    if (!canShow(item.feature, item.masterOnly)) return null;
     const active = isActive(item.path);
     const Icon   = item.icon;
 
@@ -356,7 +364,7 @@ export function AppSidebar() {
     const hasActive = (group.items?.some(i => isActive(i.path) && canShow(i.feature)) || 
                        group.subgroups?.some(s => s.items.some(i => isActive(i.path) && canShow(i.feature))));
     
-    const visibles = (group.items || []).filter(i => canShow(i.feature));
+    const visibles = (group.items || []).filter(i => canShow(i.feature, i.masterOnly));
     const hasVisibleSubgroups = group.subgroups?.some(s => s.items.some(i => canShow(i.feature)));
     
     if (!visibles.length && !hasVisibleSubgroups) return null;
@@ -571,7 +579,7 @@ export function AppSidebar() {
                   {fullName}
                 </div>
                 <div style={{ fontSize: 10, color: S.textSec }}>
-                  {user?.role === 'admin' ? 'Administrador' : 'Representante'}
+                  {isMasterRole ? 'Administrador' : 'Representante'}
                 </div>
               </div>
               <button onClick={logout} title="Sair"

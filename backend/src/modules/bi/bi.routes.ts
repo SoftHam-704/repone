@@ -8,6 +8,7 @@ import {
   rankingIndustriasHandler,
   abcClientesHandler,
   sellersPerformanceHandler,
+  equipeCockpitHandler,
   // Fase 2 — Indústrias
   metasIndustriasHandler,
   positivacaoHandler,
@@ -43,6 +44,10 @@ import {
   produtosOverviewHandler,
   produtosPorGrupoHandler,
   topSkusHandler,
+  // Sell In/Out
+  sellInOutKpisHandler,
+  sellInOutRankingHandler,
+  sellInOutCruzamentoHandler,
 } from './bi.controller';
 
 const router = Router();
@@ -55,6 +60,7 @@ router.get('/market-share',        marketShareHandler);
 router.get('/ranking-industrias',  rankingIndustriasHandler);
 router.get('/abc-clientes',        abcClientesHandler);
 router.get('/sellers-performance', sellersPerformanceHandler);
+router.get('/equipe-cockpit',      equipeCockpitHandler);
 
 // Fase 2 — Indústrias
 router.get('/metas-industrias',        metasIndustriasHandler);
@@ -101,5 +107,10 @@ router.get('/skus-por-grupo',     skusPorGrupoHandler);
 router.get('/produtos-overview',   produtosOverviewHandler);
 router.get('/produtos-por-grupo',  produtosPorGrupoHandler);
 router.get('/top-skus',            topSkusHandler);
+
+// Sell In/Out
+router.get('/sell-in-out/kpis',       sellInOutKpisHandler);
+router.get('/sell-in-out/ranking',     sellInOutRankingHandler);
+router.get('/sell-in-out/cruzamento',  sellInOutCruzamentoHandler);
 
 export default router;

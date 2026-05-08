@@ -4,7 +4,7 @@ import { Home, Users, ShoppingCart, TrendingUp, BarChart2 } from 'lucide-react';
 const TABS = [
   { path: '/mobile/home',    icon: Home,         label: 'Home'     },
   { path: '/mobile/clientes',icon: Users,        label: 'Clientes' },
-  { path: '/mobile/pedido',  icon: ShoppingCart, label: 'Pedido'   },
+  { path: '/mobile/pedidos', icon: ShoppingCart, label: 'Pedidos'  },
   { path: '/mobile/sellout', icon: TrendingUp,   label: 'Sell-Out' },
   { path: '/mobile/bi',      icon: BarChart2,    label: 'BI'       },
 ] as const;

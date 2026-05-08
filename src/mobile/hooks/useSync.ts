@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { autoSync, fieldSync, uploadQueue } from '../db/sync';
+import { autoSync, fieldSync, uploadQueue, downloadOrders } from '../db/sync';
 import { db } from '../db/db';
 import { useOffline } from './useOffline';
 
@@ -39,5 +39,12 @@ export function useSync() {
     }
   }, [isOnline, syncing, refreshQueueCount]);
 
-  return { sync, syncing, progress, queueCount, refreshQueueCount };
+  const upload = useCallback(async () => {
+    if (!isOnline) return;
+    await uploadQueue();
+    try { await downloadOrders(); } catch {}
+    await refreshQueueCount();
+  }, [isOnline, refreshQueueCount]);
+
+  return { sync, syncing, progress, queueCount, refreshQueueCount, upload };
 }

@@ -7,7 +7,7 @@ import {
   ChevronRight, Factory, LayoutGrid, RefreshCw,
   TrendingUp, ShoppingCart, Globe,
   MessageCircle, Mail, Link2, Check, SendHorizontal,
-  History, Sparkles,
+  History, Sparkles, ClipboardCheck, HelpCircle, X, CheckCircle2,
 } from 'lucide-react';
 import { AppSidebar } from '@/shared/components/layout/AppSidebar';
 import { G } from '@/shared/components/layout/CadastroShell';
@@ -22,6 +22,7 @@ import SendEmailDialog from './SendEmailDialog';
 import { exportOrderToExcel } from '@/shared/utils/exportOrderToExcel';
 import BillingDialog from './BillingDialog';
 import PortalsDialog from './PortalsDialog';
+import FaniaPortalModal from '../components/FaniaPortalModal';
 import { LayoutList, PieChart } from 'lucide-react';
 import IrisPanel from './IrisPanel';
 
@@ -61,7 +62,7 @@ interface Order {
   ped_consolidado_id?: number | null;
   ped_total_quant?: number;
   ped_total_items?: number;
-  ped_enviado?: string;
+  ped_enviado?: boolean;
 }
 
 interface Stats {
@@ -177,7 +178,8 @@ const fmt = (v: number) =>
 
 const fmtDate = (d?: string) => {
   if (!d) return '—';
-  return new Date(d.includes('T') ? d : d + 'T00:00:00').toLocaleDateString('pt-BR');
+  const [y, m, day] = d.substring(0, 10).split('-');
+  return `${day}/${m}/${y}`;
 };
 
 function statusLabel(s: string) {
@@ -410,7 +412,7 @@ const OrderCard = memo(function OrderCard({
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            {order.ped_enviado === 'S' && (
+            {order.ped_enviado === true && (
               <span style={{
                 fontSize: 8, fontWeight: 900, padding: '2px 6px', borderRadius: 20,
                 background: '#D1FAE5', color: '#059669', border: '1px solid #6EE7B7',
@@ -805,7 +807,7 @@ function OrderDetailPanel({
                           {o.cli_nomred || o.cli_nome}
                         </span>
                         <span style={{ fontSize: 11, color: G.textMuted }}>
-                          {new Date(o.ped_data.includes('T') ? o.ped_data : o.ped_data + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                          {fmtDate(o.ped_data)}
                         </span>
                         <span style={{ fontSize: 11, fontWeight: 700, color: G.text, fontFamily: 'monospace', textAlign: 'right' }}>
                           {o.ped_totliq.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -878,6 +880,155 @@ function InfoRow({ icon: Icon, label, value, mono }: { icon: any; label: string;
   );
 }
 
+// ─── Modal de Ajuda — Pedidos ─────────────────────────────────────────────────
+
+function PedidosHelpModal({ onClose }: { onClose: () => void }) {
+  const sec: React.CSSProperties = { marginBottom: 26 };
+  const h2: React.CSSProperties = { fontSize: 12, fontWeight: 900, color: G.text, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7, borderBottom: `2px solid ${G.mustard}`, paddingBottom: 8 };
+  const p: React.CSSProperties = { fontSize: 12, color: G.textMuted, lineHeight: 1.8, marginBottom: 8 };
+  const tip = (accent = G.mustard): React.CSSProperties => ({ background: `${accent}0D`, border: `1px solid ${accent}33`, borderLeft: `3px solid ${accent}`, borderRadius: 8, padding: '10px 14px', fontSize: 12, color: G.text, lineHeight: 1.75, marginBottom: 8 });
+  const stp = (): React.CSSProperties => ({ width: 22, height: 22, borderRadius: '50%', background: G.mustard, color: G.card, fontWeight: 900, fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 });
+
+  const statuses = [
+    { code: 'C', label: 'Cotação Aberta', color: '#F59E0B', desc: 'Pedido em elaboração pelo rep. Não foi enviado ainda.' },
+    { code: 'A', label: 'Cotação Enviada', color: '#3B82F6', desc: 'Aguardando aprovação ou confirmação do cliente.' },
+    { code: 'CC', label: 'Cotação Confirmada', color: '#8B5CF6', desc: 'Cliente aprovou — pronto para converter em pedido.' },
+    { code: 'P', label: 'Pedido', color: '#10B981', desc: 'Pedido confirmado e ativo. Conta em todas as estatísticas.' },
+    { code: 'Q', label: 'Aguard. Consolidação', color: '#0891B2', desc: 'Pedido pronto para ser consolidado e enviado à indústria.' },
+    { code: 'F', label: 'Faturado', color: '#059669', desc: 'Pedido foi faturado pela indústria. Histórico permanente.' },
+    { code: 'E', label: 'Excluído', color: '#94A3B8', desc: 'Cancelado. Não aparece em vendas nem estatísticas.' },
+  ];
+
+  const acoes = [
+    { icone: Eye, label: 'Visualizar', desc: 'Abre o pedido em modo somente leitura para conferência.' },
+    { icone: Pencil, label: 'Editar', desc: 'Abre o pedido para alterações. Disponível enquanto não estiver Faturado.' },
+    { icone: Copy, label: 'Clonar', desc: 'Cria uma cópia exata do pedido. Ótimo para repetir pedidos de reposição.' },
+    { icone: ClipboardCheck, label: 'Converter para Pedido', desc: 'Transforma uma Cotação (C, A ou CC) em Pedido (P), atualizando a data para hoje.' },
+    { icone: SendHorizontal, label: 'Marcar Enviado', desc: 'Registra que o pedido foi enviado para a indústria. Muda o indicador de status de envio.' },
+    { icone: Printer, label: 'Imprimir', desc: 'Gera o documento do pedido em PDF ou tela para impressão.' },
+    { icone: CreditCard, label: 'Faturar', desc: 'Marca o pedido como Faturado (F). Ação irreversível — só após confirmação da nota fiscal.' },
+    { icone: Trash2, label: 'Excluir', desc: 'Cancela o pedido (situação E). O pedido fica arquivado mas sai de todas as estatísticas.' },
+  ];
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(15,23,42,0.6)' }} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 1101, width: 640, background: G.card, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)', display: 'flex', flexDirection: 'column', overflow: 'hidden', borderLeft: `1px solid ${G.border}` }}>
+
+        <div style={{ background: G.text, padding: '20px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 38, height: 38, background: G.mustard, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <ShoppingCart size={18} color={G.text} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 15, color: '#fff' }}>Guia — Pedidos de Vendas</div>
+              <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>Status, ações, importação e boas práticas</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '6px 8px', color: '#94A3B8', display: 'flex' }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+
+          <div style={sec}>
+            <div style={h2}><Package size={14} /> O que é um Pedido de Vendas?</div>
+            <p style={p}>Um pedido de vendas registra a intenção de compra de um cliente com uma indústria, intermediada pelo representante. O RepOne gerencia todo o ciclo: desde a cotação inicial até o faturamento.</p>
+            <p style={p}>O pedido pode começar como <strong style={{ color: G.mustard }}>Cotação</strong> (quando o cliente ainda está decidindo) e evoluir até <strong style={{ color: G.mustard }}>Faturado</strong> (quando a nota fiscal é emitida).</p>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><Hash size={14} /> Status dos Pedidos</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {statuses.map(s => (
+                <div key={s.code} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '9px 14px', background: G.cardHi, borderRadius: 10, border: `1px solid ${G.border}` }}>
+                  <div style={{ minWidth: 36, height: 22, borderRadius: 6, background: `${s.color}22`, border: `1px solid ${s.color}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 10, color: s.color }}>{s.code}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 900, fontSize: 12, color: G.text }}>{s.label}</div>
+                    <div style={{ fontSize: 11, color: G.textMuted, marginTop: 1 }}>{s.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ ...tip(), marginTop: 10 }}>
+              ⚠ Apenas pedidos com status <strong>P</strong> e <strong>F</strong> contam em vendas, BI e relatórios. Excluídos (<strong>E</strong>) são desconsiderados em todas as estatísticas.
+            </div>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><Plus size={14} /> Como criar um Pedido</div>
+            {[
+              { titulo: 'Clique em "Novo Pedido"', texto: 'Botão no canto superior direito da tela. Abre o formulário de criação.' },
+              { titulo: 'Selecione o cliente e a indústria', texto: 'Use a busca rápida. O sistema carrega automaticamente a tabela de preços ativa da indústria selecionada.' },
+              { titulo: 'Adicione os produtos', texto: 'Digite o código ou nome do produto na busca. O preço é preenchido automaticamente da tabela. Ajuste a quantidade.' },
+              { titulo: 'Revise e salve', texto: 'Confira totais, condição de pagamento e observações. Salve como Cotação ou diretamente como Pedido.' },
+            ].map((item, i) => (
+              <div key={i} style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                <div style={stp()}>{i + 1}</div>
+                <div>
+                  <div style={{ fontWeight: 900, fontSize: 12, color: G.text, marginBottom: 2 }}>{item.titulo}</div>
+                  <div style={{ fontSize: 12, color: G.textMuted, lineHeight: 1.7 }}>{item.texto}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><TrendingUp size={14} /> Como importar Pedidos do Lojista</div>
+            <p style={p}>Quando o lojista envia um pedido por e-mail ou WhatsApp (geralmente em Excel ou lista de texto), você pode importá-lo sem digitar produto por produto.</p>
+            <div style={tip()}>
+              <strong style={{ color: G.mustard }}>Botão "Importar"</strong> dentro do pedido → Cole a lista de produtos (código + quantidade) → O sistema identifica os produtos e monta o pedido automaticamente.
+            </div>
+            <p style={{ ...p, fontSize: 11 }}>Se o lojista usa siglas da indústria (ex: IMA-7052), remova a sigla antes de importar — deixe apenas o código do produto.</p>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><LayoutGrid size={14} /> Ações do Menu de Contexto</div>
+            <p style={{ ...p, marginBottom: 10 }}>Clique com o botão direito em qualquer pedido na lista (ou use o ícone ⋮) para acessar as ações:</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {acoes.map(a => (
+                <div key={a.label} style={{ display: 'flex', gap: 10, padding: '10px 12px', background: G.cardHi, borderRadius: 10, border: `1px solid ${G.border}`, alignItems: 'flex-start' }}>
+                  <a.icone size={14} color={G.mustard} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <div style={{ fontWeight: 900, fontSize: 11, color: G.text }}>{a.label}</div>
+                    <div style={{ fontSize: 11, color: G.textMuted, marginTop: 2, lineHeight: 1.55 }}>{a.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><Factory size={14} /> Consolidação de Pedidos</div>
+            <p style={p}>A view <strong style={{ color: G.mustard }}>Consolidação</strong> (botão no topo) agrupa pedidos da mesma indústria para envio em lote. Use quando acumular vários pedidos de um mesmo fornecedor antes de transmitir.</p>
+            <div style={tip()}>Pedidos em status <strong>Q (Aguardando Consolidação)</strong> ficam prontos para serem agrupados e enviados juntos para a indústria.</div>
+          </div>
+
+          <div style={sec}>
+            <div style={h2}><CheckCircle2 size={14} /> Boas Práticas</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[
+                'Use Cotação quando o cliente ainda está decidindo — evita "sujar" as estatísticas com pedidos incertos.',
+                'Sempre converta a cotação para Pedido assim que o cliente confirmar, para aparecer corretamente no BI.',
+                'Marque como "Enviado para Indústria" logo após transmitir — ajuda a controlar o que já foi e o que está pendente.',
+                'Clone pedidos de reposição periódica (lubrificantes, filtros) em vez de criar do zero a cada mês.',
+                'Fature apenas quando tiver a NF em mãos — o status F é irreversível e sinaliza entrega concluída.',
+              ].map((t, i) => (
+                <div key={i} style={{ display: 'flex', gap: 10, ...tip(), alignItems: 'flex-start' }}>
+                  <CheckCircle2 size={12} color={G.mustard} style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span>{t}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function PedidosPage() {
   const today = new Date();
@@ -905,9 +1056,11 @@ export default function PedidosPage() {
   const [billingOrder, setBillingOrder]         = useState<Order | null>(null);
   const [portalsOpen, setPortalsOpen]           = useState(false);
   const [portalsOrderId, setPortalsOrderId]     = useState<string | null>(null);
+  const [faniaOpen, setFaniaOpen]               = useState(false);
   const [ctxMenu, setCtxMenu]                   = useState<{ x: number; y: number; order: Order } | null>(null);
   const [irisOrder, setIrisOrder]               = useState<Order | null>(null);
   const [defaultPrintModel, setDefaultPrintModel] = useState(1);
+  const [separaLinhas, setSeparaLinhas] = useState<'S' | 'N'>('N');
 
   // Carrega formato padrão de impressão dos parâmetros
   useEffect(() => {
@@ -917,6 +1070,7 @@ export default function PedidosPage() {
         const model = parseInt(r.data.data.par_pedidopadrao) || 1;
         setDefaultPrintModel(model);
         localStorage.setItem('printModel', String(model));
+        setSeparaLinhas(r.data.data.par_separalinhas === 'S' ? 'S' : 'N');
       }
     }).catch(() => {});
   }, [authUser?.id]);
@@ -946,14 +1100,24 @@ export default function PedidosPage() {
 
   const handleToggleSent = async (order: Order) => {
     setCtxMenu(null);
-    const isEnviado = order.ped_enviado === 'S';
-    const novoStatus = isEnviado ? 'N' : 'S';
+    const novoStatus = !order.ped_enviado;
     try {
-      await api.patch(`/orders/${order.ped_pedido}/status-envio`, { enviado: novoStatus });
-      showToast(`Pedido #${order.ped_pedido} marcado como ${novoStatus === 'S' ? 'enviado' : 'não enviado'}.`);
+      await api.patch(`/orders/${order.ped_pedido}/enviado`, { enviado: novoStatus });
+      showToast(`Pedido #${order.ped_pedido} marcado como ${novoStatus ? 'enviado' : 'não enviado'}.`);
       loadOrders();
     } catch (e: any) {
       showToast(e?.response?.data?.message || 'Erro ao atualizar status de envio', false);
+    }
+  };
+
+  const handleConvertToPedido = async (order: Order) => {
+    setCtxMenu(null);
+    try {
+      await api.patch(`/orders/${order.ped_pedido}/converter-pedido`);
+      showToast(`Cotação #${order.ped_pedido} convertida em pedido!`);
+      loadOrders();
+    } catch (e: any) {
+      showToast(e?.response?.data?.message || 'Erro ao converter cotação', false);
     }
   };
 
@@ -1030,6 +1194,13 @@ export default function PedidosPage() {
   const [dataInicio, setDataInicio]         = useState(iso(new Date(today.getFullYear(), 0, 1)));
   const [dataFim, setDataFim]               = useState(iso(today));
   const [view, setView]                     = useState<'list' | 'consolidation'>('list');
+  const [showHelp, setShowHelp]             = useState(false);
+
+  // Auto-trigger search 500ms after user stops typing
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), 500);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   // Load industries (reuse suppliers endpoint)
   useEffect(() => {
@@ -1163,6 +1334,15 @@ export default function PedidosPage() {
 
   const filteredOrders = orders; // server-side filtered
 
+  // Quando busca retorna pedidos de um único cliente, pré-seleciona ele no novo pedido
+  const preselectedCliente = search.trim() && orders.length > 0
+    ? (() => {
+        const ids = new Set(orders.map(o => o.ped_cliente));
+        if (ids.size === 1) return { id: orders[0].ped_cliente, nome: orders[0].cli_nomred || orders[0].cli_nome };
+        return null;
+      })()
+    : null;
+
   const statItems = [
     { label: 'Faturamento',  value: fmt(stats.revenue),                          icon: TrendingUp  },
     { label: 'Quantidade',   value: stats.quantity.toLocaleString('pt-BR'),       icon: Package     },
@@ -1173,6 +1353,8 @@ export default function PedidosPage() {
   ];
 
   return (
+    <>
+    {showHelp && <PedidosHelpModal onClose={() => setShowHelp(false)} />}
     <div style={{ display: 'flex', height: '100vh', background: G.bg, overflow: 'hidden' }}>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -1286,9 +1468,15 @@ export default function PedidosPage() {
                   placeholder="Buscar cliente, pedido..."
                   value={searchInput}
                   onChange={e => setSearchInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') setSearch(searchInput); }}
                   style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: 11, fontWeight: 600, color: G.text, width: 160 }}
                 />
+                {searchInput && (
+                  <button
+                    onClick={() => { setSearchInput(''); setSearch(''); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                      color: G.textMuted, fontSize: 14, lineHeight: 1, display: 'flex' }}
+                  >×</button>
+                )}
               </div>
 
               {/* Situação */}
@@ -1298,6 +1486,7 @@ export default function PedidosPage() {
                 style={{
                   padding: '5px 10px', borderRadius: 8, border: `1px solid ${G.border}`,
                   background: G.cardHi, color: G.text, fontSize: 11, fontWeight: 700, cursor: 'pointer', outline: 'none',
+                  appearance: 'auto' as any,
                 }}
               >
                 <option value="Z">Todos</option>
@@ -1314,6 +1503,7 @@ export default function PedidosPage() {
                 style={{
                   padding: '5px 10px', borderRadius: 8, border: `1px solid ${G.border}`,
                   background: G.cardHi, color: G.text, fontSize: 11, fontWeight: 700, cursor: 'pointer', outline: 'none',
+                  appearance: 'auto' as any,
                 }}
               >
                 <option value="date-desc">Mais Recentes</option>
@@ -1346,6 +1536,21 @@ export default function PedidosPage() {
               >
                 <Globe size={13} />
                 Portais
+              </button>
+
+
+              {/* Ajuda */}
+              <button
+                onClick={() => setShowHelp(true)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px',
+                  borderRadius: 8, border: `1px solid ${G.border}`, cursor: 'pointer',
+                  background: G.cardHi, color: G.textSec,
+                  fontSize: 12, fontWeight: 700,
+                }}
+              >
+                <HelpCircle size={13} />
+                Ajuda
               </button>
 
               {/* Novo */}
@@ -1532,6 +1737,8 @@ export default function PedidosPage() {
         onSaved={() => { setModalOpen(false); loadOrders(); }}
         onUpdated={() => loadOrders()}
         initialIndustriaId={modalMode === 'new' ? selectedInd : null}
+        initialClienteId={modalMode === 'new' ? (preselectedCliente?.id ?? null) : null}
+        initialClienteLabel={modalMode === 'new' ? (preselectedCliente?.nome ?? null) : null}
       />
 
       {/* ── Print Dialog ── */}
@@ -1544,7 +1751,7 @@ export default function PedidosPage() {
         orderTotal={selectedOrder ? `R$ ${Number(selectedOrder.ped_totliq).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
         onPrint={(model, sorting) => {
           if (!selectedOrder) return;
-          const url = `/print/order/${selectedOrder.ped_pedido}?model=${model}&sortBy=${sorting}&industria=${selectedOrder.ped_industria}`;
+          const url = `/print/order/${selectedOrder.ped_pedido}?model=${model}&sortBy=${sorting}&industria=${selectedOrder.ped_industria}&separateGroups=${separaLinhas}`;
           const w = 900, h = 700;
           window.open(url, 'PrintPreview', `width=${w},height=${h},left=${(window.screen.width - w) / 2},top=${(window.screen.height - h) / 2},scrollbars=yes,resizable=yes`);
         }}
@@ -1552,7 +1759,7 @@ export default function PedidosPage() {
           if (!selectedOrder) return;
           try {
             const res = await api.get(`/orders/${selectedOrder.ped_pedido}/print-data?industria=${selectedOrder.ped_industria}&sortBy=${sorting}`);
-            await exportOrderToExcel(res.data.data.order, res.data.data.items);
+            await exportOrderToExcel(res.data.data.order, res.data.data.items, separaLinhas);
             setPrintDialogOpen(false);
           } catch { showToast('Erro ao exportar Excel', false); }
         }}
@@ -1610,7 +1817,8 @@ export default function PedidosPage() {
             null, // separator
             { icon: Copy,         label: 'Clonar Pedido',      color: '#D97600',  action: () => { setCtxMenu(null); setCloneTarget(ctxMenu.order); } },
             { icon: Mail,         label: 'Enviar p/ Cliente',  color: '#0891B2',  action: () => { setCtxMenu(null); handleOpenEmail(ctxMenu.order); } },
-            { icon: SendHorizontal, label: ctxMenu.order.ped_enviado === 'S' ? 'Desmarcar como Enviado' : 'Marcar como Enviado', color: '#059669', action: () => handleToggleSent(ctxMenu.order) },
+            { icon: SendHorizontal, label: ctxMenu.order.ped_enviado === true ? 'Desmarcar como Enviado' : 'Marcar como Enviado', color: '#059669', action: () => handleToggleSent(ctxMenu.order) },
+            ['C','A','CC'].includes(ctxMenu.order.ped_situacao) ? { icon: ClipboardCheck, label: 'Converter para Pedido', color: '#0891B2', action: () => handleConvertToPedido(ctxMenu.order) } : null,
             null, // separator
             { icon: Trash2,       label: 'Excluir Definitivamente', color: '#C0392B', action: () => handleHardDelete(ctxMenu.order) },
           ] as any[]).map((item, i) =>
@@ -1651,7 +1859,16 @@ export default function PedidosPage() {
         open={portalsOpen}
         onOpenChange={open => { setPortalsOpen(open); if (!open) setPortalsOrderId(null); }}
         orderId={portalsOrderId}
+        onFaniaRequest={() => setFaniaOpen(true)}
       />
+
+      {/* ── Portal FANIA ── */}
+      {faniaOpen && (
+        <FaniaPortalModal
+          onClose={() => setFaniaOpen(false)}
+          onOrderCreated={() => { loadOrders(); }}
+        />
+      )}
 
       {/* ── Confirm Clone Dialog ── */}
       <ConfirmCloneDialog
@@ -1684,5 +1901,6 @@ export default function PedidosPage() {
           </motion.div>
         )}
     </div>
+    </>
   );
 }

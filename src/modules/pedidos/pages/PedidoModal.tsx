@@ -15,7 +15,7 @@ import { api } from '@/shared/lib/api';
 import { useAuthStore } from '@/shared/stores/useAuthStore';
 import { ItemsSection } from './ItemsSection';
 import { ConferenciaSection } from './ConferenciaSection';
-import { XmsModal, TxtModal, XmlModal, MagicModal } from './ImportModals';
+import { XmsModal, TxtModal, XmlSection, MagicModal } from './ImportModals';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface OrderItem {
@@ -82,6 +82,8 @@ interface PedidoModalProps {
   onSaved?: () => void;
   onUpdated?: () => void;
   initialIndustriaId?: number | null;
+  initialClienteId?:   number | null;
+  initialClienteLabel?: string | null;
 }
 
 // ─── Sidebar sections ─────────────────────────────────────────────────────────
@@ -103,7 +105,8 @@ const fmtNum = (v: number) =>
 
 const fmtDate = (d?: string) => {
   if (!d) return '—';
-  return new Date(d.includes('T') ? d : d + 'T00:00:00').toLocaleDateString('pt-BR');
+  const [y, m, day] = d.substring(0, 10).split('-');
+  return `${day}/${m}/${y}`;
 };
 
 function statusLabel(s: string) {
@@ -378,7 +381,7 @@ function ClientCombobox({
   value, onChange, style, selectedLabel,
 }: {
   value: number;
-  onChange: (v: number, vendedor?: number) => void;
+  onChange: (v: number, vendedor?: number, nomred?: string) => void;
   style?: React.CSSProperties;
   selectedLabel?: string;
 }) {
@@ -428,10 +431,12 @@ function ClientCombobox({
   }, []);
 
   const handleSelect = useCallback((code: number, vendedor?: number) => {
-    onChange(code, vendedor);
+    const client = clients.find(c => c.cli_codigo === code);
+    const nomred = client ? (client.cli_nomred || client.cli_nome) : undefined;
+    onChange(code, vendedor, nomred);
     setOpen(false);
     setQ('');
-  }, [onChange]);
+  }, [onChange, clients]);
 
   // Keyboard navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -571,7 +576,7 @@ function ClientCombobox({
 
 // ─── Principal section ────────────────────────────────────────────────────────
 function PrincipalSection({
-  order, mode, formData, onChangeField, onPriceTableItemsChange, orderItems,
+  order, mode, formData, onChangeField, onPriceTableItemsChange, orderItems, transportadoras,
 }: {
   order: OrderFull;
   mode: PedidoModalMode;
@@ -579,6 +584,7 @@ function PrincipalSection({
   onChangeField: (field: keyof OrderFull, value: any) => void;
   onPriceTableItemsChange?: (items: any[]) => void;
   orderItems?: any[];
+  transportadoras: { value: number; label: string }[];
 }) {
   const isView = mode === 'view';
   const fd = formData; // alias
@@ -586,7 +592,6 @@ function PrincipalSection({
   // Listas para os selects de cliente e vendedor (carregadas apenas no modo edição)
   const [sellers, setSellers]       = useState<{ ven_codigo: number; ven_nome: string }[]>([]);
   const [industrias, setIndustrias] = useState<{ for_codigo: number; for_nomered: string }[]>([]);
-  const [transportadoras, setTransportadoras] = useState<{ value: number; label: string }[]>([]);
   const [priceTables, setPriceTables] = useState<{ nome_tabela: string }[]>([]);
   const [compradorModal, setCompradorModal]     = useState(false);
   const [tornarPadraoModal, setTornarPadraoModal] = useState(false);
@@ -657,9 +662,8 @@ function PrincipalSection({
 
   useEffect(() => {
     if (isView) return;
-api.get('/sellers').then(r => setSellers(r.data.data || [])).catch(() => {});
+    api.get('/sellers').then(r => setSellers(r.data.data || [])).catch(() => {});
     api.get('/aux/industrias').then(r => setIndustrias(r.data.data || [])).catch(() => {});
-    api.get('/aux/transportadoras').then(r => setTransportadoras(r.data.data || [])).catch(() => {});
   }, [isView, mode]);
 
   // IDs derivados — declarados antes dos useEffects que dependem deles
@@ -967,12 +971,13 @@ api.get('/sellers').then(r => setSellers(r.data.data || [])).catch(() => {});
                 </span>
                 <ClientCombobox
                   value={(fd.ped_cliente ?? order.ped_cliente) || 0}
-                  onChange={(v, vendedor) => {
+                  onChange={(v, vendedor, nomred) => {
                     onChangeField('ped_cliente', v);
+                    if (nomred) onChangeField('cli_nomred' as any, nomred);
                     if (mode === 'new' && vendedor) onChangeField('ped_vendedor', vendedor);
                   }}
                   style={einp}
-                  selectedLabel={order.cli_nomred || order.cli_nome}
+                  selectedLabel={(fd as any).cli_nomred || order.cli_nomred || order.cli_nome}
                 />
               </div>
               <div style={{ padding: '6px 0' }}>
@@ -1608,14 +1613,13 @@ function PlaceholderSection({ label }: { label: string }) {
 }
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
-export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onUpdated, initialIndustriaId }: PedidoModalProps) {
+export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onUpdated, initialIndustriaId, initialClienteId, initialClienteLabel }: PedidoModalProps) {
   const navigate = useNavigate();
   const authUser = useAuthStore(s => s.user);
-  const [activeSection, setActiveSection] = useState<SectionKey>('principal');
+  const [activeSection, setActiveSection] = useState<SectionKey | 'xml'>('principal');
   const [hoveredNav, setHoveredNav]       = useState<SectionKey | null>(null);
   const [showXms,    setShowXms]          = useState(false);
   const [showTxt,    setShowTxt]          = useState(false);
-  const [showXml,    setShowXml]          = useState(false);
   const [showMagic,  setShowMagic]        = useState(false);
   const [pendingGroupDisc, setPendingGroupDisc] = useState(false);
   const [pedidoSalvo, setPedidoSalvo]     = useState(false);
@@ -1624,9 +1628,10 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
   const [loading, setLoading]             = useState(false);
   const [isSaving, setIsSaving]           = useState(false);
   const [saveError, setSaveError]         = useState<string | null>(null);
-  const [userParams, setUserParams]       = useState<{ usaDecimais: boolean; qtdDecimais: number; itemDuplicado: boolean; qtdEnter: number; fmtPesquisa: string } | null>(null);
+  const [userParams, setUserParams]       = useState<{ usaDecimais: boolean; qtdDecimais: number; itemDuplicado: boolean; qtdEnter: number; fmtPesquisa: string; mostraCodigoOri: boolean } | null>(null);
   const [priceTableItems, setPriceTableItems] = useState<any[]>([]);
   const [orderItems,      setOrderItems]      = useState<any[]>([]);
+  const [transportadoras, setTransportadoras] = useState<{ value: number; label: string }[]>([]);
   const isView = mode === 'view';
   const isPersisted = mode !== 'new' || pedidoSalvo;
 
@@ -1669,11 +1674,12 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
               : null;
 
             setUserParams({
-              usaDecimais:   params?.par_usadecimais  !== 'N',
-              qtdDecimais:   parseInt(String(params?.par_qtddecimais ?? 2)) || 2,
-              itemDuplicado: params?.par_itemduplicado === 'S',
-              qtdEnter:      parseInt(String(params?.par_qtdenter    ?? 2)) || 2,
-              fmtPesquisa:   params?.par_fmtpesquisa ?? 'D',
+              usaDecimais:    params?.par_usadecimais  !== 'N',
+              qtdDecimais:    parseInt(String(params?.par_qtddecimais ?? 2)) || 2,
+              itemDuplicado:  params?.par_itemduplicado === 'S',
+              qtdEnter:       parseInt(String(params?.par_qtdenter    ?? 2)) || 2,
+              fmtPesquisa:    params?.par_fmtpesquisa ?? 'D',
+              mostraCodigoOri: params?.par_mostracodori === 'S',
             });
 
             const newOrder: OrderFull = {
@@ -1681,7 +1687,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
               ped_pedido: data.formatted_number,
               ped_data: new Date().toISOString().split('T')[0],
               ped_situacao: params?.par_iniciapedido ?? 'P',
-              ped_cliente: 0,
+              ped_cliente: initialClienteId ?? 0,
               ped_industria: initialIndustriaId ?? 0,
               ped_vendedor: 0,
               ped_tabela: 'Padrão',
@@ -1694,7 +1700,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
               ped_totalipi: 0,
               ped_obs: params?.par_obs_padrao ?? '',
               ped_pri:0, ped_seg:0, ped_ter:0, ped_qua:0, ped_qui:0, ped_sex:0, ped_set:0, ped_oit:0, ped_nov:0,
-              cli_nomred: '', cli_nome: '', for_nomered: '', ven_nome: '',
+              cli_nomred: initialClienteLabel ?? '', cli_nome: initialClienteLabel ?? '', for_nomered: '', ven_nome: '',
               items: []
             };
             setFullOrder(newOrder);
@@ -1726,11 +1732,12 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
           if (r.data.success) {
             const p = r.data.data;
             setUserParams({
-              usaDecimais:   p.par_usadecimais  !== 'N',
-              qtdDecimais:   parseInt(String(p.par_qtddecimais ?? 2)) || 2,
-              itemDuplicado: p.par_itemduplicado === 'S',
-              qtdEnter:      parseInt(String(p.par_qtdenter    ?? 2)) || 2,
-              fmtPesquisa:   p.par_fmtpesquisa ?? 'D',
+              usaDecimais:    p.par_usadecimais  !== 'N',
+              qtdDecimais:    parseInt(String(p.par_qtddecimais ?? 2)) || 2,
+              itemDuplicado:  p.par_itemduplicado === 'S',
+              qtdEnter:       parseInt(String(p.par_qtdenter    ?? 2)) || 2,
+              fmtPesquisa:    p.par_fmtpesquisa ?? 'D',
+              mostraCodigoOri: p.par_mostracodori === 'S',
             });
           }
         })
@@ -1745,7 +1752,16 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
         setFormData({});
         setSaveError(null);
       })
-      .catch(err => console.error('❌ PedidoModal load:', err))
+      .catch(err => {
+        console.error('❌ PedidoModal load:', err);
+        const status = err?.response?.status;
+        if (status === 404) {
+          toast.error(`Pedido ${order.ped_pedido} não encontrado. Pode ter sido excluído.`);
+        } else {
+          toast.error('Erro ao carregar o pedido. Tente novamente.');
+        }
+        onClose();
+      })
       .finally(() => setLoading(false));
 
     // Carrega itens do pedido para a memtable
@@ -1762,6 +1778,12 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
       })
       .catch(() => {});
   }, [isOpen, order?.ped_pedido, mode]);
+
+  // Load transportadoras once when modal opens (persists across section navigation)
+  useEffect(() => {
+    if (!isOpen || isView) return;
+    api.get('/aux/transportadoras').then(r => setTransportadoras(r.data.data || [])).catch(() => {});
+  }, [isOpen, isView]);
 
   // F-key shortcuts
   useEffect(() => {
@@ -1815,17 +1837,24 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
         ped_industria: formData.ped_industria ?? fullOrder.ped_industria,
       };
 
-      if (mode === 'new') {
+      if (mode === 'new' && !pedidoSalvo) {
+        // Primeira gravação — cria o pedido
         const res = await api.post('/orders', payload);
         if (res.data.success) {
           setPedidoSalvo(true);
-          onSaved?.();
+          if (res.data.data) setFullOrder(prev => prev ? { ...prev, ...res.data.data } : prev);
+          if (closeAfter) {
+            onSaved?.();
+          } else {
+            onUpdated?.();
+          }
           return true;
         } else {
           setSaveError(res.data.message || 'Erro ao criar pedido');
           return false;
         }
       } else {
+        // Edição ou re-gravação de pedido novo já persistido — atualiza
         const pedPedido = order?.ped_pedido || fullOrder.ped_pedido;
         await api.put(`/orders/${encodeURIComponent(pedPedido)}`, payload);
         setPedidoSalvo(true);
@@ -1857,7 +1886,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
     }
 
     switch (activeSection) {
-      case 'principal':   return <PrincipalSection order={fullOrder} mode={mode} formData={formData} onChangeField={onChangeField} onPriceTableItemsChange={setPriceTableItems} orderItems={orderItems} />;
+      case 'principal':   return <PrincipalSection order={fullOrder} mode={mode} formData={formData} onChangeField={onChangeField} onPriceTableItemsChange={setPriceTableItems} orderItems={orderItems} transportadoras={transportadoras} />;
       case 'itens':       return (
         <ItemsSection
           order={fullOrder as any}
@@ -1894,7 +1923,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
           priceTableItems={priceTableItems}
           isView={isView}
           hasSuframa={!!fullOrder.cli_suframa}
-          userParams={userParams ? { usaDecimais: userParams.usaDecimais, qtdDecimais: userParams.qtdDecimais } : null}
+          userParams={userParams ? { usaDecimais: userParams.usaDecimais, qtdDecimais: userParams.qtdDecimais, mostraCodigoOri: userParams.mostraCodigoOri } : null}
           autoApplyGroupDisc={pendingGroupDisc}
           onGroupDiscApplied={() => setPendingGroupDisc(false)}
           onTotaisUpdated={(totbruto, totliq, totalipi) =>
@@ -1902,7 +1931,15 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
           }
         />
       );
-      default:            return <PlaceholderSection label={sections.find(s => s.key === activeSection)?.label || ''} />;
+      case 'xml':         return fullOrder ? (
+        <XmlSection
+          order={fullOrder as any} priceTableItems={priceTableItems}
+          orderItems={orderItems} setOrderItems={setOrderItems}
+          onBack={() => setActiveSection('principal')}
+          onDone={() => requireSaved(() => { setPendingGroupDisc(true); setActiveSection('conferencia'); })}
+        />
+      ) : null;
+      default:            return <PlaceholderSection label={sections.find(s => s.key === (activeSection as SectionKey))?.label || ''} />;
     }
   };
 
@@ -1926,10 +1963,10 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
           transition={{ duration: 0.45, ease }}
           style={{
             position: 'fixed', right: 0, top: 0, bottom: 0,
-            width: '78%', background: G.bg,
-            borderRadius: '24px 0 0 24px',
-            boxShadow: '-8px 0 48px rgba(0,0,0,0.18)',
-            border: `1px solid ${G.border}`,
+            width: '100%', background: G.bg,
+            borderRadius: 0,
+            boxShadow: 'none',
+            border: 'none',
             display: 'flex', overflow: 'hidden',
           }}
         >
@@ -2021,7 +2058,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
             {[
               { icon: Wand2,    label: 'Magic', color: '#EC4899', action: () => requireSaved(() => setShowMagic(true)), tooltip: 'Magic Load — IA', sub: 'PDF, Excel, Imagem' },
               { icon: Table2,   label: 'XLS',   color: '#10B981', action: () => requireSaved(() => setShowXms(true)),   tooltip: 'Importar via Planilha', sub: 'Copiar/colar colunas do Excel' },
-              { icon: FileCode, label: 'XML',   color: '#8B5CF6', action: () => requireSaved(() => setShowXml(true)),   tooltip: 'Importar Nota Fiscal', sub: 'Arquivo .xml de NF-e' },
+              { icon: FileCode, label: 'XML',   color: '#8B5CF6', action: () => requireSaved(() => setActiveSection('xml')), tooltip: 'Importar Nota Fiscal', sub: 'Arquivo .xml de NF-e' },
               { icon: FileText, label: 'TXT',   color: '#F59E0B', action: () => requireSaved(() => setShowTxt(true)),   tooltip: 'Importar via Texto', sub: 'Formato PP2, Arca/KV ou livre' },
             ].map(({ icon: Icon, label, color, action, tooltip, sub }) => {
               const isHov = hoveredNav === (label as any);
@@ -2239,7 +2276,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
         order={fullOrder as any} priceTableItems={priceTableItems}
         orderItems={orderItems} setOrderItems={setOrderItems}
         onClose={() => setShowXms(false)}
-        onDone={() => { setPendingGroupDisc(true); setActiveSection('conferencia'); }}
+        onDone={() => requireSaved(() => { setPendingGroupDisc(true); setActiveSection('conferencia'); })}
       />
     )}
     {showTxt && fullOrder && (
@@ -2247,15 +2284,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
         order={fullOrder as any} priceTableItems={priceTableItems}
         orderItems={orderItems} setOrderItems={setOrderItems}
         onClose={() => setShowTxt(false)}
-        onDone={() => { setPendingGroupDisc(true); setActiveSection('conferencia'); }}
-      />
-    )}
-    {showXml && fullOrder && (
-      <XmlModal
-        order={fullOrder as any} priceTableItems={priceTableItems}
-        orderItems={orderItems} setOrderItems={setOrderItems}
-        onClose={() => setShowXml(false)}
-        onDone={() => { setPendingGroupDisc(true); setActiveSection('conferencia'); }}
+        onDone={() => requireSaved(() => { setPendingGroupDisc(true); setActiveSection('conferencia'); })}
       />
     )}
     {showMagic && fullOrder && (
@@ -2263,7 +2292,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
         order={fullOrder as any} priceTableItems={priceTableItems}
         orderItems={orderItems} setOrderItems={setOrderItems}
         onClose={() => setShowMagic(false)}
-        onDone={() => { setPendingGroupDisc(true); setActiveSection('conferencia'); }}
+        onDone={() => requireSaved(() => { setPendingGroupDisc(true); setActiveSection('conferencia'); })}
       />
     )}
     </>

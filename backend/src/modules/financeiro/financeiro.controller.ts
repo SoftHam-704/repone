@@ -156,6 +156,16 @@ export async function updateFinClientHandler(req: Request, res: Response): Promi
   } catch (e) { err(res, e, 'update fin-cliente'); }
 }
 
+export async function getFinClientHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { id } = req.params;
+    const result = await db.query('SELECT * FROM fin_clientes WHERE id = $1', [id]);
+    if (!result.rows.length) { res.status(404).json({ success: false, message: 'Cliente não encontrado' }); return; }
+    res.json({ success: true, data: result.rows[0] });
+  } catch (e) { err(res, e, 'get fin-cliente'); }
+}
+
 export async function deleteFinClientHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
@@ -210,6 +220,16 @@ export async function updateFinSupplierHandler(req: Request, res: Response): Pro
     `, [tipo_pessoa, cpf_cnpj, nome_razao, nome_fantasia, endereco, numero, complemento, bairro, cidade, uf, cep, telefone, celular, email, observacoes, ativo, id]);
     res.json({ success: true, data: result.rows[0] });
   } catch (e) { err(res, e, 'update fin-fornecedor'); }
+}
+
+export async function getFinSupplierHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { id } = req.params;
+    const result = await db.query('SELECT * FROM fin_fornecedores WHERE id = $1', [id]);
+    if (!result.rows.length) { res.status(404).json({ success: false, message: 'Fornecedor não encontrado' }); return; }
+    res.json({ success: true, data: result.rows[0] });
+  } catch (e) { err(res, e, 'get fin-fornecedor'); }
 }
 
 export async function deleteFinSupplierHandler(req: Request, res: Response): Promise<void> {

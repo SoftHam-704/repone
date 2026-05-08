@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ShoppingBag, Download, Play, Factory, User, DollarSign, Package } from 'lucide-react';
+import { ShoppingBag, Download, Play, Factory, User, DollarSign, Package, Users, UserCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { api } from '@/shared/lib/api';
 import { G } from '@/shared/components/layout/CadastroShell';
@@ -34,6 +34,7 @@ export default function SelloutReal({ dataInicio, dataFim }: { dataInicio: strin
   const [industria,  setIndustria]  = useState('ALL');
   const [cliente,    setCliente]    = useState('ALL');
 
+  const [viewBy,  setViewBy]  = useState<'cliente' | 'grupo'>('cliente');
   const [rawData, setRawData] = useState<RawRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded,  setLoaded]  = useState(false);
@@ -47,19 +48,19 @@ export default function SelloutReal({ dataInicio, dataFim }: { dataInicio: strin
     setLoading(true);
     try {
       const res = await api.get('/estatisticas/sellout-real', {
-        params: { dataInicial: dataInicio, dataFinal: dataFim, industria, cliente },
+        params: { dataInicial: dataInicio, dataFinal: dataFim, industria, cliente, viewBy },
       });
       setRawData(res.data.data || []);
       setLoaded(true);
     } finally {
       setLoading(false);
     }
-  }, [dataInicio, dataFim, industria, cliente]);
+  }, [dataInicio, dataFim, industria, cliente, viewBy]);
 
   const pivot = useMemo(() => {
     if (!rawData.length) return { cols: [], rows: [], grandValor: 0, grandQtd: 0 };
 
-    const clientMap = new Map<number, { nome: string; months: Record<string, { valor: number; qtd: number }>; totalValor: number; totalQtd: number }>();
+    const clientMap = new Map<string, { nome: string; months: Record<string, { valor: number; qtd: number }>; totalValor: number; totalQtd: number }>();
     const monthSet  = new Set<string>();
     let grandValor  = 0;
     let grandQtd    = 0;
@@ -67,10 +68,11 @@ export default function SelloutReal({ dataInicio, dataFim }: { dataInicio: strin
     rawData.forEach(item => {
       const key = `${pad(item.mes)}/${item.ano}`;
       monthSet.add(key);
-      if (!clientMap.has(item.cliente_id)) {
-        clientMap.set(item.cliente_id, { nome: item.cliente_nome, months: {}, totalValor: 0, totalQtd: 0 });
+      const mapKey = item.cliente_nome;
+      if (!clientMap.has(mapKey)) {
+        clientMap.set(mapKey, { nome: item.cliente_nome, months: {}, totalValor: 0, totalQtd: 0 });
       }
-      const node = clientMap.get(item.cliente_id)!;
+      const node = clientMap.get(mapKey)!;
       if (!node.months[key]) node.months[key] = { valor: 0, qtd: 0 };
       node.months[key].valor += item.valor;
       node.months[key].qtd   += item.quantidade;
@@ -86,7 +88,7 @@ export default function SelloutReal({ dataInicio, dataFim }: { dataInicio: strin
       return ya !== yb ? ya - yb : ma - mb;
     });
 
-    const rows = [...clientMap.values()].sort((a, b) => b.totalValor - a.totalValor);
+    const rows = [...clientMap.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
     return { cols, rows, grandValor, grandQtd };
   }, [rawData]);
 
@@ -154,6 +156,28 @@ export default function SelloutReal({ dataInicio, dataFim }: { dataInicio: strin
 
         <div style={{ flex: 1 }} />
 
+        {/* Toggle Por Cliente / Por Grupo */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignSelf: 'flex-end' }}>
+          <div style={labelSt}>Visualizar por</div>
+          <div style={{ display: 'flex', gap: 2, background: G.cardHi, borderRadius: 7, padding: 2, border: `1px solid ${G.border}` }}>
+            {([['cliente', UserCircle, 'Cliente'], ['grupo', Users, 'Grupo']] as const).map(([v, Icon, lbl]) => (
+              <button
+                key={v}
+                onClick={() => setViewBy(v)}
+                style={{
+                  height: 26, padding: '0 10px', borderRadius: 5, fontSize: 10, fontWeight: 800,
+                  border: 'none', display: 'flex', alignItems: 'center', gap: 4,
+                  background: viewBy === v ? G.text : 'transparent',
+                  color: viewBy === v ? G.mustard : G.textSec,
+                  cursor: 'pointer', transition: 'all .12s',
+                }}
+              >
+                <Icon size={10} /> {lbl}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <button
           style={{ height: 32, padding: '0 14px', borderRadius: 7, fontSize: 11, fontWeight: 800, border: 'none', background: '#16A34A', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, alignSelf: 'flex-end', opacity: pivot.rows.length ? 1 : 0.4 }}
           onClick={exportExcel} disabled={!pivot.rows.length}
@@ -205,7 +229,7 @@ export default function SelloutReal({ dataInicio, dataFim }: { dataInicio: strin
           <table style={{ borderCollapse: 'collapse', minWidth: '100%' }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
               <tr style={{ background: G.text }}>
-                <th rowSpan={2} style={{ ...thBase, color: G.mustard, minWidth: 220, textAlign: 'left', position: 'sticky', left: 0, background: G.text, zIndex: 3 }}>CLIENTE</th>
+                <th rowSpan={2} style={{ ...thBase, color: G.mustard, minWidth: 220, textAlign: 'left', position: 'sticky', left: 0, background: G.text, zIndex: 3 }}>{viewBy === 'grupo' ? 'GRUPO / REDE' : 'CLIENTE'}</th>
                 {pivot.cols.map(col => {
                   const [m] = col.split('/');
                   return (
@@ -253,7 +277,7 @@ export default function SelloutReal({ dataInicio, dataFim }: { dataInicio: strin
             </tbody>
             <tfoot>
               <tr style={{ background: G.text, position: 'sticky', bottom: 0, zIndex: 2, borderTop: `2px solid ${G.mustard}40` }}>
-                <td style={{ ...tdBase, fontWeight: 900, color: G.mustard, position: 'sticky', left: 0, background: G.text, zIndex: 3, borderBottom: 'none' }}>TOTAIS GERAIS</td>
+                <td style={{ ...tdBase, fontWeight: 900, color: G.mustard, position: 'sticky', left: 0, background: G.text, zIndex: 3, borderBottom: 'none' }}>{viewBy === 'grupo' ? `TOTAL — ${pivot.rows.length} GRUPOS` : `TOTAL — ${pivot.rows.length} CLIENTES`}</td>
                 {pivot.cols.map(col => {
                   const tv = pivot.rows.reduce((s, r) => s + (r.months[col]?.valor || 0), 0);
                   const tq = pivot.rows.reduce((s, r) => s + (r.months[col]?.qtd   || 0), 0);

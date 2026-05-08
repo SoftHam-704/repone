@@ -286,7 +286,7 @@ const ItemsModel13 = ({ groupedItems, order }) => {
                                     <Text style={{ width: '3%', textAlign: 'center' }}>{globalSeq}</Text>
                                     <Text style={{ width: '6%', textAlign: 'center', color: '#1e40af', fontWeight: 'bold' }}>{item.ite_produto}</Text>
                                     <Text style={{ width: '8%', textAlign: 'center', fontSize: 6 }}>{comp}</Text>
-                                    <Text style={{ width: '8%', textAlign: 'center', fontSize: 6 }}>{order.ped_pedcli || order.ped_pedindustria || ''}</Text>
+                                    <Text style={{ width: '8%', textAlign: 'center', fontSize: 6 }}>{order.ped_oc || order.ped_pedcli || order.ped_pedindustria || ''}</Text>
                                     <Text style={{ flex: 1, paddingLeft: 2, color: '#1e40af', fontWeight: 'bold' }}>{item.ite_nomeprod}</Text>
                                     <Text style={{ width: '4%', textAlign: 'center', fontWeight: 'bold', color: '#1e40af' }}>{item.ite_quant}</Text>
                                     <Text style={{ width: '7%', textAlign: 'right' }}>{fv(item.ite_puni)}</Text>
@@ -804,12 +804,13 @@ const styles = StyleSheet.create({
     colProd: { width: '10%', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 },
     colRef: { width: '12%', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 },
     colDesc: { flex: 1, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 },
+    colDesc5: { width: '33%', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 },
     colVal: { width: '8%', textAlign: 'right', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingRight: 2 },
     colTot: { width: '10%', textAlign: 'right', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingRight: 2 },
     colTax: { width: '5%', textAlign: 'right', paddingRight: 2 },
     // Column definitions - With Complement/Conversion
     colComp: { width: '8%', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 },
-    colConv: { width: '6%', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 },
+    colConv: { width: '18%', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 },
     // Column definitions - Model 3 (F3)
     colQuant3: { width: '5%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' },
     colProd3: { width: '11%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' },
@@ -990,7 +991,7 @@ const ReportHeader = ({ order, repInfo, logo, industryLogo, modelNum = 1 }) => {
                             <View style={{ flexDirection: 'row' }}><Text style={styles.label}>Fone Cli: </Text><Text style={styles.value}>{order.cli_fone || ''}</Text></View>
                         </View>
                         <View style={{ flex: 1, borderRightWidth: 0.5, borderRightColor: '#ccc', borderRightStyle: 'solid', paddingLeft: 5 }}>
-                            <View style={{ flexDirection: 'row' }}><Text style={styles.label}>Nº ped. cliente/ Ordem compra: </Text><Text style={styles.value}>{order.ped_pedcli || order.ped_cliind || order.ped_pedindu || order.ped_pedindustria || ''}</Text></View>
+                            <View style={{ flexDirection: 'row' }}><Text style={styles.label}>Nº ped. cliente/ Ordem compra: </Text><Text style={styles.value}>{order.ped_oc || order.ped_pedcli || order.ped_cliind || order.ped_pedindustria || ''}</Text></View>
                             <View style={{ flexDirection: 'row' }}><Text style={styles.label}>Cond. Pagamento: </Text><Text style={{ ...styles.value, color: '#dc2626' }}>{order.order_payment_type || order.ped_condpag || ''}</Text></View>
                         </View>
                         <View style={{ flex: 0.8, borderRightWidth: 0.5, borderRightColor: '#ccc', borderRightStyle: 'solid', paddingLeft: 5 }}>
@@ -1015,7 +1016,7 @@ const ReportHeader = ({ order, repInfo, logo, industryLogo, modelNum = 1 }) => {
                             <Text style={{ fontSize: 9, fontWeight: 'bold', ...titleStyle }}>{titulo} nº: {order.ped_pedido}</Text>
                         </View>
                         <View style={{ flex: 1.5, alignItems: 'center' }}>
-                            <Text style={{ fontSize: 9 }}>Ped. cliente/ Ordem compra nº: <Text style={{ fontWeight: 'bold' }}>{order.ped_pedcli || order.ped_cliind || ''}</Text></Text>
+                            <Text style={{ fontSize: 9 }}>Ped. cliente/ Ordem compra nº: <Text style={{ fontWeight: 'bold' }}>{order.ped_oc || order.ped_pedcli || order.ped_cliind || ''}</Text></Text>
                         </View>
                         {modelNum === 3 && (
                             <View style={{ flex: 1.2, alignItems: 'center' }}>
@@ -1148,7 +1149,7 @@ const CommercialSection = ({ order }) => (
                 <View style={{ flex: 1.5 }}><Text style={styles.label}>E-Mail:</Text><Text style={{ ...styles.value, textTransform: 'lowercase' }}>{order.ped_emailcomp || ''}</Text></View>
             </View>
             <View style={styles.gridRow}>
-                <View style={{ flex: 1 }}><Text style={styles.label}>Ped. Cliente/ Ordem Compra:</Text><Text style={styles.value}>{order.ped_pedcli || order.ped_cliind || ''}</Text></View>
+                <View style={{ flex: 1 }}><Text style={styles.label}>Ped. Cliente/ Ordem Compra:</Text><Text style={styles.value}>{order.ped_oc || order.ped_pedcli || order.ped_cliind || ''}</Text></View>
                 <View style={{ flex: 1 }}><Text style={styles.label}>Pedido Indústria:</Text><Text style={styles.value}>{order.ped_pedindu || ''}</Text></View>
             </View>
         </View>
@@ -1485,7 +1486,7 @@ const ItemsModel5 = ({ groupedItems, order }) => {
                             <Text style={styles.colQtd}>Quant:</Text>
                             <Text style={styles.colProd}>Produto:</Text>
                             <Text style={styles.colConv}>Conversão:</Text>
-                            <Text style={styles.colDesc}>Descrição do produto:</Text>
+                            <Text style={styles.colDesc5}>Descrição do produto:</Text>
                             <Text style={styles.colVal}>Un.líquido:</Text>
                             <Text style={styles.colTot}>Total liqdo:</Text>
                             <Text style={styles.colTax}>IPI:</Text>
@@ -1505,7 +1506,7 @@ const ItemsModel5 = ({ groupedItems, order }) => {
                                         <Text style={styles.colQtd}>{item.ite_quant}</Text>
                                         <Text style={styles.colProd}>{item.ite_produto}</Text>
                                         <Text style={styles.colConv}>{item.pro_codigooriginal || ''}</Text>
-                                        <Text style={styles.colDesc}>{item.ite_nomeprod}</Text>
+                                        <Text style={styles.colDesc5}>{item.ite_nomeprod}</Text>
                                         <Text style={styles.colVal}>{fv(item.ite_puniliq)}</Text>
                                         <Text style={{ ...styles.colTot, fontWeight: 'bold' }}>{fv(item.ite_totliquido)}</Text>
                                         <Text style={styles.colTax}>{fv(ipiValor)}</Text>

@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Clock } from 'lucide-react';
+import { Clock, FileDown } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 
 interface Props { dataInicio: string; dataFim: string; }
 
 interface Row {
-  cliente: string; estado: string; industria: string;
+  cliente: string; estado: string; industria: string; vendedor_nome: string;
   valor: number;   qtd: number;    data_ultima: string; dias: number;
 }
 interface IndOpt { id: number; nome: string; }
@@ -86,32 +87,52 @@ export default function UltimasCompras({ dataInicio, dataFim }: Props) {
 
   // ── Pivot: clientes × indústrias ────────────────────────────────────────
   const { pivotClientes, colIndustrias, pivot, minDias } = useMemo(() => {
-    const indSet     = new Set<string>();
-    const cliMap     = new Map<string, string>(); // cliente → estado
+    const indSet = new Set<string>();
+    const cliMap = new Map<string, { estado: string; vendedor: string }>();
 
     for (const r of rows) {
       indSet.add(r.industria);
-      if (!cliMap.has(r.cliente)) cliMap.set(r.cliente, r.estado);
+      if (!cliMap.has(r.cliente)) cliMap.set(r.cliente, { estado: r.estado, vendedor: r.vendedor_nome || '—' });
+      else if (r.vendedor_nome && r.vendedor_nome !== '—') {
+        cliMap.get(r.cliente)!.vendedor = r.vendedor_nome;
+      }
     }
 
     const colIndustrias = [...indSet].sort();
 
-    // Pivot: cliente+industria → row data
     const pivot = new Map<string, Row>();
     for (const r of rows) pivot.set(`${r.cliente}||${r.industria}`, r);
 
-    // Sort clientes by min dias (most recent first)
     const pivotClientes = [...cliMap.entries()].sort((a, b) => {
       const minA = Math.min(...colIndustrias.map(ind => pivot.get(`${a[0]}||${ind}`)?.dias ?? 9999));
       const minB = Math.min(...colIndustrias.map(ind => pivot.get(`${b[0]}||${ind}`)?.dias ?? 9999));
       return minA - minB;
     });
 
-    const allDias = rows.map(r => r.dias);
+    const allDias = rows.map(r => r.dias).filter(d => d < 9999);
     const minDias = allDias.length ? Math.min(...allDias) : 0;
 
     return { pivotClientes, colIndustrias, pivot, minDias };
   }, [rows]);
+
+  const exportExcel = () => {
+    if (!rows.length) return;
+    const header = ['Cliente', 'UF', 'Vendedor', ...colIndustrias.flatMap(ind => [`${ind} — Dias`, `${ind} — Data`, `${ind} — Valor`])];
+    const data = pivotClientes.map(([cliNome, info]) => [
+      cliNome,
+      info.estado,
+      info.vendedor,
+      ...colIndustrias.flatMap(ind => {
+        const cell = pivot.get(`${cliNome}||${ind}`);
+        if (!cell || cell.dias === 9999) return ['', '', ''];
+        return [cell.dias, fmtDate(cell.data_ultima), cell.valor];
+      }),
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Últimas Compras');
+    XLSX.writeFile(wb, `UltimasCompras_${dataInicio}_${dataFim}.xlsx`);
+  };
 
   const toggleBtn = (active: boolean) => ({
     padding: '5px 14px', fontSize: 11, fontWeight: 700, border: 'none', cursor: 'pointer',
@@ -164,13 +185,23 @@ export default function UltimasCompras({ dataInicio, dataFim }: Props) {
           Rede de Lojas
         </label>
 
-        <button onClick={load} disabled={loading} style={{
-          padding: '7px 20px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-          background: G.mustard, color: G.text, border: 'none', cursor: 'pointer',
-          marginLeft: 'auto', alignSelf: 'flex-end',
-        }}>
-          {loading ? 'Carregando...' : 'Buscar'}
-        </button>
+        <div style={{ marginLeft: 'auto', alignSelf: 'flex-end', display: 'flex', gap: 8 }}>
+          {rows.length > 0 && (
+            <button onClick={exportExcel} style={{
+              padding: '7px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+              background: '#16A34A', color: '#fff', border: 'none', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <FileDown size={14} /> Excel
+            </button>
+          )}
+          <button onClick={load} disabled={loading} style={{
+            padding: '7px 20px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+            background: G.mustard, color: G.text, border: 'none', cursor: 'pointer',
+          }}>
+            {loading ? 'Carregando...' : 'Buscar'}
+          </button>
+        </div>
       </div>
 
       {/* Legenda + info */}
@@ -207,7 +238,6 @@ export default function UltimasCompras({ dataInicio, dataFim }: Props) {
           <table style={{ borderCollapse: 'collapse', fontSize: 11, width: '100%' }}>
             <thead>
               <tr>
-                {/* Cliente col */}
                 <th style={{
                   position: 'sticky', left: 0, zIndex: 3,
                   background: NAVY_DARK, color: G.mustard,
@@ -215,6 +245,13 @@ export default function UltimasCompras({ dataInicio, dataFim }: Props) {
                   borderRight: `1px solid ${NAVY}`, borderBottom: `1px solid ${NAVY}`,
                   whiteSpace: 'nowrap', minWidth: 200,
                 }}>Cliente</th>
+                <th style={{
+                  position: 'sticky', left: 200, zIndex: 3,
+                  background: NAVY_DARK, color: G.mustard,
+                  padding: '10px 14px', textAlign: 'left', fontWeight: 700,
+                  borderRight: `1px solid ${NAVY}`, borderBottom: `1px solid ${NAVY}`,
+                  whiteSpace: 'nowrap', minWidth: 130,
+                }}>Vendedor</th>
 
                 {/* Indústria cols */}
                 {colIndustrias.map(ind => (
@@ -228,18 +265,26 @@ export default function UltimasCompras({ dataInicio, dataFim }: Props) {
               </tr>
             </thead>
             <tbody>
-              {pivotClientes.map(([cliNome, estado], idx) => (
-                <tr key={cliNome} style={{ background: idx % 2 === 0 ? G.card : G.bg }}>
-                  {/* Cliente */}
+              {pivotClientes.map(([cliNome, info], idx) => {
+                const bg = idx % 2 === 0 ? G.card : G.bg;
+                return (
+                <tr key={cliNome} style={{ background: bg }}>
                   <td style={{
-                    position: 'sticky', left: 0, zIndex: 2,
-                    background: idx % 2 === 0 ? G.card : G.bg,
+                    position: 'sticky', left: 0, zIndex: 2, background: bg,
                     padding: '8px 14px', borderRight: `1px solid ${G.border}`,
                   }}>
                     <div style={{ fontWeight: 700, fontSize: 12, color: G.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 200 }}>
                       {cliNome}
                     </div>
-                    {estado && <div style={{ fontSize: 9, color: G.textMuted, fontWeight: 600, marginTop: 1 }}>{estado}</div>}
+                    {info.estado && <div style={{ fontSize: 9, color: G.textMuted, fontWeight: 600, marginTop: 1 }}>{info.estado}</div>}
+                  </td>
+                  <td style={{
+                    position: 'sticky', left: 200, zIndex: 2, background: bg,
+                    padding: '8px 14px', borderRight: `1px solid ${G.border}`,
+                    fontSize: 11, color: G.textSec, fontWeight: 500,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 130,
+                  }}>
+                    {info.vendedor}
                   </td>
 
                   {/* Células por indústria */}
@@ -268,7 +313,8 @@ export default function UltimasCompras({ dataInicio, dataFim }: Props) {
                     );
                   })}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

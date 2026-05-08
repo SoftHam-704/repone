@@ -200,6 +200,137 @@ export async function createOrderHandler(req: Request, res: Response): Promise<v
   }
 }
 
+// ─── POST /api/orders/mobile — simplified mobile order creation ──────────────
+export async function createMobileOrderHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { ped_cliente, ped_industria, ped_transp, tabela: tabelaBody, itens = [] } = req.body;
+    const db = req.db!;
+
+    if (!ped_industria) {
+      res.status(400).json({ success: false, message: 'Indústria é obrigatória' });
+      return;
+    }
+
+    const venCodigo = await getLinkedSellerId(db, req.user?.userId) ?? 0;
+
+    // Usa tabela enviada pelo app; fallback para primeira disponível da indústria
+    let tabela = String(tabelaBody || '').trim();
+    if (!tabela) {
+      const tabelaRes = await db.query(
+        `SELECT itab_tabela FROM cad_tabelaspre WHERE itab_idindustria = $1 LIMIT 1`,
+        [ped_industria]
+      );
+      tabela = tabelaRes.rows[0]?.itab_tabela || '';
+    }
+
+    // Buscar descontos do cli_ind para gravar nos itens
+    let descontos: number[] = new Array(11).fill(0);
+    if (ped_cliente) {
+      try {
+        const cliRes = await db.query(
+          `SELECT cli_desc1,cli_desc2,cli_desc3,cli_desc4,cli_desc5,
+                  cli_desc6,cli_desc7,cli_desc8,cli_desc9,cli_desc10,cli_desc11
+           FROM cli_ind WHERE cli_codigo = $1 AND cli_forcodigo = $2 LIMIT 1`,
+          [ped_cliente, ped_industria]
+        );
+        if (cliRes.rows.length > 0) {
+          const r = cliRes.rows[0];
+          descontos = Array.from({ length: 11 }, (_, i) => parseFloat(r[`cli_desc${i + 1}`] || '0') || 0);
+        }
+      } catch { /* descontos opcionais */ }
+    }
+
+    const userInitials = (req.user?.username?.substring(0, 2) || 'MB').toUpperCase();
+    let seqResult;
+    try { seqResult = await db.query("SELECT nextval('gen_pedidos_id') AS next_num"); }
+    catch { seqResult = await db.query("SELECT nextval('pedidos_ped_numero_seq') AS next_num"); }
+    const pedNumero = seqResult.rows[0].next_num;
+    const pedPedido = userInitials + pedNumero.toString().padStart(6, '0');
+
+    const totBruto = (itens as any[]).reduce((s: number, i: any) =>
+      s + (Number(i.preco) || 0) * (Number(i.qtd) || 0), 0);
+
+    await db.transaction(async (client) => {
+      await client.query(`
+        INSERT INTO pedidos (
+          ped_numero, ped_pedido, ped_data, ped_situacao,
+          ped_cliente, ped_transp, ped_vendedor, ped_condpag, ped_comprador,
+          ped_tipofrete, ped_tabela, ped_industria, ped_cliind,
+          ped_pri, ped_seg, ped_ter, ped_qua, ped_qui, ped_sex, ped_set, ped_oit, ped_nov,
+          ped_totbruto, ped_totliq, ped_totalipi, ped_obs
+        ) VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+          0,0,0,0,0,0,0,0,0,
+          $14,$14,0,''
+        )
+      `, [
+        pedNumero, pedPedido,
+        new Date().toISOString().split('T')[0],
+        'C',
+        ped_cliente || null,
+        Number(ped_transp) || 0, venCodigo, '', '',
+        'C', tabela, ped_industria, '',
+        totBruto,
+      ]);
+
+      for (let i = 0; i < (itens as any[]).length; i++) {
+        const it = (itens as any[])[i];
+        const produto = String(it.pro_codprod || '').toUpperCase();
+        const qtd   = Number(it.qtd)   || 0;
+        const preco = Number(it.preco) || 0;
+        const total = preco * qtd;
+
+        await client.query(`
+          INSERT INTO itens_ped (
+            ite_pedido, ite_seq, ite_industria,
+            ite_idproduto,
+            ite_produto, ite_embuch, ite_nomeprod,
+            ite_quant, ite_puni, ite_totbruto,
+            ite_puniliq, ite_totliquido,
+            ite_ipi, ite_st,
+            ite_des1, ite_des2, ite_des3, ite_des4, ite_des5,
+            ite_des6, ite_des7, ite_des8, ite_des9, ite_des10, ite_des11,
+            ite_valcomipi, ite_valcomst,
+            ite_faturado, ite_promocao
+          ) VALUES (
+            $1,$2,$3,
+            COALESCE(
+              (SELECT pro_id FROM cad_prod WHERE pro_codprod = $4 AND pro_industria = $3 LIMIT 1),
+              (SELECT pro_id FROM cad_prod WHERE pro_codprod = $4 LIMIT 1),
+              0
+            ),
+            $4,'',
+            COALESCE(
+              (SELECT pro_nome FROM cad_prod WHERE pro_codprod = $4 AND pro_industria = $3 LIMIT 1),
+              (SELECT pro_nome FROM cad_prod WHERE pro_codprod = $4 LIMIT 1),
+              ''
+            ),
+            $5,$6,$7,
+            $6,$7,
+            0,0,
+            $8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+            0,0,
+            'N','N'
+          )
+        `, [
+          pedPedido, i + 1, ped_industria, produto, qtd, preco, total,
+          descontos[0], descontos[1], descontos[2], descontos[3], descontos[4],
+          descontos[5], descontos[6], descontos[7], descontos[8], descontos[9], descontos[10],
+        ]);
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `Pedido ${pedPedido} criado com sucesso!`,
+      data: { ped_numero: pedNumero, ped_pedido: pedPedido },
+    });
+  } catch (error: any) {
+    console.error('❌ [ORDERS] create-mobile:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
 // ─── PUT /api/orders/:id ──────────────────────────────────────────────────────
 export async function updateOrderHandler(req: Request, res: Response): Promise<void> {
   try {
@@ -570,37 +701,45 @@ export async function cloneOrderHandler(req: Request, res: Response): Promise<vo
     const newPedNumero = seqResult.rows[0].next_num;
     const newPedPedido = (userInitials + String(newPedNumero).padStart(6, '0')).replace(/\s+/g, '');
 
+    // helper: trunca string para max 1 char — campos varchar(1) do schema V1
+    const c1 = (v: any, fallback = '') => (String(v ?? fallback)).substring(0, 1);
+
     // 3. Clonar cabeçalho (data = hoje, situação = P, sem vínculos de faturamento)
-    const clonedOrder = await client.query(`
-      INSERT INTO pedidos (
-        ped_numero, ped_pedido, ped_data, ped_situacao,
-        ped_cliente, ped_industria, ped_vendedor, ped_transp,
-        ped_tabela, ped_totbruto, ped_totliq, ped_totalipi, ped_obs,
-        ped_pri, ped_seg, ped_ter, ped_qua, ped_qui, ped_sex, ped_set, ped_oit, ped_nov,
-        ped_pedindustria, ped_cliind, ped_condpag, ped_tipofrete, ped_comprador,
-        ped_ramoatv, ped_obra_nome, ped_obra_endereco, ped_obra_contato,
-        ped_fase_projeto, ped_area_m2, ped_pe_direito, ped_tipo_piso, ped_obs_tecnicas
-      ) VALUES (
-        $1, $2, CURRENT_DATE, 'P',
-        $3, $4, $5, $6,
-        $7, $8, $9, $10, $11,
-        $12, $13, $14, $15, $16, $17, $18, $19, $20,
-        $21, $22, $23, $24, $25,
-        $26, $27, $28, $29,
-        $30, $31, $32, $33, $34
-      ) RETURNING *
-    `, [
-      newPedNumero, newPedPedido,
-      orig.ped_cliente, orig.ped_industria, orig.ped_vendedor, orig.ped_transp,
-      orig.ped_tabela, orig.ped_totbruto, orig.ped_totliq, orig.ped_totalipi, orig.ped_obs || '',
-      orig.ped_pri || 0, orig.ped_seg || 0, orig.ped_ter || 0, orig.ped_qua || 0, orig.ped_qui || 0,
-      orig.ped_sex || 0, orig.ped_set || 0, orig.ped_oit || 0, orig.ped_nov || 0,
-      orig.ped_pedindustria || '', orig.ped_cliind || '', orig.ped_condpag || '',
-      orig.ped_tipofrete || 'C', orig.ped_comprador || '',
-      orig.ped_ramoatv || '', orig.ped_obra_nome || '', orig.ped_obra_endereco || '', orig.ped_obra_contato || '',
-      orig.ped_fase_projeto || '', orig.ped_area_m2 || 0, orig.ped_pe_direito || 0,
-      orig.ped_tipo_piso || '', orig.ped_obs_tecnicas || '',
-    ]);
+    let clonedOrder: any;
+    try {
+      clonedOrder = await client.query(`
+        INSERT INTO pedidos (
+          ped_numero, ped_pedido, ped_data, ped_situacao,
+          ped_cliente, ped_industria, ped_vendedor, ped_transp,
+          ped_tabela, ped_totbruto, ped_totliq, ped_totalipi, ped_obs,
+          ped_pri, ped_seg, ped_ter, ped_qua, ped_qui, ped_sex, ped_set, ped_oit, ped_nov,
+          ped_pedindustria, ped_cliind, ped_condpag, ped_tipofrete, ped_comprador,
+          ped_ramoatv, ped_obra_nome, ped_obra_endereco, ped_obra_contato,
+          ped_fase_projeto, ped_area_m2, ped_pe_direito, ped_tipo_piso, ped_obs_tecnicas
+        ) VALUES (
+          $1, $2, CURRENT_DATE, 'P',
+          $3, $4, $5, $6,
+          $7, $8, $9, $10, $11,
+          $12, $13, $14, $15, $16, $17, $18, $19, $20,
+          $21, $22, $23, $24, $25,
+          $26, $27, $28, $29,
+          $30, $31, $32, $33, $34
+        ) RETURNING *
+      `, [
+        newPedNumero, newPedPedido,
+        orig.ped_cliente, orig.ped_industria, orig.ped_vendedor, orig.ped_transp,
+        orig.ped_tabela, orig.ped_totbruto, orig.ped_totliq, orig.ped_totalipi, orig.ped_obs || '',
+        orig.ped_pri || 0, orig.ped_seg || 0, orig.ped_ter || 0, orig.ped_qua || 0, orig.ped_qui || 0,
+        orig.ped_sex || 0, orig.ped_set || 0, orig.ped_oit || 0, orig.ped_nov || 0,
+        orig.ped_pedindustria || '', orig.ped_cliind || '', orig.ped_condpag || '',
+        c1(orig.ped_tipofrete, 'C'), orig.ped_comprador || '',
+        c1(orig.ped_ramoatv), orig.ped_obra_nome || '', orig.ped_obra_endereco || '', orig.ped_obra_contato || '',
+        c1(orig.ped_fase_projeto), orig.ped_area_m2 || 0, orig.ped_pe_direito || 0,
+        c1(orig.ped_tipo_piso), orig.ped_obs_tecnicas || '',
+      ]);
+    } catch (hErr: any) {
+      throw new Error(`[HEADER] ${hErr.message} | detail: ${hErr.detail || 'n/a'}`);
+    }
 
     // 4. Copiar todos os itens
     const itemsResult = await client.query(
@@ -609,32 +748,36 @@ export async function cloneOrderHandler(req: Request, res: Response): Promise<vo
 
     let itemsCloned = 0;
     for (const item of itemsResult.rows) {
-      await client.query(`
-        INSERT INTO itens_ped (
-          ite_pedido, ite_seq, ite_industria, ite_idproduto, ite_produto, ite_embuch, ite_nomeprod,
-          ite_quant, ite_puni, ite_totbruto, ite_puniliq, ite_totliquido, ite_ipi,
-          ite_des1, ite_des2, ite_des3, ite_des4, ite_des5,
-          ite_des6, ite_des7, ite_des8, ite_des9, ite_des10, ite_des11, ite_valcomipi,
-          ite_st, ite_valcomst, ite_promocao, ite_descontos,
-          ite_dimensoes, ite_acabamento, ite_carga_kg, ite_ambiente, ite_faturado, ite_qtdfat
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7,
-          $8, $9, $10, $11, $12, $13,
-          $14, $15, $16, $17, $18,
-          $19, $20, $21, $22, $23, $24, $25,
-          $26, $27, $28, $29,
-          $30, $31, $32, $33, 'N', 0
-        )
-      `, [
-        newPedPedido, item.ite_seq, item.ite_industria, item.ite_idproduto, item.ite_produto,
-        item.ite_embuch, item.ite_nomeprod,
-        item.ite_quant, item.ite_puni, item.ite_totbruto, item.ite_puniliq, item.ite_totliquido, item.ite_ipi,
-        item.ite_des1 || 0, item.ite_des2 || 0, item.ite_des3 || 0, item.ite_des4 || 0, item.ite_des5 || 0,
-        item.ite_des6 || 0, item.ite_des7 || 0, item.ite_des8 || 0, item.ite_des9 || 0,
-        item.ite_des10 || 0, item.ite_des11 || 0, item.ite_valcomipi || 0,
-        item.ite_st || 0, item.ite_valcomst || 0, item.ite_promocao || false, item.ite_descontos || '',
-        item.ite_dimensoes || '', item.ite_acabamento || '', item.ite_carga_kg || 0, item.ite_ambiente || '',
-      ]);
+      try {
+        await client.query(`
+          INSERT INTO itens_ped (
+            ite_pedido, ite_seq, ite_industria, ite_idproduto, ite_produto, ite_embuch, ite_nomeprod,
+            ite_quant, ite_puni, ite_totbruto, ite_puniliq, ite_totliquido, ite_ipi,
+            ite_des1, ite_des2, ite_des3, ite_des4, ite_des5,
+            ite_des6, ite_des7, ite_des8, ite_des9, ite_des10, ite_des11, ite_valcomipi,
+            ite_st, ite_valcomst, ite_promocao, ite_descontos,
+            ite_dimensoes, ite_acabamento, ite_carga_kg, ite_ambiente, ite_faturado, ite_qtdfat
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7,
+            $8, $9, $10, $11, $12, $13,
+            $14, $15, $16, $17, $18,
+            $19, $20, $21, $22, $23, $24, $25,
+            $26, $27, $28, $29,
+            $30, $31, $32, $33, 'N', 0
+          )
+        `, [
+          newPedPedido, item.ite_seq, item.ite_industria, item.ite_idproduto, item.ite_produto,
+          item.ite_embuch, item.ite_nomeprod,
+          item.ite_quant, item.ite_puni, item.ite_totbruto, item.ite_puniliq, item.ite_totliquido, item.ite_ipi,
+          item.ite_des1 || 0, item.ite_des2 || 0, item.ite_des3 || 0, item.ite_des4 || 0, item.ite_des5 || 0,
+          item.ite_des6 || 0, item.ite_des7 || 0, item.ite_des8 || 0, item.ite_des9 || 0,
+          item.ite_des10 || 0, item.ite_des11 || 0, item.ite_valcomipi || 0,
+          item.ite_st || 0, item.ite_valcomst || 0, item.ite_promocao ?? 'N', item.ite_descontos || '',
+          item.ite_dimensoes || '', item.ite_acabamento || '', item.ite_carga_kg || 0, item.ite_ambiente || '',
+        ]);
+      } catch (iErr: any) {
+        throw new Error(`[ITEM seq=${item.ite_seq} prod=${item.ite_produto}] ${iErr.message} | detail: ${iErr.detail || 'n/a'}`);
+      }
       itemsCloned++;
     }
 
@@ -650,30 +793,32 @@ export async function cloneOrderHandler(req: Request, res: Response): Promise<vo
     });
   } catch (error: any) {
     await client.query('ROLLBACK');
-    console.error('❌ [ORDERS] clone:', error.message);
-    res.status(500).json({ success: false, message: error.message });
+    console.error('❌ [ORDERS] clone:', error.message, error.detail || '');
+    res.status(500).json({ success: false, message: error.message, detail: error.detail || null });
   } finally {
     client.release();
   }
 }
 
 // ─── PATCH /api/orders/:id/status-envio ──────────────────────────────────────
+// Aceita { enviado: 'S' | 'N' | true | false }
+// true/'S'  → ped_iris_autoriza = true,  ped_iris_enviado_em = NULL  (IRIS detecta e envia e-mail)
+// false/'N' → ped_iris_autoriza = false, ped_iris_enviado_em = NULL  (reset)
+// Não toca em ped_enviado (flag legada "enviado à indústria")
 export async function statusEnvioHandler(req: Request, res: Response): Promise<void> {
   try {
     const { id: pedPedido } = req.params;
     const { enviado } = req.body;
     const db = req.db!;
 
-    if (!['S', 'N'].includes(enviado)) {
-      res.status(400).json({ success: false, message: 'Status inválido. Use S ou N.' });
-      return;
-    }
+    const autoriza = enviado === true || enviado === 'S';
 
     const result = await db.query(
-      enviado === 'S'
-        ? `UPDATE pedidos SET ped_enviado=$1, ped_dataenvio=NOW() WHERE TRIM(ped_pedido)=TRIM($2) RETURNING ped_pedido, ped_enviado`
-        : `UPDATE pedidos SET ped_enviado=$1, ped_dataenvio=NULL WHERE TRIM(ped_pedido)=TRIM($2) RETURNING ped_pedido, ped_enviado`,
-      [enviado, pedPedido]
+      `UPDATE pedidos
+          SET ped_iris_autoriza = $1, ped_iris_enviado_em = NULL
+        WHERE TRIM(ped_pedido) = TRIM($2)
+        RETURNING ped_pedido, ped_iris_autoriza`,
+      [autoriza, pedPedido]
     );
 
     if (!result.rows.length) {
@@ -684,7 +829,7 @@ export async function statusEnvioHandler(req: Request, res: Response): Promise<v
     res.json({
       success: true,
       data: result.rows[0],
-      message: enviado === 'S' ? 'Pedido marcado como enviado!' : 'Pedido marcado como não enviado.',
+      message: autoriza ? 'Cotação autorizada para envio via IRIS.' : 'Autorização cancelada.',
     });
   } catch (error: any) {
     console.error('❌ [ORDERS] status-envio:', error.message);
@@ -692,6 +837,74 @@ export async function statusEnvioHandler(req: Request, res: Response): Promise<v
   }
 }
 
+
+// ─── PATCH /api/orders/:id/enviado ───────────────────────────────────────────
+// Flag "enviado à indústria" (ped_enviado boolean). Usado pelo web context menu.
+export async function enviadoIndustriaHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { id: pedPedido } = req.params;
+    const { enviado } = req.body;
+    const db = req.db!;
+
+    const valor = enviado === true || enviado === 'S';
+
+    const result = await db.query(
+      `UPDATE pedidos
+          SET ped_enviado = $1
+        WHERE TRIM(ped_pedido) = TRIM($2)
+        RETURNING ped_pedido, ped_enviado`,
+      [valor, pedPedido]
+    );
+
+    if (!result.rows.length) {
+      res.status(404).json({ success: false, message: 'Pedido não encontrado.' });
+      return;
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: valor ? 'Pedido marcado como enviado à indústria.' : 'Pedido desmarcado como enviado.',
+    });
+  } catch (error: any) {
+    console.error('❌ [ORDERS] enviado:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── PATCH /api/orders/:id/converter-pedido ──────────────────────────────────
+export async function converterPedidoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { id: pedPedido } = req.params;
+    const db = req.db!;
+
+    const check = await db.query(
+      `SELECT ped_situacao FROM pedidos WHERE TRIM(ped_pedido) = TRIM($1)`,
+      [pedPedido]
+    );
+    if (!check.rows.length) {
+      res.status(404).json({ success: false, message: 'Pedido não encontrado.' });
+      return;
+    }
+    const situacao = check.rows[0].ped_situacao;
+    if (!['C', 'A', 'CC'].includes(situacao)) {
+      res.status(400).json({ success: false, message: 'Somente cotações podem ser convertidas em pedido.' });
+      return;
+    }
+
+    const result = await db.query(
+      `UPDATE pedidos SET ped_situacao = 'P', ped_data = CURRENT_DATE
+       WHERE TRIM(ped_pedido) = TRIM($1)
+       RETURNING ped_pedido, ped_situacao, ped_data`,
+      [pedPedido]
+    );
+
+    res.json({ success: true, data: result.rows[0], message: 'Cotação convertida em pedido!' });
+  } catch (error: any) {
+    console.error('❌ [ORDERS] converter-pedido:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
 
 // ─── GET /api/orders/smart-suggestions ───────────────────────────────────────
 // Produtos que o cliente comprou nessa indústria mas parou de comprar

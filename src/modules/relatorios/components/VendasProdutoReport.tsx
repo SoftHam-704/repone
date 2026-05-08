@@ -15,7 +15,7 @@ interface Row {
 }
 
 const fmtBRL  = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
+const fmtDate = (d: string) => { if (!d) return '—'; const s = String(d).slice(0, 10); return `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`; };
 
 const inp: React.CSSProperties = {
   padding: '6px 9px', borderRadius: 7, fontSize: 12, fontWeight: 600,

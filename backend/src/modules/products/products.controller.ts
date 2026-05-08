@@ -56,7 +56,7 @@ export async function getCatalogHandler(req: Request, res: Response): Promise<vo
         pro_embalagem, pro_grupo, pro_aplicacao, pro_codbarras,
         pro_status, pro_linhaleve, pro_linhapesada, pro_linhaagricola,
         pro_linhautilitarios, pro_motocicletas, pro_offroad,
-        pro_origem, pro_codigonormalizado, pro_conversao
+        pro_origem, pro_codigonormalizado, pro_conversao, pro_ciclo
       FROM cad_prod
       WHERE pro_industria = $1 ${filterClause}
       ORDER BY pro_codprod
@@ -83,7 +83,7 @@ export async function getProductDetailHandler(req: Request, res: Response): Prom
         p.pro_grupo, p.pro_embalagem, p.pro_peso, p.pro_aplicacao,
         p.pro_linhaleve, p.pro_linhapesada, p.pro_linhaagricola,
         p.pro_linhautilitarios, p.pro_motocicletas, p.pro_offroad,
-        p.pro_codigonormalizado, p.pro_setor, p.pro_linha,
+        p.pro_codigonormalizado, p.pro_setor, p.pro_linha, p.pro_ciclo,
         t.itab_idprod, t.itab_tabela, t.itab_idindustria,
         t.itab_precobruto, t.itab_precopromo, t.itab_precoespecial,
         t.itab_ipi, t.itab_st, t.itab_descontoadd,
@@ -101,6 +101,77 @@ export async function getProductDetailHandler(req: Request, res: Response): Prom
     res.json({ success: true, data: result.rows[0] });
   } catch (error: any) {
     console.error('❌ [PRODUCTS] detail:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── GET /api/products/prices-for-order?industria=&tabela=&cliente= ──────────
+// Retorna mapa de preços já com política comercial do cliente (cli_ind) aplicada.
+// Prioridade: cli_ind.cli_tabela (tabela exclusiva) > tabela passada + descontos em cascata.
+export async function getPricesForOrderHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db        = req.db!;
+    const industria = parseInt(String(req.query.industria || '0'));
+    const tabela    = String(req.query.tabela || '').trim();
+    const cliente   = parseInt(String(req.query.cliente || '0'));
+
+    if (!industria || !tabela) { res.json({ success: true, data: [] }); return; }
+
+    let effectiveTabela = tabela;
+    const descontos: number[] = new Array(11).fill(0);
+
+    if (cliente > 0) {
+      const cliRes = await db.query(
+        `SELECT cli_tabela,
+                cli_desc1, cli_desc2, cli_desc3, cli_desc4, cli_desc5,
+                cli_desc6, cli_desc7, cli_desc8, cli_desc9, cli_desc10, cli_desc11
+         FROM cli_ind WHERE cli_codigo = $1 AND cli_forcodigo = $2 LIMIT 1`,
+        [cliente, industria]
+      );
+      if (cliRes.rows.length > 0) {
+        const row = cliRes.rows[0];
+        if (row.cli_tabela && String(row.cli_tabela).trim()) {
+          effectiveTabela = String(row.cli_tabela).trim();
+        }
+        for (let i = 1; i <= 11; i++) {
+          descontos[i - 1] = parseFloat(row[`cli_desc${i}`] || '0') || 0;
+        }
+      }
+    }
+
+    const result = await db.query(
+      `SELECT p.pro_codprod, COALESCE(t.itab_precobruto, 0) AS preco_bruto
+       FROM cad_tabelaspre t
+       JOIN cad_prod p ON p.pro_id = t.itab_idprod
+       WHERE t.itab_idindustria = $1
+         AND TRIM(t.itab_tabela) = TRIM($2)
+         AND COALESCE(t.itab_precobruto, 0) > 0`,
+      [industria, effectiveTabela]
+    );
+
+    const descontosAtivos = descontos.filter(d => d > 0);
+    const tabelaExclusiva = effectiveTabela !== tabela;
+
+    const data = result.rows.map((row: any) => {
+      let preco = parseFloat(row.preco_bruto) || 0;
+      for (const d of descontos) {
+        if (d > 0) preco = preco * (1 - d / 100);
+      }
+      return { pro_codprod: String(row.pro_codprod), preco: Math.round(preco * 100) / 100 };
+    });
+
+    res.json({
+      success: true,
+      data,
+      meta: {
+        tabela_usada:       effectiveTabela,
+        tem_politica:       tabelaExclusiva || descontosAtivos.length > 0,
+        tabela_exclusiva:   tabelaExclusiva,
+        descontos_aplicados: descontosAtivos,
+      },
+    });
+  } catch (error: any) {
+    console.error('❌ [PRODUCTS] prices-for-order:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 }
@@ -134,6 +205,7 @@ export async function getProductsWithPricesHandler(req: Request, res: Response):
         p.pro_peso,
         p.pro_codigonormalizado,
         p.pro_conversao,
+        p.pro_ciclo,
         t.itab_precobruto,
         t.itab_precopromo,
         t.itab_precoespecial,
@@ -171,7 +243,7 @@ export async function saveProductHandler(req: Request, res: Response): Promise<v
       industria, tabela, precobruto, precopromo, precoespecial,
       ipi, st, descontoadd, grupodesconto, prepeso,
       linhaleve, linhapesada, linhaagricola, linhautilitarios,
-      motocicletas, offroad, linhaamarela, replicate,
+      motocicletas, offroad, linhaamarela, ciclo, replicate,
     } = req.body;
 
     const cleanId = cleanInd(industria);
@@ -181,7 +253,7 @@ export async function saveProductHandler(req: Request, res: Response): Promise<v
     await client.query('BEGIN');
 
     const prodResult = await client.query(
-      `SELECT fn_upsert_produto($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) as pro_id`,
+      `SELECT fn_upsert_produto($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) as pro_id`,
       [
         cleanId,
         codigo || '',
@@ -203,6 +275,7 @@ export async function saveProductHandler(req: Request, res: Response): Promise<v
         motocicletas     || false,
         offroad          || false,
         linhaamarela     || false,
+        ciclo            || 'C',
       ]
     );
 
@@ -272,6 +345,55 @@ export async function deleteProductHandler(req: Request, res: Response): Promise
       return;
     }
     console.error('❌ [PRODUCTS] delete:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+// ─── GET /api/products/:proId/purchase-history ──────────────────────────────
+export async function getProductPurchaseHistoryHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { proId } = req.params;
+    const db = req.db!;
+
+    const result = await db.query(`
+      SELECT
+        c.cli_nomred AS cliente_nome,
+        MAX(p.ped_data) AS ultima_compra
+      FROM itens_ped i
+      JOIN pedidos p ON TRIM(p.ped_pedido) = TRIM(i.ite_pedido)
+      JOIN clientes c ON c.cli_codigo = p.ped_cliente
+      WHERE i.ite_idproduto = $1
+        AND p.ped_situacao IN ('P', 'F')
+      GROUP BY c.cli_nomred
+      ORDER BY ultima_compra DESC
+    `, [parseInt(String(proId))]);
+
+    res.json({ success: true, data: result.rows });
+  } catch (error: any) {
+    console.error('❌ [PRODUCTS] purchase-history:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+// ─── GET /api/products/:proId/sales-summary ──────────────────────────────────
+export async function getProductSalesSummaryHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { proId } = req.params;
+    const db = req.db!;
+
+    const result = await db.query(`
+      SELECT
+        TO_CHAR(p.ped_data, 'MM/YYYY') AS periodo,
+        SUM(i.ite_quant) AS total_qtd
+      FROM itens_ped i
+      JOIN pedidos p ON TRIM(p.ped_pedido) = TRIM(i.ite_pedido)
+      WHERE i.ite_idproduto = $1
+        AND p.ped_situacao IN ('P', 'F')
+      GROUP BY periodo, DATE_TRUNC('month', p.ped_data)
+      ORDER BY DATE_TRUNC('month', p.ped_data) ASC
+    `, [parseInt(String(proId))]);
+
+    res.json({ success: true, data: result.rows });
+  } catch (error: any) {
+    console.error('❌ [PRODUCTS] sales-summary:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 }

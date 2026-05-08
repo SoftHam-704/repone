@@ -46,6 +46,8 @@ const ContasPagarPage          = lazy(() => import('@/modules/financeiro/pages/C
 const FluxoCaixaPage           = lazy(() => import('@/modules/financeiro/pages/FluxoCaixaPage'))
 const DREPage                  = lazy(() => import('@/modules/financeiro/pages/DREPage'))
 const PlanoContasPage          = lazy(() => import('@/modules/financeiro/pages/PlanoContasPage'))
+const FinClientesPage          = lazy(() => import('@/modules/financeiro/pages/FinClientesPage'))
+const FinFornecedoresPage      = lazy(() => import('@/modules/financeiro/pages/FinFornecedoresPage'))
 const CarteiraRadarPage        = lazy(() => import('@/modules/crm/pages/CarteiraRadarPage'))
 const CarteiraClientesPage     = lazy(() => import('@/modules/crm/pages/CarteiraClientesPage'))
 const RepCrmDashboardPage      = lazy(() => import('@/modules/crm/pages/RepCrmDashboardPage'))
@@ -54,6 +56,7 @@ const RegistroRelacionamentosPage = lazy(() => import('@/modules/crm/pages/Regis
 const PipelinePage             = lazy(() => import('@/modules/crm/pages/PipelinePage'))
 const WhatsAppIAPage           = lazy(() => import('@/modules/crm/pages/WhatsAppIAPage'))
 const IrisVoicePage            = lazy(() => import('@/modules/nexus-ia/pages/IrisVoicePage'))
+const IrisConfigPage           = lazy(() => import('@/modules/iris/pages/IrisConfigPage'))
 const RelatoriosPage           = lazy(() => import('@/modules/relatorios/pages/RelatoriosPage'))
 
 export interface RouteItem {
@@ -103,6 +106,8 @@ export const ROUTE_CONFIG: Record<string, RouteItem> = {
   '/financeiro/relatorios/fluxo-caixa':{ id: 'fin-fluxo',     label: 'Fluxo de Caixa',         path: '/financeiro/relatorios/fluxo-caixa', icon: TrendingUp,   element: <FluxoCaixaPage /> },
   '/financeiro/relatorios/dre':        { id: 'fin-dre',       label: 'DRE Gerencial',           path: '/financeiro/relatorios/dre',         icon: PieChart,     element: <DREPage /> },
   '/financeiro/plano-contas':          { id: 'fin-plano',     label: 'Plano de Contas',         path: '/financeiro/plano-contas',           icon: Settings,     element: <PlanoContasPage /> },
+  '/financeiro/fin-clientes':          { id: 'fin-clientes',  label: 'Clientes Financeiros',     path: '/financeiro/fin-clientes',           icon: Users,        element: <FinClientesPage /> },
+  '/financeiro/fin-fornecedores':      { id: 'fin-fornecedores', label: 'Fornecedores Financeiros', path: '/financeiro/fin-fornecedores',     icon: Building2,    element: <FinFornecedoresPage /> },
   '/repcrm/radar':                     { id: 'crm-radar',         label: 'Radar do Rep',         path: '/repcrm/radar',                      icon: Radar,           element: <CarteiraRadarPage /> },
   '/repcrm/carteira':                  { id: 'crm-carteira',      label: 'Carteira de Clientes', path: '/repcrm/carteira',                   icon: Users2,          element: <CarteiraClientesPage /> },
   '/repcrm/dashboard':                 { id: 'crm-dashboard',    label: 'Dashboard CRM',        path: '/repcrm/dashboard',                  icon: LayoutDashboard, element: <RepCrmDashboardPage /> },
@@ -111,6 +116,7 @@ export const ROUTE_CONFIG: Record<string, RouteItem> = {
   '/repcrm/pipeline':                  { id: 'crm-pipeline',      label: 'Pipeline Kanban',      path: '/repcrm/pipeline',                   icon: Kanban,          element: <PipelinePage /> },
   '/utilitarios/whatsapp-ia':          { id: 'whatsapp-ia',       label: 'WhatsApp IA',          path: '/utilitarios/whatsapp-ia',           icon: MessageCircle,   element: <WhatsAppIAPage /> },
   '/nexus-ia':                         { id: 'nexus-ia',          label: 'Iris — Sua Assistente', path: '/nexus-ia',             icon: Sparkles,        element: <IrisVoicePage /> },
+  '/utilitarios/iris-config':          { id: 'iris-config',       label: 'IRIS — Configuração',   path: '/utilitarios/iris-config', icon: Sparkles,      element: <IrisConfigPage /> },
 };
 
 // Dynamic routes — factory + cache for unique elements per path

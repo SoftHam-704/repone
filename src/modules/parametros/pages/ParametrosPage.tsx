@@ -200,6 +200,8 @@ export default function ParametrosPage() {
       await api.post('/parametros', form);
       setView('list');
       load();
+    } catch (e: any) {
+      alert(`Erro ao salvar parâmetros: ${e?.response?.data?.message || e?.message || 'Tente novamente.'}`);
     } finally {
       setSaving(false);
     }

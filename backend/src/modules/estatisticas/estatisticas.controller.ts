@@ -328,21 +328,24 @@ export async function vendaMensalIndustriaHandler(req: Request | any, res: Respo
 
     const result = await db.query(`
       SELECT
-        f.for_nomered                    AS industria_nome,
-        TO_CHAR(p.ped_data, 'MM/YYYY')  AS mes,
-        SUM(ip.ite_totliquido)::NUMERIC  AS valor,
-        SUM(ip.ite_quant)::NUMERIC       AS qtd
+        f.for_nomered                       AS industria_nome,
+        COALESCE(v.ven_nome, '—')           AS vendedor_nome,
+        TO_CHAR(p.ped_data, 'MM/YYYY')     AS mes,
+        SUM(ip.ite_totliquido)::NUMERIC     AS valor,
+        SUM(ip.ite_quant)::NUMERIC          AS qtd
       FROM pedidos p
       JOIN itens_ped ip ON TRIM(p.ped_pedido) = TRIM(ip.ite_pedido)
       LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo
       JOIN fornecedores f ON p.ped_industria = f.for_codigo
+      LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo
       WHERE ${conditions.join(' AND ')}
-      GROUP BY f.for_nomered, TO_CHAR(p.ped_data, 'MM/YYYY')
-      ORDER BY f.for_nomered, TO_CHAR(p.ped_data, 'MM/YYYY')
+      GROUP BY f.for_nomered, v.ven_nome, TO_CHAR(p.ped_data, 'MM/YYYY')
+      ORDER BY f.for_nomered, v.ven_nome, TO_CHAR(p.ped_data, 'MM/YYYY')
     `, params);
 
     const data = result.rows.map((r: any) => ({
       industria_nome: r.industria_nome,
+      vendedor_nome:  r.vendedor_nome,
       mes:            r.mes,
       valor:          parseFloat(r.valor) || 0,
       qtd:            parseFloat(r.qtd)   || 0,
@@ -359,7 +362,7 @@ export async function vendaMensalIndustriaHandler(req: Request | any, res: Respo
 export async function mapaPedidosHandler(req: Request | any, res: Response) {
   try {
     const db = req.db!;
-    const { dataInicial, dataFinal, industria, cliente } = req.query;
+    const { dataInicial, dataFinal, industria, cliente, vendedor } = req.query;
 
     if (!dataInicial || !dataFinal) {
       return res.status(400).json({ success: false, error: 'Período obrigatório' });
@@ -374,6 +377,7 @@ export async function mapaPedidosHandler(req: Request | any, res: Response) {
 
     if (industria && industria !== 'ALL') { conditions.push(`p.ped_industria = $${pc}`); params.push(Number(industria)); pc++; }
     if (cliente   && cliente   !== 'ALL') { conditions.push(`p.ped_cliente   = $${pc}`); params.push(Number(cliente));   pc++; }
+    if (vendedor  && vendedor  !== 'ALL') { conditions.push(`p.ped_vendedor  = $${pc}`); params.push(Number(vendedor));  pc++; }
 
     const result = await db.query(`
       SELECT
@@ -386,7 +390,8 @@ export async function mapaPedidosHandler(req: Request | any, res: Response) {
         p.ped_totbruto::NUMERIC                                AS total_bruto,
         p.ped_totliq::NUMERIC                                  AS total_liq,
         COALESCE(p.ped_totalipi, 0)::NUMERIC                  AS total_ipi,
-        COUNT(ip.ite_produto)::INTEGER                        AS num_itens
+        COUNT(ip.ite_produto)::INTEGER                        AS num_itens,
+        COALESCE(SUM(ip.ite_quant), 0)::NUMERIC              AS total_quant
       FROM pedidos p
       LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo
       JOIN fornecedores f ON p.ped_industria = f.for_codigo
@@ -409,6 +414,7 @@ export async function mapaPedidosHandler(req: Request | any, res: Response) {
       total_liq:      parseFloat(r.total_liq)   || 0,
       total_ipi:      parseFloat(r.total_ipi)   || 0,
       num_itens:      Number(r.num_itens)        || 0,
+      total_quant:    parseFloat(r.total_quant) || 0,
     }));
 
     res.json({ success: true, data, total: data.length });
@@ -620,10 +626,10 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
       const cliExpr = `COALESCE(NULLIF(c.cli_redeloja,''), c.cli_nomred)`;
       const where = conditions.join(' AND ');
       const query = modoUlt
-        ? `SELECT DISTINCT ON (${cliExpr}, f.for_nomered) ${cliExpr} AS cliente, COALESCE(cid.cid_uf, c.cli_uf, '') AS estado, f.for_nomered AS industria, p.ped_totliq::NUMERIC AS valor, (SELECT SUM(ip2.ite_quant) FROM itens_ped ip2 WHERE TRIM(ip2.ite_pedido) = TRIM(p.ped_pedido))::NUMERIC AS qtd, p.ped_data AS data_ultima, (CURRENT_DATE - p.ped_data::date)::INTEGER AS dias FROM pedidos p LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo WHERE ${where} ORDER BY ${cliExpr}, f.for_nomered, p.ped_data DESC`
-        : `SELECT ${cliExpr} AS cliente, MAX(COALESCE(cid.cid_uf, c.cli_uf, '')) AS estado, f.for_nomered AS industria, SUM(p.ped_totliq)::NUMERIC AS valor, SUM(ip.ite_quant)::NUMERIC AS qtd, MAX(p.ped_data) AS data_ultima, (CURRENT_DATE - MAX(p.ped_data)::date)::INTEGER AS dias FROM pedidos p JOIN itens_ped ip ON TRIM(p.ped_pedido) = TRIM(ip.ite_pedido) LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo WHERE ${where} GROUP BY ${cliExpr}, f.for_nomered`;
+        ? `SELECT DISTINCT ON (${cliExpr}, f.for_nomered) ${cliExpr} AS cliente, COALESCE(cid.cid_uf, c.cli_uf, '') AS estado, f.for_nomered AS industria, COALESCE(v.ven_nome, '—') AS vendedor_nome, p.ped_totliq::NUMERIC AS valor, (SELECT SUM(ip2.ite_quant) FROM itens_ped ip2 WHERE TRIM(ip2.ite_pedido) = TRIM(p.ped_pedido))::NUMERIC AS qtd, p.ped_data AS data_ultima, (CURRENT_DATE - p.ped_data::date)::INTEGER AS dias FROM pedidos p LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo WHERE ${where} ORDER BY ${cliExpr}, f.for_nomered, p.ped_data DESC`
+        : `SELECT ${cliExpr} AS cliente, MAX(COALESCE(cid.cid_uf, c.cli_uf, '')) AS estado, f.for_nomered AS industria, MAX(COALESCE(v.ven_nome, '—')) AS vendedor_nome, SUM(p.ped_totliq)::NUMERIC AS valor, SUM(ip.ite_quant)::NUMERIC AS qtd, MAX(p.ped_data) AS data_ultima, (CURRENT_DATE - MAX(p.ped_data)::date)::INTEGER AS dias FROM pedidos p JOIN itens_ped ip ON TRIM(p.ped_pedido) = TRIM(ip.ite_pedido) LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo WHERE ${where} GROUP BY ${cliExpr}, f.for_nomered`;
       const result = await db.query(`SELECT * FROM (${query}) sub ORDER BY dias ASC, cliente`, params);
-      const data = result.rows.map((r: any) => ({ cliente: r.cliente, estado: r.estado || '', industria: r.industria, valor: parseFloat(r.valor) || 0, qtd: parseFloat(r.qtd) || 0, data_ultima: r.data_ultima, dias: Number(r.dias) || 0 }));
+      const data = result.rows.map((r: any) => ({ cliente: r.cliente, estado: r.estado || '', industria: r.industria, vendedor_nome: r.vendedor_nome || '—', valor: parseFloat(r.valor) || 0, qtd: parseFloat(r.qtd) || 0, data_ultima: r.data_ultima, dias: Number(r.dias) || 0 }));
       return res.json({ success: true, data, total: data.length });
     }
 
@@ -648,12 +654,14 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
           SELECT DISTINCT ON (p.ped_cliente, p.ped_industria)
             p.ped_cliente,
             f.for_nomered AS industria,
+            COALESCE(v.ven_nome, '—') AS vendedor_nome,
             p.ped_totliq::NUMERIC AS valor,
             (SELECT SUM(ip2.ite_quant) FROM itens_ped ip2
              WHERE TRIM(ip2.ite_pedido) = TRIM(p.ped_pedido))::NUMERIC AS qtd,
             p.ped_data AS data_ultima
           FROM pedidos p
           JOIN fornecedores f ON p.ped_industria = f.for_codigo
+          LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo
           WHERE ${pedConds.join(' AND ')}
           ORDER BY p.ped_cliente, p.ped_industria, p.ped_data DESC
         )
@@ -663,12 +671,14 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
           SELECT
             p.ped_cliente,
             f.for_nomered AS industria,
+            MAX(COALESCE(v.ven_nome, '—')) AS vendedor_nome,
             SUM(p.ped_totliq)::NUMERIC AS valor,
             SUM(ip.ite_quant)::NUMERIC AS qtd,
             MAX(p.ped_data) AS data_ultima
           FROM pedidos p
           JOIN itens_ped ip ON TRIM(p.ped_pedido) = TRIM(ip.ite_pedido)
           JOIN fornecedores f ON p.ped_industria = f.for_codigo
+          LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo
           WHERE ${pedConds.join(' AND ')}
           GROUP BY p.ped_cliente, f.for_nomered
         )
@@ -680,6 +690,7 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
         COALESCE(c.cli_nomred, 'EXCLUÍDO') AS cliente,
         COALESCE(cid.cid_uf, c.cli_uf, '') AS estado,
         COALESCE(cp.industria, '—') AS industria,
+        COALESCE(cp.vendedor_nome, '—') AS vendedor_nome,
         COALESCE(cp.valor, 0)::NUMERIC AS valor,
         COALESCE(cp.qtd, 0)::NUMERIC AS qtd,
         cp.data_ultima,
@@ -697,13 +708,14 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
     const result = await db.query(query, baseParams);
 
     const data = result.rows.map((r: any) => ({
-      cliente:     r.cliente,
-      estado:      r.estado || '',
-      industria:   r.industria,
-      valor:       parseFloat(r.valor)  || 0,
-      qtd:         parseFloat(r.qtd)    || 0,
-      data_ultima: r.data_ultima,
-      dias:        Number(r.dias) === 9999 ? 9999 : Number(r.dias) || 0,
+      cliente:       r.cliente,
+      estado:        r.estado || '',
+      industria:     r.industria,
+      vendedor_nome: r.vendedor_nome || '—',
+      valor:         parseFloat(r.valor)  || 0,
+      qtd:           parseFloat(r.qtd)    || 0,
+      data_ultima:   r.data_ultima,
+      dias:          Number(r.dias) === 9999 ? 9999 : Number(r.dias) || 0,
     }));
 
     res.json({ success: true, data, total: data.length });
@@ -1102,7 +1114,8 @@ export async function mapaVendasHandler(req: Request | any, res: Response) {
 export async function selloutRealHandler(req: Request | any, res: Response) {
   try {
     const db = req.db!;
-    const { dataInicial, dataFinal, industria, cliente } = req.query;
+    const { dataInicial, dataFinal, industria, cliente, viewBy } = req.query;
+    const isGrupo = viewBy === 'grupo';
 
     if (!dataInicial || !dataFinal) {
       return res.status(400).json({ success: false, error: 'Período obrigatório' });
@@ -1121,23 +1134,29 @@ export async function selloutRealHandler(req: Request | any, res: Response) {
       conditions.push(`s.cli_codigo = $${pc}`); params.push(Number(cliente)); pc++;
     }
 
+    const clienteNomeExpr = isGrupo
+      ? `COALESCE(NULLIF(TRIM(c.cli_redeloja), ''), c.cli_nomred, 'EXCLUÍDO')`
+      : `COALESCE(c.cli_nomred, 'EXCLUÍDO')`;
+
+    const groupByClause = isGrupo
+      ? `COALESCE(NULLIF(TRIM(c.cli_redeloja), ''), c.cli_nomred, 'EXCLUÍDO'), f.for_nomered, EXTRACT(YEAR FROM s.periodo::date), EXTRACT(MONTH FROM s.periodo::date)`
+      : `s.cli_codigo, c.cli_nomred, f.for_nomered, EXTRACT(YEAR FROM s.periodo::date), EXTRACT(MONTH FROM s.periodo::date)`;
+
     const result = await db.query(`
       SELECT
-        s.cli_codigo                             AS cliente_id,
-        COALESCE(c.cli_nomred, 'EXCLUÍDO')       AS cliente_nome,
-        f.for_nomered                            AS industria_nome,
+        ${isGrupo ? '0' : 's.cli_codigo'}        AS cliente_id,
+        ${clienteNomeExpr}                        AS cliente_nome,
+        f.for_nomered                             AS industria_nome,
         EXTRACT(YEAR  FROM s.periodo::date)::INTEGER AS ano,
         EXTRACT(MONTH FROM s.periodo::date)::INTEGER AS mes,
-        SUM(s.valor)::NUMERIC                    AS valor,
-        SUM(s.quantidade)::NUMERIC               AS quantidade
+        SUM(s.valor)::NUMERIC                     AS valor,
+        SUM(s.quantidade)::NUMERIC                AS quantidade
       FROM crm_sellout s
       LEFT JOIN clientes   c ON s.cli_codigo = c.cli_codigo
       LEFT JOIN fornecedores f ON s.for_codigo = f.for_codigo
       WHERE ${conditions.join(' AND ')}
-      GROUP BY s.cli_codigo, c.cli_nomred, f.for_nomered,
-               EXTRACT(YEAR FROM s.periodo::date),
-               EXTRACT(MONTH FROM s.periodo::date)
-      ORDER BY c.cli_nomred, ano, mes
+      GROUP BY ${groupByClause}
+      ORDER BY cliente_nome, ano, mes
     `, params);
 
     const data = result.rows.map((r: any) => ({
@@ -1250,7 +1269,7 @@ export async function curvaAbcProdutosHandler(req: Request | any, res: Response)
 export async function mapaOportunidadesHandler(req: Request | any, res: Response) {
   try {
     const db = req.db!;
-    const { industria, cliente, dataInicial, dataFinal, somenteGap } = req.query;
+    const { industria, cliente, dataInicial, dataFinal, somenteGap, uf } = req.query;
 
     if (!industria || industria === 'ALL') {
       return res.status(400).json({ success: false, error: 'Indústria obrigatória' });
@@ -1263,8 +1282,12 @@ export async function mapaOportunidadesHandler(req: Request | any, res: Response
     }
 
     const somenteGapFlag = String(somenteGap) !== 'false';
+    const ufParam = uf && String(uf).trim() ? String(uf).toUpperCase().trim() : null;
     const indId  = Number(industria);
     const cliId  = Number(cliente);
+
+    const params: any[] = [indId, dataInicial, dataFinal, cliId];
+    if (ufParam) params.push(ufParam);
 
     const result = await db.query(`
       WITH mercado AS (
@@ -1274,6 +1297,7 @@ export async function mapaOportunidadesHandler(req: Request | any, res: Response
           SUM(ip.ite_quant)::NUMERIC                                   AS qtd_m
         FROM itens_ped ip
         JOIN pedidos p ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
+        ${ufParam ? 'JOIN clientes cl_mkt ON cl_mkt.cli_codigo = p.ped_cliente AND UPPER(TRIM(cl_mkt.cli_uf)) = $5' : ''}
         WHERE p.ped_industria = $1
           AND p.ped_data BETWEEN $2::date AND $3::date
           AND p.ped_situacao IN ('P', 'F')
@@ -1298,6 +1322,7 @@ export async function mapaOportunidadesHandler(req: Request | any, res: Response
           COUNT(DISTINCT p.ped_cliente)::INTEGER                       AS pontos_venda
         FROM itens_ped ip
         JOIN pedidos p ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
+        ${ufParam ? 'JOIN clientes cl_pv ON cl_pv.cli_codigo = p.ped_cliente AND UPPER(TRIM(cl_pv.cli_uf)) = $5' : ''}
         WHERE p.ped_industria = $1
           AND p.ped_cliente  != $4
           AND p.ped_data BETWEEN $2::date AND $3::date
@@ -1355,7 +1380,7 @@ export async function mapaOportunidadesHandler(req: Request | any, res: Response
         ${somenteGapFlag ? 'AND COALESCE(m.freq_m, 0) > 0' : ''}
       ORDER BY COALESCE(m.freq_m, 0) DESC,
                (COALESCE(m.freq_m, 0) - COALESCE(c.freq_c, 0)) DESC
-    `, [indId, dataInicial, dataFinal, cliId]);
+    `, params);
 
     const data = result.rows.map((r: any) => ({
       codigo:       r.codigo,

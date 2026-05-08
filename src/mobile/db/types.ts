@@ -1,9 +1,14 @@
 export interface MobileClient {
-  cli_codigo: number;
-  cli_nomred: string;
-  cli_cidade: string;
-  cli_uf: string;
-  cli_email: string;
+  cli_codigo:  number;
+  cli_nomred:  string;
+  cli_cidade:  string;
+  cli_uf:      string;
+  cli_email:   string;
+  cli_cnpj:    string;
+  cli_fone1:   string;
+  cli_endereco?: string;
+  cli_endnum?:   string;
+  cli_bairro?:   string;
   risk: 'ativo' | 'em_queda' | 'burnout';
 }
 

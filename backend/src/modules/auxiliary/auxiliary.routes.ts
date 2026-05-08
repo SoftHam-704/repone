@@ -123,16 +123,34 @@ router.get('/grupos/:industria', async (req: any, res) => {
   }
 });
 
-// GET /api/aux/price-tables/:industria
+// GET /api/aux/price-tables/:industria?cliente=
+// Se cliente informado e tiver cli_ind.cli_tabela, retorna apenas aquela tabela.
+// Caso contrário retorna todas as tabelas da indústria.
 router.get('/price-tables/:industria', async (req: any, res) => {
   try {
     const { industria } = req.params;
-    const result = await req.db!.query(
+    const cliente = req.query.cliente ? parseInt(String(req.query.cliente)) : null;
+    const db = req.db!;
+    const indId = parseInt(String(industria));
+
+    if (cliente) {
+      const cliRes = await db.query(
+        `SELECT cli_tabela FROM cli_ind WHERE cli_codigo = $1 AND cli_forcodigo = $2 LIMIT 1`,
+        [cliente, indId]
+      );
+      if (cliRes.rows.length > 0 && cliRes.rows[0].cli_tabela?.trim()) {
+        const t = cliRes.rows[0].cli_tabela.trim();
+        res.json({ success: true, data: [{ value: t, label: t }] });
+        return;
+      }
+    }
+
+    const result = await db.query(
       `SELECT DISTINCT itab_tabela AS value, itab_tabela AS label
        FROM cad_tabelaspre
        WHERE itab_idindustria = $1
        ORDER BY itab_tabela`,
-      [parseInt(String(industria))]
+      [indId]
     );
     res.json({ success: true, data: result.rows });
   } catch {
@@ -191,31 +209,46 @@ router.get('/cnpj/:cnpj', async (req: any, res) => {
     const cnpj = req.params.cnpj.replace(/\D/g, '');
     if (cnpj.length !== 14) return res.status(400).json({ success: false, message: 'CNPJ inválido' });
 
+    // Tentativa 1: BrasilAPI
     const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
-    if (!response.ok) {
-      // fallback: ReceitaWS
-      const fallback = await fetch(`https://receitaws.com.br/v1/cnpj/${cnpj}`);
-      if (!fallback.ok) return res.status(404).json({ success: false, message: 'CNPJ não encontrado' });
-      const d: any = await fallback.json();
-      if (d.status === 'ERROR') return res.status(404).json({ success: false, message: d.message });
-      return res.json({ success: true, data: {
-        cnpj:                    cnpj,
-        razao_social:            d.nome,
-        nome_fantasia:           d.fantasia,
-        logradouro:              d.logradouro,
-        numero:                  d.numero,
-        complemento:             d.complemento,
-        bairro:                  d.bairro,
-        municipio:               d.municipio,
-        uf:                      d.uf,
-        cep:                     d.cep?.replace(/\D/g, ''),
-        email:                   d.email,
-        data_inicio_atividade:   d.abertura,
-      }});
+    if (response.ok) {
+      const d: any = await response.json();
+      return res.json({ success: true, data: d });
     }
 
-    const d: any = await response.json();
-    res.json({ success: true, data: d });
+    // Tentativa 2: ReceitaWS
+    try {
+      const fallback = await fetch(`https://receitaws.com.br/v1/cnpj/${cnpj}`, { signal: AbortSignal.timeout(8000) });
+      if (fallback.ok) {
+        const d: any = await fallback.json();
+        if (d.status !== 'ERROR') {
+          return res.json({ success: true, data: {
+            cnpj, razao_social: d.nome, nome_fantasia: d.fantasia,
+            logradouro: d.logradouro, numero: d.numero, complemento: d.complemento,
+            bairro: d.bairro, municipio: d.municipio, uf: d.uf,
+            cep: d.cep?.replace(/\D/g, ''), email: d.email, data_inicio_atividade: d.abertura,
+          }});
+        }
+      }
+    } catch { /* segue para próximo fallback */ }
+
+    // Tentativa 3: cnpj.ws (público, sem rate-limit agressivo)
+    try {
+      const fallback2 = await fetch(`https://publica.cnpj.ws/cnpj/${cnpj}`, { signal: AbortSignal.timeout(8000) });
+      if (fallback2.ok) {
+        const d: any = await fallback2.json();
+        const est = d.estabelecimento || {};
+        return res.json({ success: true, data: {
+          cnpj, razao_social: d.razao_social, nome_fantasia: d.nome_fantasia || est.nome_fantasia,
+          logradouro: est.logradouro, numero: est.numero, complemento: est.complemento,
+          bairro: est.bairro, municipio: est.cidade?.nome, uf: est.estado?.sigla,
+          cep: (est.cep || '').replace(/\D/g, ''), email: est.email,
+          data_inicio_atividade: d.data_inicio_atividade,
+        }});
+      }
+    } catch { /* segue para erro */ }
+
+    return res.status(404).json({ success: false, message: 'CNPJ não encontrado nas bases consultadas.' });
   } catch (err: any) {
     res.status(500).json({ success: false, message: err.message });
   }

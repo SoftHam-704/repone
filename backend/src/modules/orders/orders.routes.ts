@@ -6,6 +6,7 @@ import {
   listOrdersHandler,
   getOrderHandler,
   createOrderHandler,
+  createMobileOrderHandler,
   updateOrderHandler,
   deleteOrderHandler,
   softDeleteOrderHandler,
@@ -15,6 +16,8 @@ import {
   consolidateOrdersHandler,
   printDataHandler,
   statusEnvioHandler,
+  enviadoIndustriaHandler,
+  converterPedidoHandler,
   smartSuggestionsHandler,
   expandMixHandler,
   irisAnalisaHandler,
@@ -28,6 +31,10 @@ import {
   exportSampelHandler,
   exportPoloHandler,
   exportOspinaHandler,
+  exportTsaHandler,
+  exportSinalsulHandler,
+  exportPhiniaHandler,
+  exportBorgHandler,
 } from '../portal/portal.controller';
 
 const router = Router();
@@ -45,6 +52,7 @@ router.get('/consolidation-stats', consolidationStatsHandler);
 router.post('/consolidate',      consolidateOrdersHandler);
 router.post('/from-portal',      createOrderFromPortalHandler);
 
+router.post('/mobile',    createMobileOrderHandler);
 router.get('/',       listOrdersHandler);
 router.get('/:id/print-data', printDataHandler);
 router.post('/:id/export/stahl',  exportStahlHandler);
@@ -53,12 +61,18 @@ router.post('/:id/export/viemar', exportViemarHandler);
 router.get('/:id/export/sampel',  exportSampelHandler);
 router.post('/:id/export/polo',   exportPoloHandler);
 router.post('/:id/export/ospina', exportOspinaHandler);
+router.post('/:id/export/tsa',      exportTsaHandler);
+router.post('/:id/export/sinalsul', exportSinalsulHandler);
+router.post('/:id/export/phinia',   exportPhiniaHandler);
+router.post('/:id/export/borg',     exportBorgHandler);
 router.get('/:id',         getOrderHandler);
 router.post('/',           createOrderHandler);
 router.post('/:id/clone',  cloneOrderHandler);
 router.put('/:id',              updateOrderHandler);
-router.patch('/:id/situacao',     softDeleteOrderHandler);
-router.patch('/:id/status-envio', statusEnvioHandler);
+router.patch('/:id/situacao',        softDeleteOrderHandler);
+router.patch('/:id/status-envio',    statusEnvioHandler);
+router.patch('/:id/enviado',         enviadoIndustriaHandler);
+router.patch('/:id/converter-pedido', converterPedidoHandler);
 router.delete('/:id',           deleteOrderHandler);
 
 export default router;
