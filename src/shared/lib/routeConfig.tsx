@@ -58,6 +58,7 @@ const WhatsAppIAPage           = lazy(() => import('@/modules/crm/pages/WhatsApp
 const IrisVoicePage            = lazy(() => import('@/modules/nexus-ia/pages/IrisVoicePage'))
 const IrisConfigPage           = lazy(() => import('@/modules/iris/pages/IrisConfigPage'))
 const RelatoriosPage           = lazy(() => import('@/modules/relatorios/pages/RelatoriosPage'))
+const CentroAprendizadoPage    = lazy(() => import('@/modules/utilitarios/pages/CentroAprendizadoPage'))
 
 export interface RouteItem {
   id: string;
@@ -117,6 +118,7 @@ export const ROUTE_CONFIG: Record<string, RouteItem> = {
   '/utilitarios/whatsapp-ia':          { id: 'whatsapp-ia',       label: 'WhatsApp IA',          path: '/utilitarios/whatsapp-ia',           icon: MessageCircle,   element: <WhatsAppIAPage /> },
   '/nexus-ia':                         { id: 'nexus-ia',          label: 'Iris — Sua Assistente', path: '/nexus-ia',             icon: Sparkles,        element: <IrisVoicePage /> },
   '/utilitarios/iris-config':          { id: 'iris-config',       label: 'IRIS — Configuração',   path: '/utilitarios/iris-config', icon: Sparkles,      element: <IrisConfigPage /> },
+  '/utilitarios/tutoriais':            { id: 'centro-aprendizado', label: 'Centro de Aprendizado', path: '/utilitarios/tutoriais',   icon: BookOpen,      element: <CentroAprendizadoPage /> },
 };
 
 // Dynamic routes — factory + cache for unique elements per path

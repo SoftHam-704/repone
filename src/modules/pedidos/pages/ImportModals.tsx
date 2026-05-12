@@ -127,12 +127,37 @@ function buildItem(
   stOverride: number | null,
   order: OrderFull,
   seq: number,
+  usaMenorPreco = false,
 ): ItemRow {
   const hasCustomPrice = price !== null && price > 0;
-  const puni = hasCustomPrice ? price! : (product.preco_promo || product.preco_especial || product.preco_bruto || 0);
-  // Preço promoção: quando a tabela tem preco_promo OU quando veio preço importado (preço negociado = sem descontos adicionais)
-  const isTablePromo = (parseFloat(String(product.preco_promo)) || 0) > 0;
-  const isPromo = hasCustomPrice || isTablePromo;
+
+  let puni: number;
+  let isPromo: boolean;
+
+  if (hasCustomPrice) {
+    puni    = price!;
+    isPromo = true;
+  } else if (usaMenorPreco) {
+    // Política de menor preço: min(bruto c/ descontos do pedido, promo, especial)
+    let netBruto = product.preco_bruto;
+    [order.ped_pri, order.ped_seg, order.ped_ter, order.ped_qua, order.ped_qui,
+     order.ped_sex, order.ped_set, order.ped_oit, order.ped_nov]
+      .forEach(d => { netBruto = netBruto * (1 - (d || 0) / 100); });
+
+    const candidates: { net: number; raw: number; promoPath: boolean }[] = [
+      { net: netBruto, raw: product.preco_bruto, promoPath: false },
+    ];
+    if ((product.preco_promo    || 0) > 0) candidates.push({ net: product.preco_promo,    raw: product.preco_promo,    promoPath: true });
+    if ((product.preco_especial || 0) > 0) candidates.push({ net: product.preco_especial, raw: product.preco_especial, promoPath: true });
+
+    const best = candidates.reduce((a, b) => a.net <= b.net ? a : b);
+    puni    = best.raw;
+    isPromo = best.promoPath;
+  } else {
+    const isTablePromo = (parseFloat(String(product.preco_promo)) || 0) > 0;
+    puni    = product.preco_promo || product.preco_especial || product.preco_bruto || 0;
+    isPromo = isTablePromo;
+  }
 
   const des = isPromo
     ? { d1: 0, d2: 0, d3: 0, d4: 0, d5: 0, d6: 0, d7: 0, d8: 0, d9: 0 }
@@ -172,7 +197,7 @@ function buildItem(
     ite_ipi:  ipi, ite_st: st,
     ite_totbruto: totbruto, ite_totliquido: totliquido,
     ite_valcomipi: valcomipi, ite_valcomst: valcomst,
-    ite_promocao:  isTablePromo ? 'S' : (hasCustomPrice ? 'S' : 'N'),
+    ite_promocao:  isPromo ? 'S' : 'N',
   };
 }
 
@@ -261,10 +286,11 @@ const XLS_COLS = [
   { key: 'prices', label: '4. Preços (Opcional)', color: '#D97706', ph: 'Cole aqui os preços unitários negociados (opcional - substitui o preço da tabela)...', note: 'Preço especial — ignora tabela' },
 ] as const;
 
-export function XmsModal({ order, priceTableItems, orderItems, setOrderItems, onClose, onDone }: {
+export function XmsModal({ order, priceTableItems, orderItems, setOrderItems, onClose, onDone, usaMenorPreco = false }: {
   order: OrderFull; priceTableItems: CatalogItem[];
   orderItems: ItemRow[]; setOrderItems: React.Dispatch<React.SetStateAction<ItemRow[]>>;
   onClose: () => void; onDone: () => void;
+  usaMenorPreco?: boolean;
 }) {
   const [vals, setVals] = useState({ codes: '', compls: '', qtds: '', prices: '' });
   const [errors,  setErrors]  = useState<string[]>([]);
@@ -317,7 +343,7 @@ export function XmsModal({ order, priceTableItems, orderItems, setOrderItems, on
       
       const qty   = parseBrFloat(qtdLines[i]) || 1;
       const price = parseBrFloat(priceLines[i]);
-      matched.push(buildItem(product, qty, price, complLines[i] || '', null, null, order, startSeq + matched.length));
+      matched.push(buildItem(product, qty, price, complLines[i] || '', null, null, order, startSeq + matched.length, usaMenorPreco));
     }
 
     setErrors(unmatched);
@@ -457,10 +483,11 @@ export function XmsModal({ order, priceTableItems, orderItems, setOrderItems, on
 
 // ─── TXT Modal ────────────────────────────────────────────────────────────────
 
-export function TxtModal({ order, priceTableItems, orderItems, setOrderItems, onClose, onDone }: {
+export function TxtModal({ order, priceTableItems, orderItems, setOrderItems, onClose, onDone, usaMenorPreco = false }: {
   order: OrderFull; priceTableItems: CatalogItem[];
   orderItems: ItemRow[]; setOrderItems: React.Dispatch<React.SetStateAction<ItemRow[]>>;
   onClose: () => void; onDone: () => void;
+  usaMenorPreco?: boolean;
 }) {
   const [content, setContent] = useState('');
   const [errors,  setErrors]  = useState<string[]>([]);
@@ -521,7 +548,7 @@ export function TxtModal({ order, priceTableItems, orderItems, setOrderItems, on
     parsed.forEach(({ code, qty, price }) => {
       const product = matchProduct(code, priceTableItems);
       if (!product) { unmatched.push(code); return; }
-      matched.push(buildItem(product, qty, price, '', null, null, order, startSeq + matched.length));
+      matched.push(buildItem(product, qty, price, '', null, null, order, startSeq + matched.length, usaMenorPreco));
     });
 
     setErrors(unmatched);
@@ -1022,21 +1049,25 @@ export function XmlSection({ order, priceTableItems, orderItems, setOrderItems, 
 
 type AiItem = { codigo: string; quantidade: number; preco?: number; descricao?: string };
 
-export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, onClose, onDone }: {
+export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, onClose, onDone, allowDuplicate = true, usaMenorPreco = false }: {
   order: OrderFull; priceTableItems: CatalogItem[];
   orderItems: ItemRow[]; setOrderItems: React.Dispatch<React.SetStateAction<ItemRow[]>>;
   onClose: () => void; onDone: () => void;
+  allowDuplicate?: boolean;
+  usaMenorPreco?: boolean;
 }) {
-  const [dragging,  setDragging]  = useState(false);
-  const [loading,   setLoading]   = useState(false);
-  const [aiItems,   setAiItems]   = useState<AiItem[]>([]);
-  const [fileName,  setFileName]  = useState('');
-  const [editIdx,   setEditIdx]   = useState<number | null>(null);
-  const [editCode,  setEditCode]  = useState('');
-  const [editQty,   setEditQty]   = useState('');
+  const [dragging,      setDragging]      = useState(false);
+  const [loading,       setLoading]       = useState(false);
+  const [aiItems,       setAiItems]       = useState<AiItem[]>([]);
+  const [fileName,      setFileName]      = useState('');
+  const [editIdx,       setEditIdx]       = useState<number | null>(null);
+  const [editCode,      setEditCode]      = useState('');
+  const [editQty,       setEditQty]       = useState('');
+  const [instructions,  setInstructions]  = useState('');
+  const [showInstr,     setShowInstr]     = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const ACCEPTED = '.pdf,.xlsx,.xls,.jpg,.jpeg,.png,.webp';
+  const ACCEPTED = '.pdf,.xlsx,.xls,.docx,.jpg,.jpeg,.png,.webp';
 
   async function processFile(file: File) {
     setFileName(file.name);
@@ -1047,6 +1078,7 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
       const formData = new FormData();
       formData.append('file', file);
       formData.append('industria', String(order.ped_industria));
+      if (instructions.trim()) formData.append('instructions', instructions.trim());
 
       const res = await fetch('/api/smart-order/upload', {
         method: 'POST',
@@ -1099,15 +1131,43 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
   function handleConfirm() {
     if (aiItems.length === 0) { toast.error('Nenhum item para importar.'); return; }
 
+    // ── Etapa 1: dedup dentro do arquivo (independente de allowDuplicate) ──────
+    // Agrupa por código; mesma qtd em todas as linhas → descarta repetição (distração);
+    // qtds diferentes → soma tudo em 1 linha.
+    const groupMap = new Map<string, { qtds: number[]; preco?: number; descricao?: string }>();
+    for (const { codigo, quantidade, preco, descricao } of aiItems) {
+      const key = codigo.toUpperCase().trim();
+      if (!groupMap.has(key)) {
+        groupMap.set(key, { qtds: [], preco, descricao });
+      }
+      groupMap.get(key)!.qtds.push(quantidade || 1);
+    }
+
+    let ignoradosArquivo = 0;
+    const deduped: AiItem[] = [];
+    for (const [codigo, { qtds, preco, descricao }] of groupMap) {
+      const allEqual = qtds.every(q => q === qtds[0]);
+      if (allEqual && qtds.length > 1) {
+        // distração do lojista: qtd idêntica repetida → mantém 1 linha
+        ignoradosArquivo += qtds.length - 1;
+        deduped.push({ codigo, quantidade: qtds[0], preco, descricao });
+      } else {
+        // qtds diferentes → soma
+        const total = qtds.reduce((a, b) => a + b, 0);
+        deduped.push({ codigo, quantidade: total, preco, descricao });
+      }
+    }
+
+    // ── Etapa 2: match na tabela de preços ────────────────────────────────────
     const matched: ItemRow[] = [];
     const unmatched: string[] = [];
     const startSeq = orderItems.length + 1;
 
-    aiItems.forEach(({ codigo, quantidade, preco }) => {
+    deduped.forEach(({ codigo, quantidade, preco }) => {
       const product = matchProduct(codigo, priceTableItems);
       if (!product) { unmatched.push(codigo); return; }
       const price = preco && preco > 0 ? preco : null;
-      matched.push(buildItem(product, quantidade || 1, price, '', null, null, order, startSeq + matched.length));
+      matched.push(buildItem(product, quantidade, price, '', null, null, order, startSeq + matched.length, usaMenorPreco));
     });
 
     if (matched.length === 0) {
@@ -1115,18 +1175,29 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
       return;
     }
 
+    // ── Etapa 3: merge com itens já no pedido, respeitando allowDuplicate ─────
+    let somados  = 0;
+    let ignoradosPedido = 0;
+
     setOrderItems(prev => {
       const merged = [...prev];
       matched.forEach(newItem => {
         const existingIdx = merged.findIndex(it => it.ite_produto === newItem.ite_produto);
         if (existingIdx >= 0) {
-          const existing = merged[existingIdx];
+          const existing  = merged[existingIdx];
+          if (!allowDuplicate && existing.ite_quant === newItem.ite_quant) {
+            // mesma qtd já no pedido → distração, ignora
+            ignoradosPedido++;
+            return;
+          }
+          // soma (seja por allowDuplicate=true ou qtds diferentes)
           const totalQuant = existing.ite_quant + newItem.ite_quant;
-          const totbruto   = (existing.ite_puni || 0) * totalQuant;
+          const totbruto   = (existing.ite_puni   || 0) * totalQuant;
           const totliquido = (existing.ite_puniliq || 0) * totalQuant;
           const valcomipi  = totliquido * (1 + (existing.ite_ipi || 0) / 100);
           const valcomst   = valcomipi  * (1 + (existing.ite_st  || 0) / 100);
           merged[existingIdx] = { ...existing, ite_quant: totalQuant, ite_totbruto: totbruto, ite_totliquido: totliquido, ite_valcomipi: valcomipi, ite_valcomst: valcomst };
+          somados++;
         } else {
           merged.push({ ...newItem, ite_seq: merged.length + 1 });
         }
@@ -1134,11 +1205,14 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
       return merged.map((it, i) => ({ ...it, ite_seq: i + 1 }));
     });
 
-    if (unmatched.length > 0) {
-      toast.success(`${matched.length} item(s) importados. ${unmatched.length} código(s) não encontrado(s) na tabela.`);
-    } else {
-      toast.success(`${matched.length} item(s) importados via Magic Load.`);
-    }
+    // ── Toast informativo ─────────────────────────────────────────────────────
+    const importados = matched.length - somados - ignoradosPedido;
+    const partes: string[] = [`${importados + somados} importado(s)`];
+    if (somados > 0)                              partes.push(`${somados} somado(s)`);
+    if (ignoradosArquivo + ignoradosPedido > 0)   partes.push(`${ignoradosArquivo + ignoradosPedido} ignorado(s) (repetição idêntica)`);
+    if (unmatched.length > 0)                     partes.push(`${unmatched.length} não localizado(s) na tabela`);
+    toast.success(partes.join(' · '));
+
     onDone(); onClose();
   }
 
@@ -1280,6 +1354,51 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
         {/* ── Body ── */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16, position: 'relative', zIndex: 1 }}>
 
+          {/* ── IRIS Instructions ── */}
+          <div style={{ borderRadius: 12, border: `1px solid ${showInstr ? '#1E4976' : '#0F2845'}`, overflow: 'hidden', transition: 'all .2s' }}>
+            <button
+              onClick={() => setShowInstr(v => !v)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 14px', background: showInstr ? '#071830' : '#050F1C',
+                border: 'none', cursor: 'pointer', color: instructions.trim() ? '#38BDF8' : '#2E7A97',
+              }}
+            >
+              <span style={{
+                fontSize: 10, fontWeight: 900, letterSpacing: 1,
+                padding: '2px 8px', borderRadius: 5,
+                background: 'linear-gradient(90deg,#0EA5E9,#06B6D4)',
+                color: '#fff',
+              }}>IRIS</span>
+              <span style={{ fontSize: 12, fontWeight: 700, flex: 1, textAlign: 'left' }}>
+                Instruções para extração
+              </span>
+              {instructions.trim() && (
+                <span style={{ fontSize: 10, color: '#38BDF8', fontWeight: 700 }}>● ativa</span>
+              )}
+              <span style={{ fontSize: 11, color: '#2E7A97' }}>{showInstr ? '▲' : '▼'}</span>
+            </button>
+            {showInstr && (
+              <div style={{ padding: '10px 14px', background: '#050F1C', borderTop: '1px solid #0F2845' }}>
+                <p style={{ fontSize: 11, color: '#2E7A97', margin: '0 0 8px' }}>
+                  Diga à IRIS como interpretar o arquivo. Ex: <em>"O código está na coluna REF"</em> ou <em>"Ignore a primeira coluna, use a coluna 3 como código"</em>
+                </p>
+                <textarea
+                  value={instructions}
+                  onChange={e => setInstructions(e.target.value)}
+                  rows={3}
+                  placeholder="Ex: O código do produto está na coluna 'Referência'. A quantidade está na coluna 'Qtd Pedida'."
+                  style={{
+                    width: '100%', boxSizing: 'border-box', resize: 'vertical',
+                    background: '#071828', border: '1px solid #1E4976', borderRadius: 8,
+                    color: '#BAE6FD', fontSize: 12, padding: '8px 10px',
+                    outline: 'none', fontFamily: 'inherit',
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
           {/* Drop zone */}
           <div
             ref={dropRef}
@@ -1378,13 +1497,14 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
                   <p style={{ fontWeight: 900, fontSize: 15, color: '#BAE6FD', margin: '0 0 5px', letterSpacing: 0.3 }}>
                     {dragging ? '✦ Solte para processar' : 'Arraste o arquivo aqui'}
                   </p>
-                  <p style={{ fontSize: 11, color: '#2E7A97', margin: '0 0 18px' }}>PDF · Excel · JPG · PNG · WEBP</p>
+                  <p style={{ fontSize: 11, color: '#2E7A97', margin: '0 0 18px' }}>PDF · Excel · Word · JPG · PNG · WEBP</p>
 
                   {/* Format badges */}
                   <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
                     {[
-                      { label: 'PDF', color: '#EF4444' },
+                      { label: 'PDF',   color: '#EF4444' },
                       { label: 'EXCEL', color: '#22C55E' },
+                      { label: 'WORD',  color: '#2563EB' },
                       { label: 'IMAGEM', color: '#3B82F6' },
                     ].map(b => (
                       <span key={b.label} style={{

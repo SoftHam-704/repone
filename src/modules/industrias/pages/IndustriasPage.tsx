@@ -19,6 +19,7 @@ interface Industria {
   for_des7?: number; for_des8?: number; for_des9?: number; for_des10?: number;
   for_obs2?: string; for_codrep?: string; for_homepage?: string;
   for_logotipo?: string; for_min_order?: number;
+  for_usa_menor_preco?: boolean;
 }
 
 interface Contato {
@@ -774,8 +775,30 @@ function ComercialTab({ data, set }: { data: Partial<Industria>; set: (f: keyof 
   return (
     <div>
       <p style={{ fontSize: 12, color: G.textMuted, marginBottom: 10 }}>Condições comerciais, prazo mínimo, frete, bonificações e regras regionais.</p>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12,
+        padding: '10px 14px', borderRadius: 10,
+        background: data.for_usa_menor_preco ? '#FFF8DC' : G.card,
+        border: `1px solid ${data.for_usa_menor_preco ? '#E6C200' : G.border}`,
+        transition: 'all .2s',
+      }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', flex: 1 }}>
+          <input
+            type="checkbox"
+            checked={!!data.for_usa_menor_preco}
+            onChange={e => set('for_usa_menor_preco', e.target.checked)}
+            style={{ width: 15, height: 15, cursor: 'pointer', accentColor: '#D4A800' }}
+          />
+          <span style={{ fontSize: 12, fontWeight: 800, color: G.text }}>
+            Política de Menor Preço
+          </span>
+        </label>
+        <span style={{ fontSize: 11, color: G.textSec }}>
+          Usa min(Bruto c/ desc., Promoção, Especial) por item
+        </span>
+      </div>
       <textarea
-        style={{ ...inp, resize: 'none', height: 140, fontSize: 12 } as any}
+        style={{ ...inp, resize: 'none', height: 120, fontSize: 12 } as any}
         value={data.for_obs2 || ''}
         onChange={e => set('for_obs2', e.target.value)}
         placeholder="Ex: Frete CIF acima de R$ 3.000 · Pedido mínimo R$ 1.500 · Desconto por pontualidade 2%..." />

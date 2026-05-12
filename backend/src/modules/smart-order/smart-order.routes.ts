@@ -10,9 +10,9 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
   fileFilter: (_req, file, cb) => {
-    const allowed = /\.(pdf|xlsx|xls|csv|jpg|jpeg|png|webp|gif)$/i;
+    const allowed = /\.(pdf|xlsx|xls|csv|docx|jpg|jpeg|png|webp|gif)$/i;
     if (allowed.test(file.originalname)) cb(null, true);
-    else cb(new Error('Formato não suportado. Use PDF, Excel, CSV ou imagem.'));
+    else cb(new Error('Formato não suportado. Use PDF, Excel, Word, CSV ou imagem.'));
   },
 });
 

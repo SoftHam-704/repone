@@ -176,23 +176,30 @@ export async function getPricesForOrderHandler(req: Request, res: Response): Pro
   }
 }
 
-// ─── GET /api/products/:industria?tabela=&search= ────────────────────────────
+// ─── GET /api/products/:industria?tabela=&q=&limit=700&offset=0 ──────────────
 export async function getProductsWithPricesHandler(req: Request, res: Response): Promise<void> {
   try {
     const { industria } = req.params;
     const db = req.db!;
     const cleanId = cleanInd(industria);
     const tabela  = req.query.tabela ? String(req.query.tabela) : '';
-    const search  = req.query.search ? `%${String(req.query.search).toLowerCase()}%` : null;
-    if (!tabela) { res.json({ success: true, data: [] }); return; }
+    const q       = req.query.q      ? `%${String(req.query.q).toLowerCase()}%` : null;
+    const limit   = Math.min(parseInt(String(req.query.limit  || '700')) || 700, 5000);
+    const offset  = Math.max(parseInt(String(req.query.offset || '0'))   || 0,   0);
+
+    if (!tabela) { res.json({ success: true, data: [], total: 0 }); return; }
 
     const params: any[] = [cleanId, tabela];
-    const searchClause = search
-      ? ` AND (LOWER(p.pro_codprod) LIKE $3
-              OR LOWER(p.pro_nome)   LIKE $3
-              OR LOWER(COALESCE(p.pro_codigonormalizado,'')) LIKE $3)`
-      : '';
-    if (search) params.push(search);
+    let searchClause = '';
+    if (q) {
+      params.push(q);
+      searchClause = ` AND (LOWER(p.pro_codprod) LIKE $${params.length}
+              OR LOWER(p.pro_nome)   LIKE $${params.length}
+              OR LOWER(COALESCE(p.pro_codigonormalizado,'')) LIKE $${params.length})`;
+    }
+    params.push(limit, offset);
+    const pLimit  = params.length - 1;
+    const pOffset = params.length;
 
     const result = await db.query(`
       SELECT
@@ -216,16 +223,19 @@ export async function getProductsWithPricesHandler(req: Request, res: Response):
         t.itab_prepeso,
         t.itab_tabela,
         t.itab_datatabela,
-        t.itab_status
+        t.itab_status,
+        COUNT(*) OVER() AS total_count
       FROM cad_tabelaspre t
       INNER JOIN cad_prod p ON p.pro_id = t.itab_idprod
       WHERE t.itab_idindustria = $1
         AND t.itab_tabela = $2
         ${searchClause}
       ORDER BY p.pro_nome
+      LIMIT $${pLimit} OFFSET $${pOffset}
     `, params);
 
-    res.json({ success: true, data: result.rows });
+    const total = result.rows.length > 0 ? parseInt(result.rows[0].total_count) || 0 : 0;
+    res.json({ success: true, data: result.rows, total });
   } catch (error: any) {
     console.error('❌ [PRODUCTS] with-prices:', error.message);
     res.status(500).json({ success: false, message: error.message });

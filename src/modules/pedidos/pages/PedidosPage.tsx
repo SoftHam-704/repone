@@ -1114,6 +1114,10 @@ export default function PedidosPage() {
     setCtxMenu(null);
     try {
       await api.patch(`/orders/${order.ped_pedido}/converter-pedido`);
+      setSelectedOrder(prev => prev?.ped_pedido === order.ped_pedido
+        ? { ...prev, ped_situacao: 'P', ped_data: new Date().toISOString().split('T')[0] }
+        : prev
+      );
       showToast(`Cotação #${order.ped_pedido} convertida em pedido!`);
       loadOrders();
     } catch (e: any) {
@@ -1231,14 +1235,16 @@ export default function PedidosPage() {
       const ordersRes = await api.get('/orders', { params });
       let list: Order[] = ordersRes.data.pedidos || [];
 
-      // Sort
+      // Sort — ped_data primeiro; ped_numero como desempate dentro do mesmo dia
       list.sort((a, b) => {
+        const dateA = new Date(a.ped_data).getTime();
+        const dateB = new Date(b.ped_data).getTime();
         switch (sortBy) {
-          case 'date-desc': return new Date(b.ped_data).getTime() - new Date(a.ped_data).getTime();
-          case 'date-asc':  return new Date(a.ped_data).getTime() - new Date(b.ped_data).getTime();
+          case 'date-desc': return dateB !== dateA ? dateB - dateA : (b.ped_numero || 0) - (a.ped_numero || 0);
+          case 'date-asc':  return dateA !== dateB ? dateA - dateB : (a.ped_numero || 0) - (b.ped_numero || 0);
           case 'val-desc':  return (b.ped_totliq || 0) - (a.ped_totliq || 0);
           case 'val-asc':   return (a.ped_totliq || 0) - (b.ped_totliq || 0);
-          default:          return new Date(b.ped_data).getTime() - new Date(a.ped_data).getTime();
+          default:          return dateB !== dateA ? dateB - dateA : (b.ped_numero || 0) - (a.ped_numero || 0);
         }
       });
 

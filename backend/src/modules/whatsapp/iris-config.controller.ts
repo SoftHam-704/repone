@@ -41,8 +41,67 @@ export async function getIrisCartaHandler(req: Request, res: Response): Promise<
     const carta = r.rows[0]?.iris_carta ?? '';
     res.json({ success: true, data: { carta } });
   } catch (error: any) {
+    if (error.message?.includes('permission denied')) {
+      res.json({ success: true, data: { carta: '' } });
+      return;
+    }
     console.error('❌ [IRIS-CONFIG] get:', error.message);
     res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── POST /api/whatsapp/iris-carta/enhance ────────────────────────────────────
+const ENHANCE_SYSTEM = `Você é especialista em redação de instruções estratégicas para sistemas de IA usados por equipes de vendas e representantes comerciais.
+
+Sua tarefa é aprimorar as instruções que o administrador escreveu para o assistente de IA IRIS.
+
+Regras:
+- Preserve TODAS as informações e intenções originais — não invente dados, não remova nenhum ponto
+- Organize em seções claras com bullets (•) onde aplicável
+- Use linguagem direta, objetiva, sem ambiguidades — facilite a interpretação da IA
+- Mantenha o tom profissional e confidencial
+- Elimine repetições, melhore clareza e estrutura
+- Mantenha em português brasileiro
+- Retorne APENAS as instruções aprimoradas, sem introduções ou comentários adicionais
+- Não invente exemplos ou informações ausentes no original`;
+
+export async function enhanceIrisCartaHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db     = req.db!;
+    const userId = req.user?.userId!;
+    const { carta } = req.body as { carta: string };
+
+    const isMaster = await requireMaster(db, userId);
+    if (!isMaster) {
+      res.status(403).json({ success: false, message: 'Acesso restrito ao administrador master.' });
+      return;
+    }
+
+    if (!carta?.trim()) {
+      res.status(400).json({ success: false, message: 'Nenhum texto para aprimorar.' });
+      return;
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      res.status(500).json({ success: false, message: 'ANTHROPIC_API_KEY não configurada no servidor.' });
+      return;
+    }
+
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    const client = new Anthropic({ apiKey });
+    const message = await client.messages.create({
+      model: 'claude-opus-4-7',
+      max_tokens: 4096,
+      system: ENHANCE_SYSTEM,
+      messages: [{ role: 'user', content: `Aprimore as seguintes instruções:\n\n${carta}` }],
+    });
+
+    const enhanced = (message.content[0] as any)?.text?.trim() || carta;
+    res.json({ success: true, data: { carta: enhanced } });
+  } catch (error: any) {
+    console.error('❌ [IRIS-CONFIG] enhance:', error.message);
+    res.status(500).json({ success: false, message: 'Erro ao aprimorar instruções.' });
   }
 }
 

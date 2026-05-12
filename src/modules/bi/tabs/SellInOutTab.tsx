@@ -95,11 +95,13 @@ const RankingChart = ({ title, data, color }: { title: string; data: RankingItem
       ...ECHARTS_THEME.tooltip,
       formatter: (p: any) => `<b>${p.name}</b><br/>R$ ${fmtBRL(p.value)}`,
     },
-    grid: { left: 8, right: 16, top: 8, bottom: 8, containLabel: true },
+    grid: { left: 8, right: 8, top: 8, bottom: 0, containLabel: true },
     xAxis: {
       type: 'value',
-      axisLabel: { ...ECHARTS_THEME.axisLabel, formatter: (v: number) => fmtBRL(v) },
-      splitLine: ECHARTS_THEME.splitLine,
+      axisLabel: { show: false },
+      splitLine: { show: false },
+      axisLine: { show: false },
+      axisTick: { show: false },
     },
     yAxis: {
       type: 'category',
@@ -109,6 +111,16 @@ const RankingChart = ({ title, data, color }: { title: string; data: RankingItem
     series: [{
       type: 'bar',
       data: [...data].reverse().map(d => d.valor),
+      label: {
+        show: true,
+        position: 'insideRight',
+        formatter: (p: any) => `R$ ${fmtBRL(p.value)}`,
+        color: '#fff',
+        fontWeight: 700,
+        fontSize: 10,
+        textShadowColor: 'rgba(0,0,0,0.4)',
+        textShadowBlur: 4,
+      },
       itemStyle: {
         borderRadius: [0, 6, 6, 0],
         color: {
@@ -446,7 +458,7 @@ const SellInOutTab = () => {
       </div>
 
       {/* ── Cruzamento ─────────────────────────────────────────────────────── */}
-      <div className="glass-card rounded-2xl p-5">
+      <div className="glass-card rounded-2xl p-5" style={{ background: '#100C2A' }}>
         <SL label="Cruzamento Sell In × Sell Out por Cliente / Grupo" />
         <CruzamentoTable rows={cruzRows} />
         {cruzRows.length > 0 && (

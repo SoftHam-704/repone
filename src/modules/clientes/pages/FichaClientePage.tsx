@@ -327,6 +327,8 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
       }
       setContactModal({ open: false, editing: emptyContato });
       loadContacts();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Erro ao salvar contato.');
     } finally {
       setSavingContact(false);
     }
@@ -370,6 +372,8 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
       await api.post(`/clients/${id}/industries`, indModal.editing);
       setIndModal({ open: false, editing: emptyCliInd });
       loadIndustries();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Erro ao salvar indústria.');
     } finally {
       setSavingInd(false);
     }
@@ -407,6 +411,8 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
       await api.post(`/clients/${id}/discounts`, d);
       setDiscModal({ open: false, editing: emptyDescpro });
       loadDiscounts();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Erro ao salvar desconto.');
     } finally {
       setSavingDisc(false);
     }
@@ -955,24 +961,43 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
                       </Field>
                     </div>
 
-                    {/* Mapa placeholder */}
-                    <div style={{
-                      background: G.card, border: `1px solid ${G.border}`,
-                      borderRadius: 10, height: 140,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      flexDirection: 'column', gap: 6, marginBottom: 12,
-                      position: 'relative',
-                    }}>
-                      <MapPin size={24} style={{ color: G.border }} />
-                      <span style={{ fontSize: 11, color: G.textMuted, fontWeight: 600 }}>
-                        {data.cli_latitude && data.cli_longitude ? 'COORDENADAS DISPONÍVEIS' : 'COORDENADAS AUSENTES'}
-                      </span>
-                      <span style={{
-                        position: 'absolute', bottom: 8, right: 8,
-                        fontSize: 10, fontWeight: 800, color: '#fff',
-                        background: G.success, padding: '3px 8px', borderRadius: 5,
-                      }}>LIVE MAP</span>
-                    </div>
+                    {/* Mapa */}
+                    {(() => {
+                      const lat = parseFloat(data.cli_latitude);
+                      const lng = parseFloat(data.cli_longitude);
+                      const hasCoords = !isNaN(lat) && !isNaN(lng) && data.cli_latitude && data.cli_longitude;
+                      return hasCoords ? (
+                        <div style={{ position: 'relative', marginBottom: 12, borderRadius: 10, overflow: 'hidden', height: 140, border: `1px solid ${G.border}` }}>
+                          <iframe
+                            title="mapa-cliente"
+                            src={`https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.005},${lat - 0.005},${lng + 0.005},${lat + 0.005}&layer=mapnik&marker=${lat},${lng}`}
+                            style={{ width: '100%', height: '100%', border: 0, display: 'block' }}
+                            loading="lazy"
+                          />
+                          <a
+                            href={`https://www.google.com/maps?q=${lat},${lng}`}
+                            target="_blank" rel="noreferrer"
+                            style={{
+                              position: 'absolute', bottom: 8, right: 8,
+                              fontSize: 10, fontWeight: 800, color: '#fff',
+                              background: G.success, padding: '3px 8px', borderRadius: 5,
+                              textDecoration: 'none',
+                            }}
+                          >LIVE MAP</a>
+                        </div>
+                      ) : (
+                        <div style={{
+                          background: G.card, border: `1px solid ${G.border}`,
+                          borderRadius: 10, height: 140,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          flexDirection: 'column', gap: 6, marginBottom: 12,
+                          position: 'relative',
+                        }}>
+                          <MapPin size={24} style={{ color: G.border }} />
+                          <span style={{ fontSize: 11, color: G.textMuted, fontWeight: 600 }}>COORDENADAS AUSENTES</span>
+                        </div>
+                      );
+                    })()}
 
                     <Field label="WHATSAPP BUSINESS">
                       <div style={{ position: 'relative' }}>

@@ -916,18 +916,21 @@ router.get('/faturamento/periodo', async (req: any, res: Response) => {
     const [dataResult, empresaResult] = await Promise.all([
       db.query(`
         SELECT
-          f.for_nomered                                           AS industria_nome,
-          c.cli_nomred                                           AS cliente,
-          TRIM(p.ped_pedido)                                     AS ped_pedido,
+          f.for_nomered                                                              AS industria_nome,
+          c.cli_nomred                                                               AS cliente,
+          TRIM(p.ped_pedido)                                                         AS ped_pedido,
           fp.fat_datafat,
           fp.fat_nf,
-          ROUND(fp.fat_valorfat::NUMERIC, 2)                    AS fat_valorfat,
-          ROUND(COALESCE(f.for_percom, 0)::NUMERIC, 2)         AS percent_rep,
-          ROUND((fp.fat_valorfat * COALESCE(f.for_percom, 0) / 100)::NUMERIC, 2) AS comissao_rep
+          ROUND(fp.fat_valorfat::NUMERIC, 2)                                        AS fat_valorfat,
+          ROUND(COALESCE(fp.fat_percent, f.for_percom, 0)::NUMERIC, 2)             AS percent_rep,
+          ROUND((fp.fat_valorfat * COALESCE(fp.fat_percent, f.for_percom, 0) / 100)::NUMERIC, 2) AS comissao_rep,
+          ROUND(COALESCE(vi.vin_percom, 0)::NUMERIC, 2)                            AS percent_preposto,
+          ROUND((fp.fat_valorfat * COALESCE(vi.vin_percom, 0) / 100)::NUMERIC, 2) AS comissao_preposto
         FROM fatura_ped   fp
         JOIN pedidos      p  ON TRIM(p.ped_pedido) = TRIM(fp.fat_pedido)
         JOIN clientes     c  ON c.cli_codigo        = p.ped_cliente
         JOIN fornecedores f  ON f.for_codigo        = fp.fat_industria
+        LEFT JOIN vendedor_ind vi ON vi.vin_codigo = p.ped_vendedor AND vi.vin_industria = fp.fat_industria
         WHERE ${conditions.join(' AND ')}
         ORDER BY f.for_nomered, fp.fat_datafat, c.cli_nomred
       `, params),
@@ -938,9 +941,11 @@ router.get('/faturamento/periodo', async (req: any, res: Response) => {
       success: true,
       data: dataResult.rows.map((r: any) => ({
         ...r,
-        fat_valorfat: parseFloat(r.fat_valorfat) || 0,
-        percent_rep:  parseFloat(r.percent_rep)  || 0,
-        comissao_rep: parseFloat(r.comissao_rep) || 0,
+        fat_valorfat:       parseFloat(r.fat_valorfat)       || 0,
+        percent_rep:        parseFloat(r.percent_rep)        || 0,
+        comissao_rep:       parseFloat(r.comissao_rep)       || 0,
+        percent_preposto:   parseFloat(r.percent_preposto)   || 0,
+        comissao_preposto:  parseFloat(r.comissao_preposto)  || 0,
       })),
       empresa: empresaResult.rows[0] ?? null,
     });

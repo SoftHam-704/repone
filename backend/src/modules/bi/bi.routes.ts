@@ -48,6 +48,8 @@ import {
   sellInOutKpisHandler,
   sellInOutRankingHandler,
   sellInOutCruzamentoHandler,
+  // Narrative IA
+  narrativeHandler,
 } from './bi.controller';
 
 const router = Router();
@@ -112,5 +114,8 @@ router.get('/top-skus',            topSkusHandler);
 router.get('/sell-in-out/kpis',       sellInOutKpisHandler);
 router.get('/sell-in-out/ranking',     sellInOutRankingHandler);
 router.get('/sell-in-out/cruzamento',  sellInOutCruzamentoHandler);
+
+// IRIS Narrative (IA)
+router.post('/narrative', narrativeHandler);
 
 export default router;

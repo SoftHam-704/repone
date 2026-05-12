@@ -9,7 +9,7 @@ import { MainLayout } from '@/shared/components/layout/MainLayout'
 const BIPage = lazy(() => import('@/modules/bi/pages/BIPage'))
 const MobileApp = lazy(() => import('@/mobile/MobileApp'))
 
-const isMobileDevice = () => window.innerWidth < 768 || navigator.maxTouchPoints > 0
+const isMobileDevice = () => window.innerWidth < 768
 
 // Rota raiz: mobile vai para /mobile, desktop vai para /dashboard
 const RootRedirect = () => <Navigate to={isMobileDevice() ? '/mobile' : '/dashboard'} replace />
@@ -45,6 +45,7 @@ function App() {
           <Route path="/produtos" element={null} />
           <Route path="/utilitarios/importacao-precos" element={null} />
           <Route path="/utilitarios/catalogo-produtos" element={null} />
+          <Route path="/utilitarios/tutoriais" element={null} />
           <Route path="/utilitarios/usuarios" element={null} />
           <Route path="/cadastros/tabelas-precos" element={null} />
           <Route path="/pedidos" element={null} />

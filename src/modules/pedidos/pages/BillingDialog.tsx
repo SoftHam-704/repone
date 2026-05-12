@@ -112,6 +112,7 @@ function LancamentoForm({
     const initValor = lancamento?.fat_valorfat
         ? applyMoneyMask(String(Math.round(lancamento.fat_valorfat * 100)))
         : '';
+    // fat_percent = comissão do ESCRITÓRIO (for_percom). Sempre usa essa como base do lançamento.
     const initPercent = (lancamento?.fat_percent ?? rates?.escritorio ?? 0)
         ? applyPercentMask(String(Math.round((lancamento?.fat_percent ?? rates?.escritorio ?? 0) * 100)))
         : '';
@@ -122,7 +123,6 @@ function LancamentoForm({
         fat_valorfat_mask: initValor,
         fat_percent_mask: initPercent,
         fat_obs: lancamento?.fat_obs || '',
-        fat_percomissind: lancamento?.fat_percomissind || 'E',
     });
 
     const [itemQtds, setItemQtds] = useState<Record<string, string>>(() => {
@@ -140,13 +140,8 @@ function LancamentoForm({
 
     const valorReal = parseMoney(form.fat_valorfat_mask);
     const percentReal = parsePercent(form.fat_percent_mask);
-    const comissao = parseFloat((valorReal * percentReal / 100).toFixed(2));
-
-    const handlePercommChange = (type: string) => {
-        const newPercent = type === 'E' ? (rates?.escritorio || 0) : (rates?.vendedor || 0);
-        const newMask = applyPercentMask(String(Math.round(newPercent * 100)));
-        setForm(f => ({ ...f, fat_percomissind: type, fat_percent_mask: newMask }));
-    };
+    const comissaoEscritorio = parseFloat((valorReal * percentReal / 100).toFixed(2));
+    const comissaoPreposto   = parseFloat((valorReal * (rates?.vendedor ?? 0) / 100).toFixed(2));
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -166,8 +161,8 @@ function LancamentoForm({
                 fat_valorfat: valorReal,
                 fat_nf: form.fat_nf.trim(),
                 fat_obs: form.fat_obs,
-                fat_percent: percentReal,
-                fat_percomissind: form.fat_percomissind,
+                fat_percent: percentReal,        // comissão do escritório (for_percom)
+                fat_percomissind: 'E',           // sempre escritório — preposto deriva de vendedor_ind
                 items,
                 ...(lancamento && {
                     items_old: lancamento._items || [],
@@ -240,28 +235,12 @@ function LancamentoForm({
 
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">COMISSÃO</p>
-                <div className="flex gap-2">
-                    {[
-                        { key: 'E', label: `Escritório (${rates?.escritorio ?? 0}%)` },
-                        { key: 'V', label: `Vendedor (${rates?.vendedor ?? 0}%)` }
-                    ].map(opt => (
-                        <button
-                            key={opt.key}
-                            type="button"
-                            onClick={() => handlePercommChange(opt.key)}
-                            className={`flex-1 py-1.5 px-3 rounded-lg text-[11px] font-black uppercase tracking-wider border transition-all ${
-                                form.fat_percomissind === opt.key
-                                    ? 'bg-teal-600 text-white border-teal-600 shadow'
-                                    : 'bg-white text-slate-500 border-slate-200 hover:border-teal-300'
-                            }`}
-                        >
-                            {opt.label}
-                        </button>
-                    ))}
-                </div>
                 <div className="grid grid-cols-2 gap-3">
-                    <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Percentual (%)</label>
+                    {/* Comissão do Escritório */}
+                    <div className="space-y-1">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            Escritório — % ({rates?.escritorio ?? 0}%)
+                        </label>
                         <div className="relative">
                             <input
                                 type="text"
@@ -273,11 +252,25 @@ function LancamentoForm({
                             />
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">%</span>
                         </div>
+                        <div className="px-3 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 font-black text-sm text-center">
+                            {formatCurrency(comissaoEscritorio)}
+                        </div>
                     </div>
-                    <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Comissão Calculada</label>
-                        <div className="px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 font-black text-sm">
-                            {formatCurrency(comissao)}
+                    {/* Comissão do Preposto — derivada de vendedor_ind */}
+                    <div className="space-y-1">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            Preposto — % ({rates?.vendedor ?? 0}%)
+                        </label>
+                        <div className="px-3 py-2 rounded-xl border border-slate-200 bg-slate-100 text-slate-500 font-bold text-sm flex items-center justify-center h-[38px]">
+                            {rates?.vendedor ?? 0}%
+                            <span className="text-[9px] ml-1 font-normal text-slate-400">(vendedor_ind)</span>
+                        </div>
+                        <div className={`px-3 py-1.5 rounded-xl border font-black text-sm text-center ${
+                            (rates?.vendedor ?? 0) > 0
+                                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                                : 'border-slate-200 bg-slate-100 text-slate-400'
+                        }`}>
+                            {(rates?.vendedor ?? 0) > 0 ? formatCurrency(comissaoPreposto) : 'Sem vínculo'}
                         </div>
                     </div>
                 </div>

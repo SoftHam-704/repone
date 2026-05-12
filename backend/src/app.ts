@@ -55,6 +55,7 @@ import emailCentralRoutes from './modules/email-central/email-central.routes';
 import estatisticasRoutes from './modules/estatisticas/estatisticas.routes';
 import reportsRoutes      from './modules/reports/reports.routes';
 import adminRoutes        from './modules/admin/admin.routes';
+import trainingRoutes     from './modules/training/training.routes';
 
 app.use('/api/auth',      authRoutes);
 app.use('/api/aux',       auxiliaryRoutes);
@@ -95,6 +96,7 @@ app.use('/api/email-central',  emailCentralRoutes);
 app.use('/api/estatisticas',   estatisticasRoutes);
 app.use('/api/reports',        reportsRoutes);
 app.use('/api/admin',          adminRoutes);
+app.use('/api/training',       trainingRoutes);
 // Webhook público — sem prefixo /api (Evolution API chama /webhook/evolution)
 app.use('/webhook',            webhookRouter);
 
@@ -157,18 +159,14 @@ app.get('/health', (_req, res) => {
 });
 
 // ========================
-// Static frontend (production only)
+// Static frontend (serve se a pasta existir)
 // ========================
-if (env.NODE_ENV === 'production') {
-  // __dirname em prod = /home/jelastic/ROOT/v2/backend/dist
-  // frontend fica em   /home/jelastic/ROOT/v2/frontend
-  const frontendPath = path.resolve(__dirname, '../../../frontend');
-  if (fs.existsSync(frontendPath)) {
-    app.use(express.static(frontendPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(frontendPath, 'index.html'));
-    });
-  }
+const frontendPath = path.resolve(__dirname, '../../../frontend');
+if (fs.existsSync(frontendPath)) {
+  app.use(express.static(frontendPath));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(frontendPath, 'index.html'));
+  });
 }
 
 // ========================

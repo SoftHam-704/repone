@@ -104,11 +104,12 @@ export async function getOrderHandler(req: Request, res: Response): Promise<void
 
     const sellerId = await getLinkedSellerId(db, userId);
     const params: any[] = [finalPedido];
-    const { filterClause } = buildIndustryFilterClause(sellerId, 'p.ped_industria');
+    const { filterClause } = buildIndustryFilterClause(sellerId, 'p.ped_industria', params);
 
     let orderQuery = `
       SELECT p.*, c.cli_nome AS ped_clientenome, c.cli_nomred,
              f.for_nomered AS ped_industrianome, f.for_email,
+             f.for_usa_menor_preco,
              v.ven_nome AS ped_vendedornome
       FROM pedidos p
       LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo
@@ -338,6 +339,13 @@ export async function updateOrderHandler(req: Request, res: Response): Promise<v
     const data = req.body;
     const db = req.db!;
 
+    // Sanitiza campos varchar(1) — 'CC' é display do frontend para o valor real 'A'
+    const sit1 = (v: any, fallback = '') => {
+      const s = String(v ?? fallback);
+      if (s === 'CC') return 'A';
+      return s.substring(0, 1) || fallback;
+    };
+
     await db.query(`
       UPDATE pedidos SET
         ped_data=$1, ped_situacao=$2, ped_cliente=$3, ped_transp=$4,
@@ -350,9 +358,9 @@ export async function updateOrderHandler(req: Request, res: Response): Promise<v
         ped_pedcli=$27, ped_pedindustria=$28
       WHERE TRIM(ped_pedido)=TRIM($29)
     `, [
-      data.ped_data, data.ped_situacao, data.ped_cliente, data.ped_transp || 0,
+      data.ped_data, sit1(data.ped_situacao, 'P'), data.ped_cliente, data.ped_transp || 0,
       data.ped_vendedor, data.ped_condpag || '', data.ped_comprador || '',
-      data.ped_tipofrete || 'C', data.ped_tabela, data.ped_cliind || '',
+      sit1(data.ped_tipofrete, 'C'), data.ped_tabela, data.ped_cliind || '',
       data.ped_pri || 0, data.ped_seg || 0, data.ped_ter || 0, data.ped_qua || 0, data.ped_qui || 0,
       data.ped_sex || 0, data.ped_set || 0, data.ped_oit || 0, data.ped_nov || 0,
       data.ped_totbruto || 0, data.ped_totliq || 0, data.ped_totalipi || 0, data.ped_obs || '',

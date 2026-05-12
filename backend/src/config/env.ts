@@ -24,6 +24,7 @@ const envSchema = z.object({
   // IA Providers
   GEMINI_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
   AI_PROVIDER_ORDER: z.string().default('openai,gemini,claude'),
 
   // Evolution API

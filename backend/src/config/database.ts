@@ -168,7 +168,7 @@ export function createTenantDB(schema: string, tenantPool?: Pool): TenantDB {
     query: async (text: string, params: any[] = []) => {
       const client = await targetPool.connect();
       try {
-        await client.query(`SET search_path TO "${schema}"`);
+        await client.query(`SET search_path TO "${schema}", public`);
         return await client.query(text, params);
       } finally {
         await client.query('RESET search_path').catch(() => {});
@@ -178,7 +178,7 @@ export function createTenantDB(schema: string, tenantPool?: Pool): TenantDB {
     transaction: async <T>(fn: (client: import('pg').PoolClient) => Promise<T>): Promise<T> => {
       const client = await targetPool.connect();
       try {
-        await client.query(`SET search_path TO "${schema}"`);
+        await client.query(`SET search_path TO "${schema}", public`);
         await client.query('BEGIN');
         const result = await fn(client);
         await client.query('COMMIT');

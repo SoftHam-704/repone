@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { TrendingUp, TrendingDown, Minus, Calendar } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Calendar, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 
@@ -105,6 +106,53 @@ export default function Mapa3Anos(_: Props) {
     ? n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
     : n.toLocaleString('pt-BR');
 
+  const exportExcel = useCallback(() => {
+    const indNome = industrias.find(i => String(i.id) === industria)?.nome ?? industria;
+    const cliNome = cliente === 'ALL' ? 'Todos os Clientes' : (clientes.find(c => String(c.id) === cliente)?.nome ?? cliente);
+    const label   = categoria === 'mes' ? 'Mês' : 'Código';
+    const modoLabel = modo === 'valor' ? 'Valor (R$)' : 'Quantidade';
+
+    const header = [label];
+    for (const ano of anos) {
+      header.push(`${ano} ${modoLabel}`, `${ano} % vs ${anos[anos.indexOf(ano) + 1] ?? '—'}`);
+    }
+    header.push(`Δ ${anos[0]}/${anos[1]}`);
+
+    const deltaPct = (curr: number, prev: number) => {
+      if (prev === 0 && curr === 0) return '';
+      if (prev === 0) return 'novo';
+      return `${((curr - prev) / prev * 100).toFixed(1)}%`;
+    };
+
+    const dataRows = pivotRows.map(row => {
+      const cells: (string | number)[] = [categoria === 'mes' ? mesLabel(row.chave) : row.chave];
+      anos.forEach((_, i) => {
+        cells.push(row.v[i]);
+        cells.push(deltaPct(row.v[i], row.v[i + 1] ?? 0));
+      });
+      cells.push(deltaPct(row.v[0], row.v[1]));
+      return cells;
+    });
+
+    const totalRow: (string | number)[] = ['TOTAL'];
+    anos.forEach((_, i) => {
+      totalRow.push(totais[i]);
+      totalRow.push(deltaPct(totais[i], totais[i + 1] ?? 0));
+    });
+    totalRow.push(deltaPct(totais[0], totais[1]));
+
+    const ws = XLSX.utils.aoa_to_sheet([
+      [`Mapa 3 Anos — ${indNome} | ${cliNome} | ${modo === 'valor' ? 'Valor' : 'Quantidade'}`],
+      [],
+      header,
+      ...dataRows,
+      totalRow,
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Mapa 3 Anos');
+    XLSX.writeFile(wb, `mapa3anos_${indNome}_${anos[0]}.xlsx`);
+  }, [pivotRows, totais, anos, industria, industrias, cliente, clientes, modo, categoria]);
+
   const anosDisponiveis = Array.from({ length: 6 }, (_, i) => anoAtual - i);
 
   // Year header colors — newest = bright, older = muted
@@ -172,15 +220,25 @@ export default function Mapa3Anos(_: Props) {
           </div>
         </div>
 
-        <button onClick={load} disabled={!industria || loading} style={{
-          padding: '7px 20px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-          background: industria ? G.mustard : G.border,
-          color: industria ? G.text : G.textMuted,
-          border: 'none', cursor: industria ? 'pointer' : 'not-allowed',
-          marginLeft: 'auto', alignSelf: 'flex-end',
-        }}>
-          {loading ? 'Carregando...' : 'Buscar'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', alignSelf: 'flex-end' }}>
+          {pivotRows.length > 0 && (
+            <button onClick={exportExcel} title="Exportar para Excel" style={{
+              padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+              background: '#16A34A', color: '#fff',
+              border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <Download size={14} /> Excel
+            </button>
+          )}
+          <button onClick={load} disabled={!industria || loading} style={{
+            padding: '7px 20px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+            background: industria ? G.mustard : G.border,
+            color: industria ? G.text : G.textMuted,
+            border: 'none', cursor: industria ? 'pointer' : 'not-allowed',
+          }}>
+            {loading ? 'Carregando...' : 'Buscar'}
+          </button>
+        </div>
       </div>
 
       {/* Empty */}

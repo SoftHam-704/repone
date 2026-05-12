@@ -68,6 +68,7 @@ interface OrderFull {
   cli_uf?: string;
   cli_suframa?: string | null;
   for_nomered: string;
+  for_usa_menor_preco?: boolean;
   ven_nome: string;
   items: OrderItem[];
 }
@@ -810,7 +811,7 @@ function PrincipalSection({
             ) : (
               <select
                 value={currentSituacao}
-                onChange={e => onChangeField('ped_situacao', e.target.value)}
+                onChange={e => onChangeField('ped_situacao', e.target.value === 'CC' ? 'A' : e.target.value)}
                 style={{ ...einp, cursor: 'pointer' }}
               >
                 <option value="P">Pedido</option>
@@ -1892,6 +1893,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
           order={fullOrder as any}
           mode={mode}
           hasSuframa={!!fullOrder.cli_suframa}
+          usaMenorPreco={!!fullOrder.for_usa_menor_preco}
           priceTableItems={priceTableItems}
           userParams={userParams ? {
             usaDecimais: userParams.usaDecimais,
@@ -2277,6 +2279,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
         orderItems={orderItems} setOrderItems={setOrderItems}
         onClose={() => setShowXms(false)}
         onDone={() => requireSaved(() => { setPendingGroupDisc(true); setActiveSection('conferencia'); })}
+        usaMenorPreco={!!fullOrder.for_usa_menor_preco}
       />
     )}
     {showTxt && fullOrder && (
@@ -2285,6 +2288,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
         orderItems={orderItems} setOrderItems={setOrderItems}
         onClose={() => setShowTxt(false)}
         onDone={() => requireSaved(() => { setPendingGroupDisc(true); setActiveSection('conferencia'); })}
+        usaMenorPreco={!!fullOrder.for_usa_menor_preco}
       />
     )}
     {showMagic && fullOrder && (
@@ -2293,6 +2297,8 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
         orderItems={orderItems} setOrderItems={setOrderItems}
         onClose={() => setShowMagic(false)}
         onDone={() => requireSaved(() => { setPendingGroupDisc(true); setActiveSection('conferencia'); })}
+        allowDuplicate={userParams?.itemDuplicado ?? true}
+        usaMenorPreco={!!fullOrder.for_usa_menor_preco}
       />
     )}
     </>

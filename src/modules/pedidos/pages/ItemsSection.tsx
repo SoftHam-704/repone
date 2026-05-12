@@ -78,7 +78,8 @@ interface Props {
   orderItems: ItemRow[];
   setOrderItems: React.Dispatch<React.SetStateAction<ItemRow[]>>;
   onFinalizar: () => void;
-  hasSuframa?: boolean;   // cliente isento de IPI e ST (SUFRAMA)
+  hasSuframa?: boolean;
+  usaMenorPreco?: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -186,7 +187,7 @@ function DiscountBadge({ source }: { source?: 'CLIENT_GROUP' | 'TABLE_GROUP' | '
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ItemsSection({ order, mode, priceTableItems, userParams, orderItems, setOrderItems, onFinalizar, hasSuframa = false }: Props) {
+export function ItemsSection({ order, mode, priceTableItems, userParams, orderItems, setOrderItems, onFinalizar, hasSuframa = false, usaMenorPreco = false }: Props) {
   const isView        = mode === 'view';
   const qtdEnter      = userParams?.qtdEnter      ?? 2;
   const usaDecimais   = userParams?.usaDecimais   ?? true;
@@ -364,13 +365,36 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
   function handleSelectProduct(product: CatalogItem) {
     const discs = resolveDiscounts(product);
 
-    // Price resolution: promo > especial > peso > bruto
-    let puni = product.preco_bruto;
-    if (product.preco_peso > 0 && product.pro_peso > 0) {
-      puni = product.preco_peso;
+    let puni: number;
+
+    if (usaMenorPreco) {
+      // Política de menor preço: compara bruto líquido (com descontos), promo e especial
+      let netBruto = product.preco_bruto;
+      [discs.des1, discs.des2, discs.des3, discs.des4, discs.des5,
+       discs.des6, discs.des7, discs.des8, discs.des9]
+        .forEach(d => { netBruto = netBruto * (1 - d / 100); });
+
+      const candidates: { net: number; raw: number; isPromo: boolean }[] = [
+        { net: netBruto, raw: product.preco_bruto, isPromo: false },
+      ];
+      if ((product.preco_promo    || 0) > 0) candidates.push({ net: product.preco_promo,    raw: product.preco_promo,    isPromo: true });
+      if ((product.preco_especial || 0) > 0) candidates.push({ net: product.preco_especial, raw: product.preco_especial, isPromo: true });
+
+      const best = candidates.reduce((a, b) => a.net <= b.net ? a : b);
+      puni = best.raw;
+
+      if (best.isPromo) {
+        // Min é promo/especial → zera descontos (preço já é o final)
+        discs.des1 = discs.des2 = discs.des3 = discs.des4 = discs.des5 = 0;
+        discs.des6 = discs.des7 = discs.des8 = discs.des9 = 0;
+      }
+    } else {
+      // Padrão: promo > especial > peso > bruto
+      puni = product.preco_bruto;
+      if (product.preco_peso > 0 && product.pro_peso > 0) puni = product.preco_peso;
+      if (product.preco_especial > 0) puni = product.preco_especial;
+      if (product.preco_promo > 0) puni = product.preco_promo;
     }
-    if (product.preco_especial > 0) puni = product.preco_especial;
-    if (product.preco_promo > 0) puni = product.preco_promo;
 
     const mult = product.pro_embalagem > 0 ? product.pro_embalagem : 1;
     const quantNum = mult;
@@ -500,13 +524,9 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
     }
 
     // Check duplicate
-    if (!form.editingTempId) {
+    if (!form.editingTempId && !itemDuplicado) {
       const dup = orderItems.find(it => it.ite_produto === form.produto.toUpperCase());
       if (dup) {
-        if (!itemDuplicado) {
-          toast.error('Item duplicado não permitido. Altere a quantidade do item já lançado.');
-          return;
-        }
         setDupDialog({ item: dup, newQuant: quant });
         return;
       }

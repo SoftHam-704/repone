@@ -627,7 +627,7 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
       const where = conditions.join(' AND ');
       const query = modoUlt
         ? `SELECT DISTINCT ON (${cliExpr}, f.for_nomered) ${cliExpr} AS cliente, COALESCE(cid.cid_uf, c.cli_uf, '') AS estado, f.for_nomered AS industria, COALESCE(v.ven_nome, '—') AS vendedor_nome, p.ped_totliq::NUMERIC AS valor, (SELECT SUM(ip2.ite_quant) FROM itens_ped ip2 WHERE TRIM(ip2.ite_pedido) = TRIM(p.ped_pedido))::NUMERIC AS qtd, p.ped_data AS data_ultima, (CURRENT_DATE - p.ped_data::date)::INTEGER AS dias FROM pedidos p LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo WHERE ${where} ORDER BY ${cliExpr}, f.for_nomered, p.ped_data DESC`
-        : `SELECT ${cliExpr} AS cliente, MAX(COALESCE(cid.cid_uf, c.cli_uf, '')) AS estado, f.for_nomered AS industria, MAX(COALESCE(v.ven_nome, '—')) AS vendedor_nome, SUM(p.ped_totliq)::NUMERIC AS valor, SUM(ip.ite_quant)::NUMERIC AS qtd, MAX(p.ped_data) AS data_ultima, (CURRENT_DATE - MAX(p.ped_data)::date)::INTEGER AS dias FROM pedidos p JOIN itens_ped ip ON TRIM(p.ped_pedido) = TRIM(ip.ite_pedido) LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo WHERE ${where} GROUP BY ${cliExpr}, f.for_nomered`;
+        : `SELECT ${cliExpr} AS cliente, MAX(COALESCE(cid.cid_uf, c.cli_uf, '')) AS estado, f.for_nomered AS industria, MAX(COALESCE(v.ven_nome, '—')) AS vendedor_nome, SUM(p.ped_totliq)::NUMERIC AS valor, COALESCE(SUM(iq.qtd), 0)::NUMERIC AS qtd, MAX(p.ped_data) AS data_ultima, (CURRENT_DATE - MAX(p.ped_data)::date)::INTEGER AS dias FROM pedidos p LEFT JOIN (SELECT TRIM(ip.ite_pedido) AS ped_id, SUM(ip.ite_quant) AS qtd FROM itens_ped ip GROUP BY TRIM(ip.ite_pedido)) iq ON TRIM(p.ped_pedido) = iq.ped_id LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo WHERE ${where} GROUP BY ${cliExpr}, f.for_nomered`;
       const result = await db.query(`SELECT * FROM (${query}) sub ORDER BY dias ASC, cliente`, params);
       const data = result.rows.map((r: any) => ({ cliente: r.cliente, estado: r.estado || '', industria: r.industria, vendedor_nome: r.vendedor_nome || '—', valor: parseFloat(r.valor) || 0, qtd: parseFloat(r.qtd) || 0, data_ultima: r.data_ultima, dias: Number(r.dias) || 0 }));
       return res.json({ success: true, data, total: data.length });
@@ -673,10 +673,13 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
             f.for_nomered AS industria,
             MAX(COALESCE(v.ven_nome, '—')) AS vendedor_nome,
             SUM(p.ped_totliq)::NUMERIC AS valor,
-            SUM(ip.ite_quant)::NUMERIC AS qtd,
+            COALESCE(SUM(iq.qtd), 0)::NUMERIC AS qtd,
             MAX(p.ped_data) AS data_ultima
           FROM pedidos p
-          JOIN itens_ped ip ON TRIM(p.ped_pedido) = TRIM(ip.ite_pedido)
+          LEFT JOIN (
+            SELECT TRIM(ip.ite_pedido) AS ped_id, SUM(ip.ite_quant) AS qtd
+            FROM itens_ped ip GROUP BY TRIM(ip.ite_pedido)
+          ) iq ON TRIM(p.ped_pedido) = iq.ped_id
           JOIN fornecedores f ON p.ped_industria = f.for_codigo
           LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo
           WHERE ${pedConds.join(' AND ')}
@@ -1292,34 +1295,34 @@ export async function mapaOportunidadesHandler(req: Request | any, res: Response
     const result = await db.query(`
       WITH mercado AS (
         SELECT
-          TRIM(ip.ite_produto)                                         AS cod,
-          COUNT(DISTINCT DATE_TRUNC('month', p.ped_data))::INTEGER     AS freq_m,
-          SUM(ip.ite_quant)::NUMERIC                                   AS qtd_m
+          COALESCE(NULLIF(TRIM(ip.ite_codigonormalizado),''), TRIM(ip.ite_produto)) AS cod,
+          COUNT(DISTINCT DATE_TRUNC('month', p.ped_data))::INTEGER                  AS freq_m,
+          SUM(ip.ite_quant)::NUMERIC                                                AS qtd_m
         FROM itens_ped ip
         JOIN pedidos p ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
         ${ufParam ? 'JOIN clientes cl_mkt ON cl_mkt.cli_codigo = p.ped_cliente AND UPPER(TRIM(cl_mkt.cli_uf)) = $5' : ''}
         WHERE p.ped_industria = $1
           AND p.ped_data BETWEEN $2::date AND $3::date
           AND p.ped_situacao IN ('P', 'F')
-        GROUP BY TRIM(ip.ite_produto)
+        GROUP BY 1
       ),
       cli AS (
         SELECT
-          TRIM(ip.ite_produto)                                         AS cod,
-          COUNT(DISTINCT DATE_TRUNC('month', p.ped_data))::INTEGER     AS freq_c,
-          SUM(ip.ite_quant)::NUMERIC                                   AS qtd_c
+          COALESCE(NULLIF(TRIM(ip.ite_codigonormalizado),''), TRIM(ip.ite_produto)) AS cod,
+          COUNT(DISTINCT DATE_TRUNC('month', p.ped_data))::INTEGER                  AS freq_c,
+          SUM(ip.ite_quant)::NUMERIC                                                AS qtd_c
         FROM itens_ped ip
         JOIN pedidos p ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
         WHERE p.ped_industria = $1
           AND p.ped_cliente   = $4
           AND p.ped_data BETWEEN $2::date AND $3::date
           AND p.ped_situacao IN ('P', 'F')
-        GROUP BY TRIM(ip.ite_produto)
+        GROUP BY 1
       ),
       pontos AS (
         SELECT
-          TRIM(ip.ite_produto)                                         AS cod,
-          COUNT(DISTINCT p.ped_cliente)::INTEGER                       AS pontos_venda
+          COALESCE(NULLIF(TRIM(ip.ite_codigonormalizado),''), TRIM(ip.ite_produto)) AS cod,
+          COUNT(DISTINCT p.ped_cliente)::INTEGER                                     AS pontos_venda
         FROM itens_ped ip
         JOIN pedidos p ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
         ${ufParam ? 'JOIN clientes cl_pv ON cl_pv.cli_codigo = p.ped_cliente AND UPPER(TRIM(cl_pv.cli_uf)) = $5' : ''}
@@ -1327,13 +1330,28 @@ export async function mapaOportunidadesHandler(req: Request | any, res: Response
           AND p.ped_cliente  != $4
           AND p.ped_data BETWEEN $2::date AND $3::date
           AND p.ped_situacao IN ('P', 'F')
-        GROUP BY TRIM(ip.ite_produto)
+        GROUP BY 1
+      ),
+      all_products AS (
+        SELECT COALESCE(NULLIF(TRIM(cp.pro_codigonormalizado),''), TRIM(cp.pro_codprod)) AS cod,
+               cp.pro_id, cp.pro_nome, cp.pro_aplicacao, cp.pro_grupo
+        FROM cad_prod cp
+        WHERE cp.pro_industria = $1 AND cp.pro_status IS NOT FALSE
+        UNION
+        SELECT m.cod, NULL::integer, m.cod, '', NULL::integer
+        FROM mercado m
+        WHERE NOT EXISTS (
+          SELECT 1 FROM cad_prod cp
+          WHERE COALESCE(NULLIF(TRIM(cp.pro_codigonormalizado),''), TRIM(cp.pro_codprod)) = m.cod
+            AND cp.pro_industria = $1
+            AND cp.pro_status IS NOT FALSE
+        )
       )
       SELECT
-        TRIM(cp.pro_codprod)                                           AS codigo,
-        COALESCE(cp.pro_nome, TRIM(cp.pro_codprod))                   AS descricao,
+        ap.cod                                                         AS codigo,
+        COALESCE(ap.pro_nome, ap.cod)                                 AS descricao,
         COALESCE(g.gru_nome, 'SEM GRUPO')                             AS familia,
-        COALESCE(cp.pro_aplicacao, '')                                 AS aplicacao,
+        COALESCE(ap.pro_aplicacao, '')                                 AS aplicacao,
         COALESCE(m.freq_m, 0)                                         AS freq_mercado,
         COALESCE(c.freq_c, 0)                                         AS freq_cliente,
         (COALESCE(m.freq_m, 0) - COALESCE(c.freq_c, 0))              AS gap_freq,
@@ -1368,16 +1386,14 @@ export async function mapaOportunidadesHandler(req: Request | any, res: Response
           WHEN COALESCE(m.qtd_m, 0) = 0 THEN 0
           ELSE ROUND((COALESCE(c.qtd_c, 0) / m.qtd_m) * 100, 1)
         END                                                            AS pct_captacao
-      FROM cad_prod cp
-      LEFT JOIN grupos g   ON g.gru_codigo  = cp.pro_grupo
-      LEFT JOIN mercado m  ON m.cod = TRIM(cp.pro_codprod)
-      LEFT JOIN cli c      ON c.cod = TRIM(cp.pro_codprod)
-      LEFT JOIN pontos pv  ON pv.cod = TRIM(cp.pro_codprod)
+      FROM all_products ap
+      LEFT JOIN grupos g   ON g.gru_codigo  = ap.pro_grupo
+      LEFT JOIN mercado m  ON m.cod = ap.cod
+      LEFT JOIN cli c      ON c.cod = ap.cod
+      LEFT JOIN pontos pv  ON pv.cod = ap.cod
       LEFT JOIN cli_ind ci ON ci.cli_codigo = $4 AND ci.cli_forcodigo = $1
-      LEFT JOIN cad_tabelaspre tp ON tp.itab_idprod = cp.pro_id AND tp.itab_tabela = ci.cli_tabela
-      WHERE cp.pro_industria = $1
-        AND cp.pro_status = true
-        ${somenteGapFlag ? 'AND COALESCE(m.freq_m, 0) > 0' : ''}
+      LEFT JOIN cad_tabelaspre tp ON tp.itab_idprod = ap.pro_id AND tp.itab_tabela = ci.cli_tabela
+      WHERE ${somenteGapFlag ? 'COALESCE(m.freq_m, 0) > 0' : 'TRUE'}
       ORDER BY COALESCE(m.freq_m, 0) DESC,
                (COALESCE(m.freq_m, 0) - COALESCE(c.freq_c, 0)) DESC
     `, params);

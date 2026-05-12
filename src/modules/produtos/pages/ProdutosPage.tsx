@@ -225,8 +225,11 @@ export default function ProdutosPage() {
   const [grupos, setGrupos]           = useState<SelectOption[]>([]);
   const [grupoDesc, setGrupoDesc]     = useState<SelectOption[]>([]);
   const [data, setData]               = useState<ProductRow[]>([]);
+  const [total, setTotal]             = useState(0);
   const [loading, setLoading]         = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch]           = useState('');
+  const searchDebounce                = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeTab, setActiveTab]     = useState<'lista' | 'cadastro'>('lista');
   const [editing, setEditing]         = useState<ProductForm>(emptyForm);
   const [saving, setSaving]           = useState(false);
@@ -269,28 +272,34 @@ export default function ProdutosPage() {
       .then(r => setGrupos(r.data.data || [])).catch(() => {});
   }, [selIndustria]);
 
-  const load = useCallback(async () => {
-    if (!selIndustria || !selTabela) { setData([]); return; }
-    setLoading(true);
+  const fetchData = useCallback(async (opts: { offset?: number; q?: string; append?: boolean }) => {
+    if (!selIndustria || !selTabela) { setData([]); setTotal(0); return; }
+    const { offset = 0, q = '', append = false } = opts;
+    if (append) setLoadingMore(true); else setLoading(true);
     try {
-      const res = await api.get(`/products/${selIndustria}?tabela=${encodeURIComponent(selTabela)}`);
-      setData(res.data.data || []);
-    } catch { setData([]); }
-    finally { setLoading(false); }
+      const qs = new URLSearchParams({ tabela: selTabela, limit: '700', offset: String(offset) });
+      if (q) qs.set('q', q);
+      const res = await api.get(`/products/${selIndustria}?${qs}`);
+      const rows = res.data.data || [];
+      setTotal(res.data.total ?? rows.length);
+      setData(prev => append ? [...prev, ...rows] : rows);
+    } catch { if (!append) setData([]); }
+    finally { if (append) setLoadingMore(false); else setLoading(false); }
   }, [selIndustria, selTabela]);
 
-  useEffect(() => { load(); }, [load]);
+  // Load first page when industry/table changes
+  useEffect(() => { setSearch(''); fetchData({ offset: 0 }); }, [fetchData]);
 
-  const filtered = data.filter(r => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (
-      r.pro_codprod?.toLowerCase().includes(q) ||
-      r.pro_nome?.toLowerCase().includes(q) ||
-      r.pro_codigonormalizado?.toLowerCase().includes(q) ||
-      r.pro_conversao?.toLowerCase().includes(q)
-    );
-  });
+  // Debounce search → server-side
+  const handleSearch = (val: string) => {
+    setSearch(val);
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => fetchData({ offset: 0, q: val }), 350);
+  };
+
+  const loadMore = () => fetchData({ offset: data.length, q: search, append: true });
+
+  const filtered = data; // server already filters
 
   const openNew = () => { setEditing(emptyForm); setActiveTab('cadastro'); };
 
@@ -362,7 +371,7 @@ export default function ProdutosPage() {
         grupodesconto: editing.grupodesconto || undefined,
         prepeso: editing.prepeso || undefined, replicate: editing.replicate,
       });
-      cancel(); load();
+      cancel(); fetchData({ offset: 0, q: search });
     } catch (err: any) {
       alert(err?.response?.data?.message || 'Erro ao salvar produto.');
     } finally { setSaving(false); }
@@ -375,7 +384,7 @@ export default function ProdutosPage() {
       await api.delete(
         `/price-tables/product/${selIndustria}/${row.pro_id}?tabela=${encodeURIComponent(selTabela)}`
       );
-      load();
+      fetchData({ offset: 0, q: search });
     }
     catch (err: any) { alert(err?.response?.data?.message || 'Erro ao remover produto da tabela.'); }
   };
@@ -433,14 +442,14 @@ export default function ProdutosPage() {
   const applyIpi = async (pct: number) => {
     try {
       await api.put(`/price-tables/update-ipi/${selIndustria}?tabela=${encodeURIComponent(selTabela)}`, { percentage: pct });
-      setPctModal(null); load();
+      setPctModal(null); fetchData({ offset: 0, q: search });
     } catch (err: any) { alert(err?.response?.data?.message || 'Erro ao atualizar IPI.'); }
   };
 
   const applySt = async (pct: number) => {
     try {
       await api.put(`/price-tables/update-st/${selIndustria}?tabela=${encodeURIComponent(selTabela)}`, { percentage: pct });
-      setPctModal(null); load();
+      setPctModal(null); fetchData({ offset: 0, q: search });
     } catch (err: any) { alert(err?.response?.data?.message || 'Erro ao atualizar ST.'); }
   };
 
@@ -551,7 +560,7 @@ export default function ProdutosPage() {
   // ── Barra de ações da tabela — só quando há tabela selecionada ──────────────
   const actionsBar = selTabela && (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-      <button onClick={load} style={{ ...actionBtn, width: 'auto', padding: '7px 14px', height: 'auto', gap: 5, fontSize: 12, fontWeight: 700 }}>
+      <button onClick={() => fetchData({ offset: 0, q: search })} style={{ ...actionBtn, width: 'auto', padding: '7px 14px', height: 'auto', gap: 5, fontSize: 12, fontWeight: 700 }}>
         <RefreshCw size={13} /> Atualizar
       </button>
       <button onClick={openRename} style={{ ...actionBtn, width: 'auto', padding: '7px 14px', height: 'auto', gap: 5, fontSize: 12, fontWeight: 700 }}>
@@ -564,7 +573,7 @@ export default function ProdutosPage() {
         onExportExcel={exportExcel}
       />
       <span style={{ fontSize: 12, color: G.textMuted, fontWeight: 600 }}>
-        {filtered.length.toLocaleString('pt-BR')} produto(s)
+        {data.length.toLocaleString('pt-BR')} de {total.toLocaleString('pt-BR')} produto(s)
       </span>
     </div>
   );
@@ -859,9 +868,9 @@ export default function ProdutosPage() {
     <>
       <CadastroShell
         title="Produtos"
-        total={filtered.length}
+        total={total}
         search={search}
-        onSearch={setSearch}
+        onSearch={handleSearch}
         searchPlaceholder="Pesquisar código ou descrição..."
         onNew={openNew}
         newLabel="Novo Produto"
@@ -1009,6 +1018,21 @@ export default function ProdutosPage() {
                 })}
               </tbody>
             </CadastroTable>
+            {data.length < total && !search && (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '16px 0' }}>
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '10px 28px', borderRadius: 10, border: `1px solid ${G.border}`,
+                    background: G.card, color: G.text, fontSize: 13, fontWeight: 700,
+                    cursor: loadingMore ? 'not-allowed' : 'pointer', opacity: loadingMore ? 0.6 : 1,
+                  }}>
+                  {loadingMore ? 'Carregando...' : `Carregar mais (${total - data.length} restantes)`}
+                </button>
+              </div>
+            )}
           </>
         )}
       </CadastroShell>

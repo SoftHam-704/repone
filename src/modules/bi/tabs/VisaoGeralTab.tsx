@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { useInsightNarrative } from '../hooks/useInsightNarrative';
 import ReactECharts from 'echarts-for-react';
 import {
   DollarSign, Package, Users, ShoppingCart, Info,
@@ -60,6 +61,26 @@ const VisaoGeralTab = () => {
   const [loadCat,    setLoadCat]    = useState(true);
   const [loadGrupo,  setLoadGrupo]  = useState(true);
   const [rankHover, setRankHover] = useState<number | null>(null);
+
+  // ─── Narrative IA ────────────────────────────────────────────────────────────
+  const narrativeData = useMemo(() => {
+    if (!overview) return null;
+    return {
+      total_vendido:    overview.total_vendido,
+      delta_vendido:    overview.delta_vendido,
+      clientes_ativos:  overview.clientes_ativos,
+      total_carteira:   overview.total_carteira,
+      positivacao_pct:  overview.positivacao_pct,
+      ticket_medio:     overview.ticket_medio,
+      delta_ticket:     overview.delta_ticket,
+      quantidade:       overview.quantidade,
+      pedidos:          overview.pedidos,
+      anos:             filters.anos,
+    };
+  }, [overview, filters.anos]);
+
+  const { lines: narrativeLines, type: narrativeType } =
+    useInsightNarrative('visao-geral', narrativeData, p);
 
   // Fetch ao mudar filtros
   useEffect(() => {
@@ -605,6 +626,8 @@ const VisaoGeralTab = () => {
             DADOS DE PERFORMANCE E RISCO EM TEMPO REAL
           </p>
         </div>
+
+        <InsightNarrative lines={narrativeLines} type={narrativeType} loading={loadOv} />
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <KPICard

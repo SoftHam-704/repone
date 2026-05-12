@@ -121,7 +121,7 @@ const GROUPS: NavGroup[] = [
     id: 'utilitarios', label: 'Utilitários', icon: Wrench,
     items: [
       { label: 'Catálogo Digital',  path: '/utilitarios/catalogo-produtos', icon: Package },
-      { label: 'Central de Vídeos',path: '/utilitarios/tutoriais',          icon: BookOpen },
+      { label: 'Centro de Aprendizado', path: '/utilitarios/tutoriais',       icon: BookOpen },
       { label: 'Usuários',          path: '/utilitarios/usuarios',           icon: Users,     masterOnly: true },
       { label: 'Parâmetros',        path: '/utilitarios/parametros',         icon: Settings },
       { label: 'Configurações',     path: '/utilitarios/configuracoes',      icon: Settings },

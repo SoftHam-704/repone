@@ -424,138 +424,145 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
     const newProds = processed.filter(p => !existingMap.has(p.normalizedCode));
     const updProds = processed.filter(p =>  existingMap.has(p.normalizedCode));
 
-    await db.query('BEGIN');
-
     const insertedMap = new Map<string, number>();
 
-    // ── Query 3: bulk INSERT novos produtos ───────────────────────────────────
-    if (newProds.length > 0) {
-      const insRes = await db.query(
-        `INSERT INTO cad_prod
-           (pro_industria, pro_codprod, pro_codigonormalizado, pro_nome,
-            pro_peso, pro_embalagem, pro_grupo, pro_linha, pro_ncm,
-            pro_aplicacao, pro_codbarras, pro_conversao, pro_ciclo)
-         SELECT
-           unnest($1::int[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[]),
-           unnest($5::float8[]), unnest($6::int[]), unnest($7::int[]), unnest($8::text[]),
-           unnest($9::text[]), unnest($10::text[]), unnest($11::text[]), unnest($12::text[]),
-           unnest($13::char[])
-         ON CONFLICT DO NOTHING
-         RETURNING pro_id, pro_codigonormalizado`,
-        [
-          newProds.map(() => indId),
-          newProds.map(p => p.codigo),
-          newProds.map(p => p.normalizedCode),
-          newProds.map(p => p.nome),
-          newProds.map(p => p.peso),
-          newProds.map(p => p.embalagem),
-          newProds.map(p => p.grupoProd),
-          newProds.map(p => p.linha),
-          newProds.map(p => p.ncm),
-          newProds.map(p => p.aplicacao),
-          newProds.map(p => p.codbarras),
-          newProds.map(p => p.conversao),
-          newProds.map(p => p.ciclo),
-        ]
-      );
-      insRes.rows.forEach((r: any) => insertedMap.set(r.pro_codigonormalizado, r.pro_id));
-    }
+    await db.transaction(async (client) => {
+      // ── Query 3: bulk INSERT novos produtos ─────────────────────────────────
+      if (newProds.length > 0) {
+        const insRes = await client.query(
+          `INSERT INTO cad_prod
+             (pro_industria, pro_codprod, pro_codigonormalizado, pro_nome,
+              pro_peso, pro_embalagem, pro_grupo, pro_linha, pro_ncm,
+              pro_aplicacao, pro_codbarras, pro_conversao, pro_ciclo)
+           SELECT
+             unnest($1::int[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[]),
+             unnest($5::float8[]), unnest($6::int[]), unnest($7::int[]), unnest($8::text[]),
+             unnest($9::text[]), unnest($10::text[]), unnest($11::text[]), unnest($12::text[]),
+             unnest($13::char[])
+           ON CONFLICT DO NOTHING
+           RETURNING pro_id, pro_codigonormalizado`,
+          [
+            newProds.map(() => indId),
+            newProds.map(p => p.codigo),
+            newProds.map(p => p.normalizedCode),
+            newProds.map(p => p.nome),
+            newProds.map(p => p.peso),
+            newProds.map(p => p.embalagem),
+            newProds.map(p => p.grupoProd),
+            newProds.map(p => p.linha),
+            newProds.map(p => p.ncm),
+            newProds.map(p => p.aplicacao),
+            newProds.map(p => p.codbarras),
+            newProds.map(p => p.conversao),
+            newProds.map(p => p.ciclo),
+          ]
+        );
+        insRes.rows.forEach((r: any) => insertedMap.set(r.pro_codigonormalizado, r.pro_id));
+      }
 
-    // ── Query 4: bulk UPDATE produtos existentes ──────────────────────────────
-    if (updProds.length > 0) {
-      await db.query(
-        `UPDATE cad_prod SET
-           pro_nome        = COALESCE(NULLIF(v.nome, ''), pro_nome),
-           pro_peso        = COALESCE(v.peso,       pro_peso),
-           pro_embalagem   = COALESCE(v.embalagem,  pro_embalagem),
-           pro_grupo       = COALESCE(v.grupo,      pro_grupo),
-           pro_linha       = COALESCE(NULLIF(v.linha,''),      pro_linha),
-           pro_ncm         = COALESCE(NULLIF(v.ncm,''),        pro_ncm),
-           pro_aplicacao   = COALESCE(NULLIF(v.aplicacao,''),  pro_aplicacao),
-           pro_codbarras   = COALESCE(NULLIF(v.codbarras,''),  pro_codbarras),
-           pro_conversao   = COALESCE(NULLIF(v.conversao,''),  pro_conversao),
-           pro_ciclo       = v.ciclo
-         FROM (SELECT
-           unnest($1::int[])    AS pro_id,
-           unnest($2::text[])   AS nome,
-           unnest($3::float8[]) AS peso,
-           unnest($4::int[])    AS embalagem,
-           unnest($5::int[])    AS grupo,
-           unnest($6::text[])   AS linha,
-           unnest($7::text[])   AS ncm,
-           unnest($8::text[])   AS aplicacao,
-           unnest($9::text[])   AS codbarras,
-           unnest($10::text[])  AS conversao,
-           unnest($11::char[])  AS ciclo
-         ) AS v
-         WHERE cad_prod.pro_id = v.pro_id`,
-        [
-          updProds.map(p => existingMap.get(p.normalizedCode)!),
-          updProds.map(p => p.nome),
-          updProds.map(p => p.peso),
-          updProds.map(p => p.embalagem),
-          updProds.map(p => p.grupoProd),
-          updProds.map(p => p.linha),
-          updProds.map(p => p.ncm),
-          updProds.map(p => p.aplicacao),
-          updProds.map(p => p.codbarras),
-          updProds.map(p => p.conversao),
-          updProds.map(p => p.ciclo),
-        ]
-      );
-    }
+      // ── Query 4: bulk UPDATE produtos existentes ───────────────────────────
+      if (updProds.length > 0) {
+        await client.query(
+          `UPDATE cad_prod SET
+             pro_nome        = COALESCE(NULLIF(v.nome, ''), pro_nome),
+             pro_peso        = COALESCE(v.peso,       pro_peso),
+             pro_embalagem   = COALESCE(v.embalagem,  pro_embalagem),
+             pro_grupo       = COALESCE(v.grupo,      pro_grupo),
+             pro_linha       = COALESCE(NULLIF(v.linha,''),      pro_linha),
+             pro_ncm         = COALESCE(NULLIF(v.ncm,''),        pro_ncm),
+             pro_aplicacao   = COALESCE(NULLIF(v.aplicacao,''),  pro_aplicacao),
+             pro_codbarras   = COALESCE(NULLIF(v.codbarras,''),  pro_codbarras),
+             pro_conversao   = COALESCE(NULLIF(v.conversao,''),  pro_conversao),
+             pro_ciclo       = v.ciclo
+           FROM (SELECT
+             unnest($1::int[])    AS pro_id,
+             unnest($2::text[])   AS nome,
+             unnest($3::float8[]) AS peso,
+             unnest($4::int[])    AS embalagem,
+             unnest($5::int[])    AS grupo,
+             unnest($6::text[])   AS linha,
+             unnest($7::text[])   AS ncm,
+             unnest($8::text[])   AS aplicacao,
+             unnest($9::text[])   AS codbarras,
+             unnest($10::text[])  AS conversao,
+             unnest($11::char[])  AS ciclo
+           ) AS v
+           WHERE cad_prod.pro_id = v.pro_id`,
+          [
+            updProds.map(p => existingMap.get(p.normalizedCode)!),
+            updProds.map(p => p.nome),
+            updProds.map(p => p.peso),
+            updProds.map(p => p.embalagem),
+            updProds.map(p => p.grupoProd),
+            updProds.map(p => p.linha),
+            updProds.map(p => p.ncm),
+            updProds.map(p => p.aplicacao),
+            updProds.map(p => p.codbarras),
+            updProds.map(p => p.conversao),
+            updProds.map(p => p.ciclo),
+          ]
+        );
+      }
 
-    // Mapa completo normCode → pro_id
-    const allIdMap = new Map<string, number>([...existingMap, ...insertedMap]);
-    const prodsWithId = processed
-      .map(p => ({ ...p, proId: allIdMap.get(p.normalizedCode) }))
-      .filter(p => p.proId != null) as (ProdProcessed & { proId: number })[];
+      // Mapa completo normCode → pro_id
+      const allIdMap = new Map<string, number>([...existingMap, ...insertedMap]);
+      const prodsWithId = processed
+        .map(p => ({ ...p, proId: allIdMap.get(p.normalizedCode) }))
+        .filter(p => p.proId != null) as (ProdProcessed & { proId: number })[];
 
-    // ── Query 5: bulk UPSERT preços ───────────────────────────────────────────
-    if (prodsWithId.length > 0) {
-      await db.query(
-        `INSERT INTO cad_tabelaspre
-           (itab_idprod, itab_idindustria, itab_tabela,
-            itab_precobruto, itab_precopromo, itab_precoespecial,
-            itab_ipi, itab_st, itab_grupodesconto, itab_descontoadd,
-            itab_datatabela, itab_datavencimento, itab_prepeso, itab_status)
-         SELECT
-           unnest($1::int[]), $2, $3,
-           unnest($4::float8[]), unnest($5::float8[]), unnest($6::float8[]),
-           unnest($7::float8[]), unnest($8::float8[]), unnest($9::int[]),
-           unnest($10::float8[]), $11, $12,
-           unnest($13::float8[]), true
-         ON CONFLICT (itab_idprod, itab_tabela) DO UPDATE SET
-           itab_precobruto    = COALESCE(NULLIF(EXCLUDED.itab_precobruto, 0), cad_tabelaspre.itab_precobruto),
-           itab_precopromo    = COALESCE(EXCLUDED.itab_precopromo,    cad_tabelaspre.itab_precopromo),
-           itab_precoespecial = COALESCE(EXCLUDED.itab_precoespecial, cad_tabelaspre.itab_precoespecial),
-           itab_ipi           = COALESCE(EXCLUDED.itab_ipi,           cad_tabelaspre.itab_ipi),
-           itab_st            = COALESCE(EXCLUDED.itab_st,            cad_tabelaspre.itab_st),
-           itab_grupodesconto = COALESCE(EXCLUDED.itab_grupodesconto, cad_tabelaspre.itab_grupodesconto),
-           itab_descontoadd   = COALESCE(EXCLUDED.itab_descontoadd,   cad_tabelaspre.itab_descontoadd),
-           itab_datatabela    = COALESCE(EXCLUDED.itab_datatabela, cad_tabelaspre.itab_datatabela),
-           itab_datavencimento= COALESCE(EXCLUDED.itab_datavencimento,cad_tabelaspre.itab_datavencimento),
-           itab_prepeso       = COALESCE(EXCLUDED.itab_prepeso,       cad_tabelaspre.itab_prepeso),
-           itab_status        = true`,
-        [
-          prodsWithId.map(p => p.proId),
-          indId,
-          nomeTabela,
-          prodsWithId.map(p => p.precobruto),
-          prodsWithId.map(p => p.precopromo),
-          prodsWithId.map(p => p.precoespecial),
-          prodsWithId.map(p => p.ipi),
-          prodsWithId.map(p => p.st),
-          prodsWithId.map(p => p.grupoDesc),
-          prodsWithId.map(p => p.descontoadd),
-          today,
-          dataVencimento || null,
-          prodsWithId.map(p => p.prepeso),
-        ]
-      );
-    }
+      // Dedup por proId — ON CONFLICT DO UPDATE falha se o mesmo id aparecer 2x no lote
+      const seenIds = new Set<number>();
+      const dedupedProds = prodsWithId.filter(p => {
+        if (seenIds.has(p.proId)) return false;
+        seenIds.add(p.proId);
+        return true;
+      });
 
-    await db.query('COMMIT');
+      // ── Query 5: bulk UPSERT preços ─────────────────────────────────────────
+      if (dedupedProds.length > 0) {
+        await client.query(
+          `INSERT INTO cad_tabelaspre
+             (itab_idprod, itab_idindustria, itab_tabela,
+              itab_precobruto, itab_precopromo, itab_precoespecial,
+              itab_ipi, itab_st, itab_grupodesconto, itab_descontoadd,
+              itab_datatabela, itab_datavencimento, itab_prepeso, itab_status)
+           SELECT
+             unnest($1::int[]), $2, $3,
+             unnest($4::float8[]), unnest($5::float8[]), unnest($6::float8[]),
+             unnest($7::float8[]), unnest($8::float8[]), unnest($9::int[]),
+             unnest($10::float8[]), $11, $12,
+             unnest($13::float8[]), true
+           ON CONFLICT (itab_idprod, itab_tabela) DO UPDATE SET
+             itab_precobruto    = COALESCE(NULLIF(EXCLUDED.itab_precobruto, 0), cad_tabelaspre.itab_precobruto),
+             itab_precopromo    = COALESCE(EXCLUDED.itab_precopromo,    cad_tabelaspre.itab_precopromo),
+             itab_precoespecial = COALESCE(EXCLUDED.itab_precoespecial, cad_tabelaspre.itab_precoespecial),
+             itab_ipi           = COALESCE(EXCLUDED.itab_ipi,           cad_tabelaspre.itab_ipi),
+             itab_st            = COALESCE(EXCLUDED.itab_st,            cad_tabelaspre.itab_st),
+             itab_grupodesconto = COALESCE(EXCLUDED.itab_grupodesconto, cad_tabelaspre.itab_grupodesconto),
+             itab_descontoadd   = COALESCE(EXCLUDED.itab_descontoadd,   cad_tabelaspre.itab_descontoadd),
+             itab_datatabela    = COALESCE(EXCLUDED.itab_datatabela,    cad_tabelaspre.itab_datatabela),
+             itab_datavencimento= COALESCE(EXCLUDED.itab_datavencimento,cad_tabelaspre.itab_datavencimento),
+             itab_prepeso       = COALESCE(EXCLUDED.itab_prepeso,       cad_tabelaspre.itab_prepeso),
+             itab_status        = true`,
+          [
+            dedupedProds.map(p => p.proId),
+            indId,
+            nomeTabela,
+            dedupedProds.map(p => p.precobruto),
+            dedupedProds.map(p => p.precopromo),
+            dedupedProds.map(p => p.precoespecial),
+            dedupedProds.map(p => p.ipi),
+            dedupedProds.map(p => p.st),
+            dedupedProds.map(p => p.grupoDesc),
+            dedupedProds.map(p => p.descontoadd),
+            today,
+            dataVencimento || null,
+            dedupedProds.map(p => p.prepeso),
+          ]
+        );
+      }
+    });
+
     res.json({
       success: true,
       message: 'Importação concluída.',
@@ -568,7 +575,6 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
       },
     });
   } catch (error: any) {
-    await db.query('ROLLBACK').catch(() => {});
     console.error('❌ [PRICE-TABLES] import:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }

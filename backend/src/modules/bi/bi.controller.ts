@@ -2942,10 +2942,10 @@ export async function sellInOutCruzamentoHandler(req: Request, res: Response): P
         nome: r.cli_nome, uf: r.cli_uf, grupo: r.grupo,
         si_valor: parseFloat(r.si_valor) || 0,
         si_qtd:   parseFloat(r.si_qtd)   || 0,
-        so_valor:      parseFloat(cur?.so_valor)       || 0,
-        so_qtd:        parseFloat(cur?.so_qtd)         || 0,
-        so_prev_valor: parseFloat(prev?.so_prev_valor) || 0,
-        so_prev_qtd:   parseFloat(prev?.so_prev_qtd)   || 0,
+        so_valor:      parseFloat((cur as any)?.so_valor)       || 0,
+        so_qtd:        parseFloat((cur as any)?.so_qtd)         || 0,
+        so_prev_valor: parseFloat((prev as any)?.so_prev_valor) || 0,
+        so_prev_qtd:   parseFloat((prev as any)?.so_prev_qtd)   || 0,
       };
     });
 
@@ -2977,5 +2977,77 @@ export async function sellInOutCruzamentoHandler(req: Request, res: Response): P
   } catch (err: any) {
     console.error('❌ [BI/sell-in-out/cruzamento]', err.message);
     res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// ─── POST /api/bi/narrative ──────────────────────────────────────────────────
+const NARRATIVE_SYSTEM = `Você é um analista de negócios especializado em representação comercial de autopeças no Brasil.
+Analise os dados fornecidos e gere uma narrativa concisa em português brasileiro.
+
+Responda APENAS com JSON válido neste exato formato:
+{"lines": ["linha1", "linha2", "linha3_opcional"], "type": "success"}
+
+Regras das linhas (2 a 3 linhas, sem numeração):
+- Linha 1: o insight principal — o fato mais relevante para o representante agir agora
+- Linha 2: contexto — comparação com período anterior, causa ou tendência
+- Linha 3 (opcional): recomendação prática ou alerta específico
+
+Regras de estilo:
+- Linguagem direta, profissional, sem jargões técnicos
+- Valores monetários: "R$ 1.234.567" (nunca use K ou M)
+- Percentuais com vírgula decimal: "12,3%"
+- SEM markdown, bullets, asteriscos ou formatação especial
+
+Regras do tipo:
+- "success": crescimento positivo, meta atingida, resultados acima do esperado
+- "alert": queda acima de 10%, clientes perdidos, meta muito abaixo do esperado
+- "info": variação pequena, dados mistos, período com poucos dados`;
+
+export async function narrativeHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { tab, data, periodo } = req.body as {
+      tab: string;
+      data: Record<string, any>;
+      periodo?: string;
+    };
+
+    if (!data || !tab) {
+      res.json({ success: true, lines: [], type: 'info' });
+      return;
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      res.json({ success: true, lines: [], type: 'info' });
+      return;
+    }
+
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    const client = new Anthropic({ apiKey });
+
+    const userMessage = `Tab: ${tab}\nPeríodo: ${periodo || 'não informado'}\nDados:\n${JSON.stringify(data, null, 2)}`;
+
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      system: NARRATIVE_SYSTEM,
+      messages: [{ role: 'user', content: userMessage }],
+    });
+
+    const raw = (message.content[0] as any)?.text?.trim() || '{}';
+    let result: { lines: string[]; type: string } = { lines: [], type: 'info' };
+    try {
+      const m = raw.match(/\{[\s\S]*\}/);
+      result = JSON.parse(m?.[0] || '{"lines":[],"type":"info"}');
+    } catch { /* silently fail */ }
+
+    res.json({
+      success: true,
+      lines: Array.isArray(result.lines) ? result.lines.filter(Boolean) : [],
+      type: ['success', 'alert', 'info'].includes(result.type) ? result.type : 'info',
+    });
+  } catch (error: any) {
+    console.error('❌ [BI/narrative]', error.message);
+    res.json({ success: true, lines: [], type: 'info' });
   }
 }
