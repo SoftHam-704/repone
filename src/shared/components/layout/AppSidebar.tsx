@@ -108,6 +108,8 @@ const GROUPS: NavGroup[] = [
       { label: 'Atividades',         path: '/repcrm/atividades',       icon: Activity },
       { label: 'Relacionamentos',   path: '/repcrm/relacionamentos',  icon: ClipboardCheck },
       { label: 'Pipeline',          path: '/repcrm/pipeline',         icon: Kanban,         feature: 'crmRepEnabled' },
+      { label: 'Visitas',           path: '/repcrm/visitas',          icon: CalendarDays },
+      { label: 'Campo Ao Vivo',     path: '/repcrm/campo',            icon: MapPin },
       { label: 'WhatsApp IA',       path: '/utilitarios/whatsapp-ia', icon: MessageCircle,  feature: 'whatsappEnabled' },
     ],
   },

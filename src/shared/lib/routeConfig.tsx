@@ -46,6 +46,7 @@ const ContasPagarPage          = lazy(() => import('@/modules/financeiro/pages/C
 const FluxoCaixaPage           = lazy(() => import('@/modules/financeiro/pages/FluxoCaixaPage'))
 const DREPage                  = lazy(() => import('@/modules/financeiro/pages/DREPage'))
 const PlanoContasPage          = lazy(() => import('@/modules/financeiro/pages/PlanoContasPage'))
+const CentroCustoPage          = lazy(() => import('@/modules/financeiro/pages/CentroCustoPage'))
 const FinClientesPage          = lazy(() => import('@/modules/financeiro/pages/FinClientesPage'))
 const FinFornecedoresPage      = lazy(() => import('@/modules/financeiro/pages/FinFornecedoresPage'))
 const CarteiraRadarPage        = lazy(() => import('@/modules/crm/pages/CarteiraRadarPage'))
@@ -55,6 +56,8 @@ const AtividadesPage           = lazy(() => import('@/modules/crm/pages/Atividad
 const RegistroRelacionamentosPage = lazy(() => import('@/modules/crm/pages/RegistroRelacionamentosPage'))
 const PipelinePage             = lazy(() => import('@/modules/crm/pages/PipelinePage'))
 const WhatsAppIAPage           = lazy(() => import('@/modules/crm/pages/WhatsAppIAPage'))
+const VisitasPage              = lazy(() => import('@/modules/crm/pages/VisitasPage'))
+const CampoAoVivoPage          = lazy(() => import('@/modules/crm/pages/CampoAoVivoPage'))
 const IrisVoicePage            = lazy(() => import('@/modules/nexus-ia/pages/IrisVoicePage'))
 const IrisConfigPage           = lazy(() => import('@/modules/iris/pages/IrisConfigPage'))
 const RelatoriosPage           = lazy(() => import('@/modules/relatorios/pages/RelatoriosPage'))
@@ -107,6 +110,7 @@ export const ROUTE_CONFIG: Record<string, RouteItem> = {
   '/financeiro/relatorios/fluxo-caixa':{ id: 'fin-fluxo',     label: 'Fluxo de Caixa',         path: '/financeiro/relatorios/fluxo-caixa', icon: TrendingUp,   element: <FluxoCaixaPage /> },
   '/financeiro/relatorios/dre':        { id: 'fin-dre',       label: 'DRE Gerencial',           path: '/financeiro/relatorios/dre',         icon: PieChart,     element: <DREPage /> },
   '/financeiro/plano-contas':          { id: 'fin-plano',     label: 'Plano de Contas',         path: '/financeiro/plano-contas',           icon: Settings,     element: <PlanoContasPage /> },
+  '/financeiro/centro-custo':          { id: 'fin-centro',    label: 'Centro de Custo',          path: '/financeiro/centro-custo',           icon: Building2,    element: <CentroCustoPage /> },
   '/financeiro/fin-clientes':          { id: 'fin-clientes',  label: 'Clientes Financeiros',     path: '/financeiro/fin-clientes',           icon: Users,        element: <FinClientesPage /> },
   '/financeiro/fin-fornecedores':      { id: 'fin-fornecedores', label: 'Fornecedores Financeiros', path: '/financeiro/fin-fornecedores',     icon: Building2,    element: <FinFornecedoresPage /> },
   '/repcrm/radar':                     { id: 'crm-radar',         label: 'Radar do Rep',         path: '/repcrm/radar',                      icon: Radar,           element: <CarteiraRadarPage /> },
@@ -115,6 +119,8 @@ export const ROUTE_CONFIG: Record<string, RouteItem> = {
   '/repcrm/atividades':                { id: 'crm-atividades',    label: 'Atividades',           path: '/repcrm/atividades',                 icon: Activity,        element: <AtividadesPage /> },
   '/repcrm/relacionamentos':          { id: 'crm-relacionamentos', label: 'Relacionamentos',      path: '/repcrm/relacionamentos',            icon: ClipboardCheck,  element: <RegistroRelacionamentosPage /> },
   '/repcrm/pipeline':                  { id: 'crm-pipeline',      label: 'Pipeline Kanban',      path: '/repcrm/pipeline',                   icon: Kanban,          element: <PipelinePage /> },
+  '/repcrm/visitas':                   { id: 'crm-visitas',        label: 'Visitas',              path: '/repcrm/visitas',                    icon: CalendarDays,    element: <VisitasPage /> },
+  '/repcrm/campo':                     { id: 'crm-campo',          label: 'Campo Ao Vivo',        path: '/repcrm/campo',                      icon: MapPin,          element: <CampoAoVivoPage /> },
   '/utilitarios/whatsapp-ia':          { id: 'whatsapp-ia',       label: 'WhatsApp IA',          path: '/utilitarios/whatsapp-ia',           icon: MessageCircle,   element: <WhatsAppIAPage /> },
   '/nexus-ia':                         { id: 'nexus-ia',          label: 'Iris — Sua Assistente', path: '/nexus-ia',             icon: Sparkles,        element: <IrisVoicePage /> },
   '/utilitarios/iris-config':          { id: 'iris-config',       label: 'IRIS — Configuração',   path: '/utilitarios/iris-config', icon: Sparkles,      element: <IrisConfigPage /> },
