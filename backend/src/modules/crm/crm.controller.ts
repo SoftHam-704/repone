@@ -1107,39 +1107,48 @@ export async function checkinHandler(req: Request, res: Response): Promise<void>
       }
     }
 
-    // ── Escrita legada em registro_visitas (mantém compat com VisitasPage) ──
-    const legacyRes = await db.query(`
-      INSERT INTO registro_visitas
-        (vis_promotor_id, vis_cliente_id, vis_latitude_checkin, vis_longitude_checkin, vis_distancia_metros, vis_tipo)
-      VALUES ($1, $2, $3, $4, $5, 'CHECKIN')
-      RETURNING vis_codigo, vis_datahora
-    `, [parseInt(ven_codigo), parseInt(cli_codigo), latitude ?? 0, longitude ?? 0, distancia]);
-    const legacy = legacyRes.rows[0];
+    // ── Atomic: registro_visitas + visitas_campo ─────────────────────────────
+    await db.query('BEGIN');
+    try {
+      // ── Escrita legada em registro_visitas (mantém compat com VisitasPage) ──
+      const legacyRes = await db.query(`
+        INSERT INTO registro_visitas
+          (vis_promotor_id, vis_cliente_id, vis_latitude_checkin, vis_longitude_checkin, vis_distancia_metros, vis_tipo)
+        VALUES ($1, $2, $3, $4, $5, 'CHECKIN')
+        RETURNING vis_codigo, vis_datahora
+      `, [parseInt(ven_codigo), parseInt(cli_codigo), latitude ?? 0, longitude ?? 0, distancia]);
+      const legacy = legacyRes.rows[0];
 
-    // ── Escrita nova em visitas_campo (com resultado no checkout) ───────────
-    const campoRes = await db.query(`
-      INSERT INTO visitas_campo
-        (cli_codigo, ven_codigo, data, checkin_at, checkin_lat, checkin_lng)
-      VALUES ($1, $2, CURRENT_DATE, NOW(), $3, $4)
-      RETURNING id
-    `, [parseInt(cli_codigo), parseInt(ven_codigo), latitude ?? null, longitude ?? null]);
-    const campo_id = campoRes.rows[0].id;
+      // ── Escrita nova em visitas_campo (com resultado no checkout) ───────────
+      const campoRes = await db.query(`
+        INSERT INTO visitas_campo
+          (cli_codigo, ven_codigo, data, checkin_at, checkin_lat, checkin_lng)
+        VALUES ($1, $2, CURRENT_DATE, NOW(), $3, $4)
+        RETURNING id
+      `, [parseInt(cli_codigo), parseInt(ven_codigo), latitude ?? null, longitude ?? null]);
+      const campo_id = campoRes.rows[0].id;
 
-    console.log(`📍 [CHECKIN] ven=${ven_codigo} cli=${cli_codigo} dist=${distancia}m campo_id=${campo_id}`);
-    res.json({
-      success: true,
-      vis_codigo: legacy.vis_codigo,
-      campo_id,
-      datahora: legacy.vis_datahora,
-      distancia_metros: distancia,
-    });
+      await db.query('COMMIT');
+
+      console.log(`📍 [CHECKIN] ven=${ven_codigo} cli=${cli_codigo} dist=${distancia}m campo_id=${campo_id}`);
+      res.json({
+        success: true,
+        vis_codigo: legacy.vis_codigo,
+        campo_id,
+        datahora: legacy.vis_datahora,
+        distancia_metros: distancia,
+      });
+    } catch (e) {
+      await db.query('ROLLBACK');
+      err(res, e, 'checkin');
+    }
   } catch (e) { err(res, e, 'checkin'); }
 }
 
 // POST /crm/visitas/checkout
 export async function checkoutHandler(req: Request, res: Response): Promise<void> {
   const db = req.db!;
-  const { ven_codigo, cli_codigo, latitude, longitude, resultado, motivo_nao_positivo } = req.body;
+  const { ven_codigo, cli_codigo, latitude, longitude, resultado, motivo_nao_positivo, campo_id } = req.body;
   if (!ven_codigo || !cli_codigo) {
     res.status(400).json({ success: false, message: 'ven_codigo e cli_codigo são obrigatórios.' });
     return;
@@ -1154,47 +1163,61 @@ export async function checkoutHandler(req: Request, res: Response): Promise<void
     return;
   }
   try {
-    // ── Escrita legada em registro_visitas ───────────────────────────────────
-    const legacyRes = await db.query(`
-      INSERT INTO registro_visitas
-        (vis_promotor_id, vis_cliente_id, vis_latitude_checkin, vis_longitude_checkin, vis_tipo)
-      VALUES ($1, $2, $3, $4, 'CHECKOUT')
-      RETURNING vis_codigo, vis_datahora
-    `, [parseInt(ven_codigo), parseInt(cli_codigo), latitude ?? 0, longitude ?? 0]);
-    const legacy = legacyRes.rows[0];
+    // ── Atomic: registro_visitas + visitas_campo update ──────────────────────
+    await db.query('BEGIN');
+    try {
+      // ── Escrita legada em registro_visitas ───────────────────────────────────
+      const legacyRes = await db.query(`
+        INSERT INTO registro_visitas
+          (vis_promotor_id, vis_cliente_id, vis_latitude_checkin, vis_longitude_checkin, vis_tipo)
+        VALUES ($1, $2, $3, $4, 'CHECKOUT')
+        RETURNING vis_codigo, vis_datahora
+      `, [parseInt(ven_codigo), parseInt(cli_codigo), latitude ?? 0, longitude ?? 0]);
+      const legacy = legacyRes.rows[0];
 
-    // ── Atualizar visitas_campo com resultado e checkout coords ─────────────
-    const updateRes = await db.query(`
-      UPDATE visitas_campo
-      SET checkout_at         = NOW(),
-          checkout_lat        = $3,
-          checkout_lng        = $4,
-          resultado           = $5,
-          motivo_nao_positivo = $6,
-          duracao_minutos     = ROUND(EXTRACT(EPOCH FROM (NOW() - checkin_at)) / 60)
-      WHERE id = (
-        SELECT id FROM visitas_campo
-        WHERE ven_codigo = $1 AND cli_codigo = $2
-          AND data = CURRENT_DATE AND checkout_at IS NULL
-        ORDER BY checkin_at DESC
-        LIMIT 1
-      )
-      RETURNING id, duracao_minutos
-    `, [
-      parseInt(ven_codigo), parseInt(cli_codigo),
-      latitude ?? null, longitude ?? null,
-      resultado, motivo_nao_positivo ?? null,
-    ]);
+      // ── Atualizar visitas_campo com resultado e checkout coords ─────────────
+      // Prefere campo_id explícito; fallback: heurística por ven+cli+data
+      const updateRes = await db.query(`
+        UPDATE visitas_campo
+        SET checkout_at         = NOW(),
+            checkout_lat        = $3,
+            checkout_lng        = $4,
+            resultado           = $5,
+            motivo_nao_positivo = $6,
+            duracao_minutos     = ROUND(EXTRACT(EPOCH FROM (NOW() - checkin_at)) / 60)
+        WHERE id = COALESCE(
+          $7::int,
+          (SELECT id FROM visitas_campo
+           WHERE ven_codigo = $1 AND cli_codigo = $2
+             AND data = CURRENT_DATE AND checkout_at IS NULL
+           ORDER BY checkin_at DESC LIMIT 1)
+        )
+        RETURNING id, duracao_minutos
+      `, [
+        parseInt(ven_codigo), parseInt(cli_codigo),
+        latitude ?? null, longitude ?? null,
+        resultado, motivo_nao_positivo ?? null,
+        campo_id ? parseInt(campo_id) : null,
+      ]);
 
-    const campo = updateRes.rows[0];
-    console.log(`🏁 [CHECKOUT] ven=${ven_codigo} cli=${cli_codigo} resultado=${resultado} dur=${campo?.duracao_minutos}min`);
-    res.json({
-      success: true,
-      vis_codigo: legacy.vis_codigo,
-      campo_id: campo?.id ?? null,
-      resultado,
-      duracao_minutos: campo?.duracao_minutos ?? null,
-    });
+      await db.query('COMMIT');
+
+      const campo = updateRes.rows[0];
+      if (!campo) {
+        console.warn(`[CHECKOUT] No open visitas_campo row found: ven=${ven_codigo} cli=${cli_codigo}`);
+      }
+      console.log(`🏁 [CHECKOUT] ven=${ven_codigo} cli=${cli_codigo} resultado=${resultado} dur=${campo?.duracao_minutos}min`);
+      res.json({
+        success: true,
+        vis_codigo: legacy.vis_codigo,
+        campo_id: campo?.id ?? null,
+        resultado,
+        duracao_minutos: campo?.duracao_minutos ?? null,
+      });
+    } catch (e) {
+      await db.query('ROLLBACK');
+      err(res, e, 'checkout');
+    }
   } catch (e) { err(res, e, 'checkout'); }
 }
 
