@@ -1055,3 +1055,277 @@ export async function whatsappConnectHandler(req: Request, res: Response): Promi
     err(res, e, 'whatsapp connect');
   }
 }
+
+// ─── Check-in / Check-out ─────────────────────────────────────────────────────
+
+// GET /crm/visitas/hoje — check-ins abertos hoje para este promotor
+export async function visitasHojeHandler(req: Request, res: Response): Promise<void> {
+  const db = req.db!;
+  const { ven_codigo } = req.query as Record<string, string>;
+  if (!ven_codigo) { res.json({ success: true, data: [] }); return; }
+  try {
+    // Retorna cli_codigo dos clientes cujo ÚLTIMO registro hoje é CHECKIN (= visita aberta)
+    const result = await db.query(`
+      SELECT DISTINCT ON (vis_cliente_id) vis_cliente_id, vis_tipo, vis_codigo
+      FROM registro_visitas
+      WHERE vis_promotor_id = $1
+        AND vis_datahora::date = CURRENT_DATE
+      ORDER BY vis_cliente_id, vis_datahora DESC
+    `, [parseInt(ven_codigo)]);
+    const abertos = result.rows
+      .filter(r => r.vis_tipo === 'CHECKIN')
+      .map(r => ({ cli_codigo: r.vis_cliente_id, vis_codigo: r.vis_codigo }));
+    res.json({ success: true, data: abertos });
+  } catch (e) { err(res, e, 'visitas hoje'); }
+}
+
+// POST /crm/visitas/checkin
+export async function checkinHandler(req: Request, res: Response): Promise<void> {
+  const db = req.db!;
+  const { ven_codigo, cli_codigo, latitude, longitude } = req.body;
+  if (!ven_codigo || !cli_codigo) {
+    res.status(400).json({ success: false, message: 'ven_codigo e cli_codigo são obrigatórios.' });
+    return;
+  }
+  try {
+    // ── Calcular distância Haversine se cliente tem coordenadas ──────────────
+    let distancia: number | null = null;
+    if (latitude && longitude) {
+      const cliRes = await db.query(
+        'SELECT cli_latitude, cli_longitude FROM clientes WHERE cli_codigo = $1',
+        [parseInt(cli_codigo)]
+      );
+      const cli = cliRes.rows[0];
+      if (cli?.cli_latitude && cli?.cli_longitude) {
+        const R = 6371000;
+        const dLat = (Number(cli.cli_latitude)  - latitude)  * Math.PI / 180;
+        const dLon = (Number(cli.cli_longitude) - longitude) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 +
+          Math.cos(latitude * Math.PI/180) * Math.cos(Number(cli.cli_latitude) * Math.PI/180) *
+          Math.sin(dLon/2)**2;
+        distancia = Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+      }
+    }
+
+    // ── Escrita legada em registro_visitas (mantém compat com VisitasPage) ──
+    const legacyRes = await db.query(`
+      INSERT INTO registro_visitas
+        (vis_promotor_id, vis_cliente_id, vis_latitude_checkin, vis_longitude_checkin, vis_distancia_metros, vis_tipo)
+      VALUES ($1, $2, $3, $4, $5, 'CHECKIN')
+      RETURNING vis_codigo, vis_datahora
+    `, [parseInt(ven_codigo), parseInt(cli_codigo), latitude ?? 0, longitude ?? 0, distancia]);
+    const legacy = legacyRes.rows[0];
+
+    // ── Escrita nova em visitas_campo (com resultado no checkout) ───────────
+    const campoRes = await db.query(`
+      INSERT INTO visitas_campo
+        (cli_codigo, ven_codigo, data, checkin_at, checkin_lat, checkin_lng)
+      VALUES ($1, $2, CURRENT_DATE, NOW(), $3, $4)
+      RETURNING id
+    `, [parseInt(cli_codigo), parseInt(ven_codigo), latitude ?? null, longitude ?? null]);
+    const campo_id = campoRes.rows[0].id;
+
+    console.log(`📍 [CHECKIN] ven=${ven_codigo} cli=${cli_codigo} dist=${distancia}m campo_id=${campo_id}`);
+    res.json({
+      success: true,
+      vis_codigo: legacy.vis_codigo,
+      campo_id,
+      datahora: legacy.vis_datahora,
+      distancia_metros: distancia,
+    });
+  } catch (e) { err(res, e, 'checkin'); }
+}
+
+// POST /crm/visitas/checkout
+export async function checkoutHandler(req: Request, res: Response): Promise<void> {
+  const db = req.db!;
+  const { ven_codigo, cli_codigo, latitude, longitude, resultado, motivo_nao_positivo } = req.body;
+  if (!ven_codigo || !cli_codigo) {
+    res.status(400).json({ success: false, message: 'ven_codigo e cli_codigo são obrigatórios.' });
+    return;
+  }
+  if (!resultado) {
+    res.status(400).json({ success: false, message: 'resultado é obrigatório no checkout.' });
+    return;
+  }
+  const resultadosValidos = ['positivou', 'nao_positivou', 'reagendou', 'ausente', 'fechado'];
+  if (!resultadosValidos.includes(resultado)) {
+    res.status(400).json({ success: false, message: `resultado deve ser: ${resultadosValidos.join(', ')}` });
+    return;
+  }
+  try {
+    // ── Escrita legada em registro_visitas ───────────────────────────────────
+    const legacyRes = await db.query(`
+      INSERT INTO registro_visitas
+        (vis_promotor_id, vis_cliente_id, vis_latitude_checkin, vis_longitude_checkin, vis_tipo)
+      VALUES ($1, $2, $3, $4, 'CHECKOUT')
+      RETURNING vis_codigo, vis_datahora
+    `, [parseInt(ven_codigo), parseInt(cli_codigo), latitude ?? 0, longitude ?? 0]);
+    const legacy = legacyRes.rows[0];
+
+    // ── Atualizar visitas_campo com resultado e checkout coords ─────────────
+    const updateRes = await db.query(`
+      UPDATE visitas_campo
+      SET checkout_at         = NOW(),
+          checkout_lat        = $3,
+          checkout_lng        = $4,
+          resultado           = $5,
+          motivo_nao_positivo = $6,
+          duracao_minutos     = ROUND(EXTRACT(EPOCH FROM (NOW() - checkin_at)) / 60)
+      WHERE id = (
+        SELECT id FROM visitas_campo
+        WHERE ven_codigo = $1 AND cli_codigo = $2
+          AND data = CURRENT_DATE AND checkout_at IS NULL
+        ORDER BY checkin_at DESC
+        LIMIT 1
+      )
+      RETURNING id, duracao_minutos
+    `, [
+      parseInt(ven_codigo), parseInt(cli_codigo),
+      latitude ?? null, longitude ?? null,
+      resultado, motivo_nao_positivo ?? null,
+    ]);
+
+    const campo = updateRes.rows[0];
+    console.log(`🏁 [CHECKOUT] ven=${ven_codigo} cli=${cli_codigo} resultado=${resultado} dur=${campo?.duracao_minutos}min`);
+    res.json({
+      success: true,
+      vis_codigo: legacy.vis_codigo,
+      campo_id: campo?.id ?? null,
+      resultado,
+      duracao_minutos: campo?.duracao_minutos ?? null,
+    });
+  } catch (e) { err(res, e, 'checkout'); }
+}
+
+// GET /crm/visitas/historico — histórico de visitas paginado
+export async function visitasHistoricoHandler(req: Request, res: Response): Promise<void> {
+  const db = req.db!;
+  const { data_inicio, data_fim, ven_codigo } = req.query as Record<string, string>;
+
+  const inicio = data_inicio || new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const fim    = data_fim    || new Date().toISOString().slice(0, 10);
+
+  const params: any[] = [inicio, fim];
+  let venFilter = '';
+  if (ven_codigo) {
+    params.push(parseInt(ven_codigo));
+    venFilter = `AND ci.vis_promotor_id = $${params.length}`;
+  }
+
+  try {
+    const result = await db.query(`
+      SELECT
+        ci.vis_codigo,
+        ci.vis_promotor_id,
+        ci.vis_cliente_id,
+        ci.vis_datahora          AS checkin_at,
+        ci.vis_distancia_metros,
+        co.vis_datahora          AS checkout_at,
+        c.cli_nome               AS cliente_razao,
+        c.cli_nomred             AS cliente_nome,
+        v.ven_nome               AS promotor_nome
+      FROM registro_visitas ci
+      LEFT JOIN LATERAL (
+        SELECT vis_datahora
+        FROM registro_visitas
+        WHERE vis_promotor_id = ci.vis_promotor_id
+          AND vis_cliente_id  = ci.vis_cliente_id
+          AND vis_tipo        = 'CHECKOUT'
+          AND vis_datahora    > ci.vis_datahora
+          AND vis_datahora::date = ci.vis_datahora::date
+        ORDER BY vis_datahora ASC
+        LIMIT 1
+      ) co ON true
+      LEFT JOIN clientes  c ON c.cli_codigo  = ci.vis_cliente_id
+      LEFT JOIN vendedores v ON v.ven_codigo = ci.vis_promotor_id
+      WHERE ci.vis_tipo = 'CHECKIN'
+        AND ci.vis_datahora::date BETWEEN $1 AND $2
+        ${venFilter}
+      ORDER BY ci.vis_datahora DESC
+      LIMIT 500
+    `, params);
+
+    res.json({ success: true, data: result.rows });
+  } catch (e) { err(res, e, 'visitas historico'); }
+}
+
+// GET /crm/campo/ao-vivo — estado atual dos promotores + todas as visitas do dia
+export async function campoAoVivoHandler(req: Request, res: Response): Promise<void> {
+  const db = req.db!;
+  const { data } = req.query as Record<string, string>;
+  const dia = data || new Date().toISOString().slice(0, 10);
+
+  try {
+    const visitasRes = await db.query(`
+      SELECT
+        vc.id,
+        vc.cli_codigo,
+        vc.ven_codigo,
+        vc.checkin_at,
+        vc.checkout_at,
+        vc.resultado,
+        vc.motivo_nao_positivo,
+        vc.duracao_minutos,
+        vc.checkin_lat,
+        vc.checkin_lng,
+        c.cli_nomred  AS cliente_nome,
+        c.cli_nome    AS cliente_razao,
+        v.ven_nome    AS promotor_nome
+      FROM visitas_campo vc
+      JOIN clientes   c ON c.cli_codigo  = vc.cli_codigo
+      JOIN vendedores v ON v.ven_codigo = vc.ven_codigo
+      WHERE vc.data = $1
+      ORDER BY vc.checkin_at DESC
+    `, [dia]);
+
+    const visitas = visitasRes.rows;
+
+    const promMap = new Map<number, {
+      ven_codigo: number;
+      promotor_nome: string;
+      total_visitas: number;
+      positivadas: number;
+      nao_positivadas: number;
+      em_visita: boolean;
+      cliente_atual: string | null;
+      checkin_atual: string | null;
+    }>();
+
+    for (const v of visitas) {
+      if (!promMap.has(v.ven_codigo)) {
+        promMap.set(v.ven_codigo, {
+          ven_codigo:      v.ven_codigo,
+          promotor_nome:   v.promotor_nome,
+          total_visitas:   0,
+          positivadas:     0,
+          nao_positivadas: 0,
+          em_visita:       false,
+          cliente_atual:   null,
+          checkin_atual:   null,
+        });
+      }
+      const p = promMap.get(v.ven_codigo)!;
+      p.total_visitas++;
+      if (v.resultado === 'positivou')     p.positivadas++;
+      if (v.resultado === 'nao_positivou') p.nao_positivadas++;
+      if (!v.checkout_at && !p.em_visita) {
+        p.em_visita     = true;
+        p.cliente_atual = v.cliente_nome;
+        p.checkin_atual = v.checkin_at;
+      }
+    }
+
+    const kpis = {
+      total_visitas:   visitas.length,
+      positivadas:     visitas.filter(v => v.resultado === 'positivou').length,
+      nao_positivadas: visitas.filter(v => v.resultado === 'nao_positivou').length,
+      em_visita:       visitas.filter(v => !v.checkout_at).length,
+    };
+
+    res.json({
+      success: true,
+      data: { kpis, promotores: [...promMap.values()], visitas },
+    });
+  } catch (e) { err(res, e, 'campo ao vivo'); }
+}

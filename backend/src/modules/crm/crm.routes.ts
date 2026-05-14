@@ -22,6 +22,10 @@ import {
   whatsappConnectHandler, whatsappConnectAutoHandler,
   // Relatório
   relatorioRelacionamentosHandler,
+  // Check-in / Check-out
+  visitasHojeHandler, checkinHandler, checkoutHandler, visitasHistoricoHandler,
+  // Campo Ao Vivo
+  campoAoVivoHandler,
 } from './crm.controller';
 
 const router = Router();
@@ -72,5 +76,14 @@ router.get ('/whatsapp/instances',         whatsappInstancesHandler);
 router.get ('/whatsapp/connect-auto',      whatsappConnectAutoHandler);
 router.get ('/whatsapp/connect/:instance', whatsappConnectHandler);
 router.post('/whatsapp/send',              whatsappSendHandler);
+
+// Check-in / Check-out
+router.get ('/visitas/historico', visitasHistoricoHandler);
+router.get ('/visitas/hoje',      visitasHojeHandler);
+router.post('/visitas/checkin',   checkinHandler);
+router.post('/visitas/checkout',  checkoutHandler);
+
+// Campo Ao Vivo — Painel do Diretor
+router.get('/campo/ao-vivo', campoAoVivoHandler);
 
 export default router;
