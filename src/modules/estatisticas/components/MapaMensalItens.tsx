@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Package, Search } from 'lucide-react';
+import { Package, Search, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 
@@ -110,6 +111,29 @@ export default function MapaMensalItens({ dataInicio, dataFim }: Props) {
 
   const indRequired = !industria;
 
+  function exportExcel() {
+    const data = produtos.map(prod => {
+      const row: Record<string, any> = {
+        Código: prod.codigo,
+        Descrição: prod.descricao,
+      };
+      for (const m of meses) row[m] = pivot[prod.codigo]?.[m] || 0;
+      row['TOTAL'] = totalPorProd[prod.codigo] || 0;
+      return row;
+    });
+    // Linha de totais
+    const totalRow: Record<string, any> = { Código: '', Descrição: 'TOTAL' };
+    for (const m of meses) totalRow[m] = totalPorMes[m] || 0;
+    totalRow['TOTAL'] = grandTotal;
+    data.push(totalRow);
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [{ wch: 16 }, { wch: 50 }, ...meses.map(() => ({ wch: 10 })), { wch: 10 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Mapa Mensal Itens');
+    XLSX.writeFile(wb, `mapa-mensal-itens.xlsx`);
+  }
+
   return (
     <div style={{ padding: '20px 24px', background: G.bg, minHeight: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -202,14 +226,24 @@ export default function MapaMensalItens({ dataInicio, dataFim }: Props) {
         </div>
       )}
 
-      {/* ── Info ── */}
+      {/* ── Info + Export ── */}
       {!loading && rows.length > 0 && (
-        <div style={{ display: 'flex', gap: 16, fontSize: 11, color: G.textMuted, fontWeight: 600 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 11, color: G.textMuted, fontWeight: 600 }}>
           <span>{produtos.length} SKU{produtos.length !== 1 ? 's' : ''}</span>
           <span>·</span>
           <span>{meses.length} mês/meses</span>
           <span>·</span>
           <span>Total: <strong style={{ color: G.text }}>{grandTotal.toLocaleString('pt-BR')} peças</strong></span>
+          <button
+            onClick={exportExcel}
+            style={{
+              marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+              background: '#1D6F42', color: '#fff', border: 'none', cursor: 'pointer',
+            }}
+          >
+            <Download size={13} /> Excel
+          </button>
         </div>
       )}
 

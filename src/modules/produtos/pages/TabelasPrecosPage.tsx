@@ -1,13 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Table as TableIcon, Upload, TrendingUp, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { api } from '@/shared/lib/api';
-import {
-  CadastroShell,
-} from '@/shared/components/layout/CadastroShell';
+import { CadastroShell } from '@/shared/components/layout/CadastroShell';
+import ImportacaoPrecosPage from './ImportacaoPrecosPage';
 
 interface TabelaRow {
   industria: number;
@@ -32,14 +30,15 @@ const fmtDate = (d: string | null) => {
 
 type ContextMenu = { x: number; y: number; row: TabelaRow } | null;
 type AdjustModal = { row: TabelaRow } | null;
+type ImportModal = { industria?: { value: string | number; label: string } } | null;
 
 export default function TabelasPrecosPage() {
-  const navigate = useNavigate();
   const [tables,      setTables]      = useState<TabelaRow[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [searchTerm,  setSearchTerm]  = useState('');
   const [ctxMenu,     setCtxMenu]     = useState<ContextMenu>(null);
   const [adjustModal, setAdjustModal] = useState<AdjustModal>(null);
+  const [importModal, setImportModal] = useState<ImportModal>(null);
   const [pct,         setPct]         = useState('');
   const [applying,    setApplying]    = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -105,11 +104,12 @@ export default function TabelasPrecosPage() {
   });
 
   return (
+    <>
     <CadastroShell
       title="Tabelas de Preço"
       search={searchTerm}
       onSearch={setSearchTerm}
-      onNew={() => navigate('/utilitarios/importacao-precos')}
+      onNew={() => setImportModal({})}
       newLabel="Nova Importação"
       loading={loading}
     >
@@ -122,7 +122,7 @@ export default function TabelasPrecosPage() {
           {searchTerm ? 'Nenhuma tabela encontrada para a busca.' : 'Nenhuma tabela importada ainda.'}
           <div style={{ marginTop: 16 }}>
             <button
-              onClick={() => navigate('/utilitarios/importacao-precos')}
+              onClick={() => setImportModal({})}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 padding: '10px 24px', borderRadius: 10, border: 'none',
@@ -199,6 +199,18 @@ export default function TabelasPrecosPage() {
           <div style={{ padding: '6px 12px', fontSize: 10, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid #F1F5F9' }}>
             {ctxMenu.row.industria_nome} · {ctxMenu.row.nome_tabela}
           </div>
+          <button
+            onClick={() => { setImportModal({ industria: { value: ctxMenu.row.industria, label: ctxMenu.row.industria_nome } }); setCtxMenu(null); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+              padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 13, fontWeight: 700, color: '#28374A', textAlign: 'left',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#F8FAFC')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+            <Upload size={14} color="#3B82F6" />
+            Importar / Atualizar Tabela
+          </button>
           <button
             onClick={() => { setAdjustModal({ row: ctxMenu.row }); setCtxMenu(null); }}
             style={{
@@ -296,5 +308,18 @@ export default function TabelasPrecosPage() {
         </div>
       )}
     </CadastroShell>
+
+    {/* ── Modal de Importação ───────────────────────────────────────────── */}
+    {importModal && (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: '95vw', maxWidth: 1400, height: '92vh', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+          <ImportacaoPrecosPage
+            initialIndustria={importModal.industria}
+            onClose={() => { setImportModal(null); fetchTables(); }}
+          />
+        </div>
+      </div>
+    )}
+    </>
   );
 }

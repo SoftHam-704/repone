@@ -1064,8 +1064,21 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
   const [editCode,      setEditCode]      = useState('');
   const [editQty,       setEditQty]       = useState('');
   const [instructions,  setInstructions]  = useState('');
-  const [showInstr,     setShowInstr]     = useState(false);
+  const [showInstr,     setShowInstr]     = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const DICAS = [
+    { label: 'Itens repetidos → somar',      text: 'Produtos aparecem duplicados no arquivo. Some as quantidades de itens com o mesmo código.' },
+    { label: 'Preços zerados → ignorar',      text: 'Os preços no arquivo estão zerados. Ignore-os e use apenas os preços da tabela do sistema.' },
+    { label: 'Código na coluna REF',          text: 'O código do produto está na coluna chamada "REF" ou "Referência", não na descrição.' },
+    { label: 'Código antes do " - " no nome', text: 'O código vem no início da descrição, separado por " - ". Ex: "74894 - FAROL LD...".' },
+    { label: 'Ignorar linhas sem código',     text: 'Ignore linhas que não tenham um código de produto válido (linhas de cabeçalho, observações, totais).' },
+    { label: 'Quantidade em "Qtd Pedida"',    text: 'A quantidade está na coluna "Qtd Pedida" ou "Qtd Solicitada", não na coluna "Qtd".' },
+  ];
+
+  function appendDica(text: string) {
+    setInstructions(prev => prev.trim() ? `${prev.trim()} ${text}` : text);
+  }
 
   const ACCEPTED = '.pdf,.xlsx,.xls,.docx,.jpg,.jpeg,.png,.webp';
 
@@ -1088,13 +1101,13 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
 
       if (!res.ok) throw new Error(`Erro ${res.status} no servidor`);
       const data = await res.json();
-      if (data.warning) toast.error(data.warning);
+      if (data.warning) { toast.error(data.warning); setShowInstr(true); }
       const items: AiItem[] = data.items || [];
-
-      if (items.length === 0) {
-        toast.error('A IA não encontrou itens no arquivo. Verifique se o arquivo contém códigos de produto.');
-      }
       setAiItems(items);
+      if (items.length === 0) {
+        toast.warning('A IA não identificou itens no arquivo. Veja o grid abaixo, adicione instruções e tente novamente.');
+        setShowInstr(true);
+      }
     } catch (e: any) {
       toast.error(e?.message || 'Erro ao processar arquivo com IA. Verifique o servidor.');
     } finally {
@@ -1226,175 +1239,94 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)' }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(40,55,74,0.55)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
       <style>{`
-        @keyframes ml-pulse    { 0%,100%{opacity:.5;transform:scale(1)} 50%{opacity:1;transform:scale(1.12)} }
-        @keyframes ml-spin     { to{transform:rotate(360deg)} }
-        @keyframes ml-orb      { 0%{transform:translate(0,0);opacity:.4} 50%{transform:translate(14px,-12px);opacity:.9} 100%{transform:translate(0,0);opacity:.4} }
-        @keyframes ml-dot      { 0%,80%,100%{transform:scale(0.5);opacity:.25} 40%{transform:scale(1.1);opacity:1} }
-        @keyframes ml-slide    { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes ml-scan     { 0%{top:0%} 100%{top:100%} }
-        @keyframes ml-particle { 0%{transform:translateY(0) scale(1);opacity:.8} 100%{transform:translateY(-80px) scale(0);opacity:0} }
-        @keyframes ml-ring     { 0%{transform:scale(0.6);opacity:.9} 100%{transform:scale(2.4);opacity:0} }
-        @keyframes ml-aurora   { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
-        @keyframes ml-node     { 0%,100%{opacity:.3;r:2} 50%{opacity:1;r:3} }
-        @keyframes ml-shimmer  { 0%{transform:translateX(-100%)} 100%{transform:translateX(200%)} }
+        @keyframes ml-dot   { 0%,80%,100%{transform:scale(0.5);opacity:.3} 40%{transform:scale(1.1);opacity:1} }
+        @keyframes ml-slide { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes ml-scan  { 0%{top:0%} 100%{top:100%} }
+        @keyframes ml-ring  { 0%{transform:scale(0.6);opacity:.7} 100%{transform:scale(2.2);opacity:0} }
       `}</style>
 
       {/* ── Modal ── */}
       <div onClick={e => e.stopPropagation()} style={{
-        position: 'relative', width: '80vw', maxWidth: 860, maxHeight: '90vh',
-        background: '#030D1A',
-        borderRadius: 22,
-        border: '1px solid #0F2845',
-        boxShadow: '0 0 0 1px #0EA5E910, 0 30px 80px rgba(0,0,0,0.75), 0 0 50px #0EA5E910',
+        width: '80vw', maxWidth: 860, maxHeight: '90vh',
+        background: G.bg,
+        borderRadius: 20,
+        border: `1px solid ${G.border}`,
+        boxShadow: '0 20px 60px rgba(40,55,74,0.25)',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
 
-        {/* ── Neural network background ── */}
-        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 0 }} viewBox="0 0 860 600" preserveAspectRatio="xMidYMid slice">
-          <defs>
-            <radialGradient id="mlNodeGlow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#38BDF8" stopOpacity="1" />
-              <stop offset="100%" stopColor="#38BDF8" stopOpacity="0" />
-            </radialGradient>
-          </defs>
-          {/* Edges */}
-          {([
-            [80,120,210,60],[210,60,380,140],[380,140,520,80],[520,80,680,160],[680,160,800,100],
-            [80,120,160,260],[210,60,300,200],[380,140,420,280],[520,80,560,240],[680,160,740,300],
-            [160,260,300,200],[300,200,420,280],[420,280,560,240],[560,240,700,320],[700,320,800,260],
-            [160,260,200,400],[300,200,340,360],[420,280,460,420],[560,240,580,400],[700,320,720,460],
-            [200,400,340,360],[340,360,460,420],[460,420,580,400],[580,400,720,460],
-            [200,400,220,520],[340,360,360,500],[460,420,480,540],[580,400,600,530],[720,460,760,540],
-          ] as [number,number,number,number][]).map(([x1,y1,x2,y2], i) => (
-            <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#0EA5E9" strokeWidth="0.6" strokeOpacity="0.25" />
-          ))}
-          {/* Nodes */}
-          {([
-            [80,120],[210,60],[380,140],[520,80],[680,160],[800,100],
-            [160,260],[300,200],[420,280],[560,240],[700,320],[800,260],
-            [200,400],[340,360],[460,420],[580,400],[720,460],
-            [220,520],[360,500],[480,540],[600,530],[760,540],
-          ] as [number,number][]).map(([cx,cy], i) => (
-            <circle key={i} cx={cx} cy={cy} r={i % 3 === 0 ? 3 : 2}
-              fill={i % 4 === 0 ? '#38BDF8' : i % 3 === 0 ? '#0EA5E9' : '#06B6D4'}
-              opacity="0.5"
-              style={{ animation: `ml-node ${2 + (i % 3)}s ease-in-out ${(i * 0.3) % 2}s infinite` }}
-            />
-          ))}
-        </svg>
-
-        {/* ── Aurora glow layer ── */}
-        <div style={{
-          position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-          background: 'linear-gradient(135deg, #0EA5E918 0%, #06B6D412 30%, #06B6D410 60%, #0EA5E914 100%)',
-          backgroundSize: '400% 400%',
-          animation: 'ml-aurora 12s ease infinite',
-        }} />
-
-        {/* ── Header ── */}
-        <div style={{ position: 'relative', zIndex: 1, padding: '22px 28px 18px', borderBottom: '1px solid #0A1E35', overflow: 'hidden', flexShrink: 0 }}>
-          {/* Background orbs */}
-          <div style={{ position: 'absolute', top: -30, right: 60, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, #0EA5E944 0%, transparent 70%)', animation: 'ml-orb 6s ease-in-out infinite' }} />
-          <div style={{ position: 'absolute', top: -10, right: 20, width: 70, height: 70, borderRadius: '50%', background: 'radial-gradient(circle, #06B6D433 0%, transparent 70%)', animation: 'ml-orb 4s ease-in-out infinite reverse' }} />
-          <div style={{ position: 'absolute', top: 10, left: '40%', width: 40, height: 40, borderRadius: '50%', background: 'radial-gradient(circle, #06B6D422 0%, transparent 70%)', animation: 'ml-orb 7s ease-in-out 1s infinite' }} />
-          {/* Floating particles */}
-          {[
-            { left: '15%', delay: '0s',   size: 3, color: '#38BDF8' },
-            { left: '30%', delay: '1.2s', size: 2, color: '#06B6D4' },
-            { left: '55%', delay: '0.6s', size: 3, color: '#06B6D4' },
-            { left: '72%', delay: '1.8s', size: 2, color: '#38BDF8' },
-            { left: '85%', delay: '0.3s', size: 3, color: '#06B6D4' },
-          ].map((p, i) => (
-            <div key={i} style={{
-              position: 'absolute', bottom: -4, left: p.left,
-              width: p.size, height: p.size, borderRadius: '50%',
-              background: p.color, boxShadow: `0 0 6px ${p.color}`,
-              animation: `ml-particle 3s ease-out ${p.delay} infinite`,
-            }} />
-          ))}
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, position: 'relative' }}>
-            {/* Icon glow */}
-            <div style={{
-              width: 48, height: 48, borderRadius: 14, flexShrink: 0,
-              background: 'linear-gradient(135deg, #0EA5E9, #06B6D4)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 0 20px #0EA5E966, 0 4px 12px rgba(0,0,0,0.4)',
-            }}>
-              <Wand2 size={22} style={{ color: '#fff' }} />
-            </div>
-
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 3 }}>
-                <span style={{ fontSize: 18, fontWeight: 900, letterSpacing: 0.5, color: '#BAE6FD' }}>Magic Load</span>
-                <span style={{
-                  fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 20,
-                  background: 'linear-gradient(90deg, #0EA5E9, #06B6D4)',
-                  color: '#fff', letterSpacing: 1, textTransform: 'uppercase',
-                  boxShadow: '0 0 10px #0EA5E955',
-                }}>IA</span>
-              </div>
-              <p style={{ margin: 0, fontSize: 11, color: '#4BAAC0' }}>
-                Envie um PDF, Excel ou imagem — a IA extrai os itens automaticamente
-              </p>
-            </div>
-
-            <button onClick={onClose} style={{
-              width: 32, height: 32, borderRadius: 9, border: '1px solid #0F2845',
-              background: '#061525', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2E7A97', flexShrink: 0,
-            }}>
-              <X size={15} />
-            </button>
+        {/* ── Header navy ── */}
+        <div style={{ padding: '18px 24px', background: '#28374A', borderBottom: `1px solid #1E2D3A`, display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+          <div style={{ width: 42, height: 42, borderRadius: 12, background: G.mustard, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Wand2 size={20} style={{ color: '#28374A' }} />
           </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+              <span style={{ fontSize: 16, fontWeight: 900, color: '#F2EDE4', letterSpacing: 0.3 }}>Magic Load</span>
+              <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 20, background: G.mustard, color: '#28374A', letterSpacing: 1, textTransform: 'uppercase' }}>IA</span>
+            </div>
+            <p style={{ margin: 0, fontSize: 11, color: '#94A3B8' }}>
+              Envie um PDF, Excel ou imagem — a IA extrai os itens automaticamente
+            </p>
+          </div>
+          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.08)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94A3B8', flexShrink: 0 }}>
+            <X size={14} />
+          </button>
         </div>
 
         {/* ── Body ── */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16, position: 'relative', zIndex: 1 }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
           {/* ── IRIS Instructions ── */}
-          <div style={{ borderRadius: 12, border: `1px solid ${showInstr ? '#1E4976' : '#0F2845'}`, overflow: 'hidden', transition: 'all .2s' }}>
+          <div style={{ borderRadius: 10, border: `1px solid ${instructions.trim() ? '#28374A' : G.border}`, overflow: 'hidden', background: G.card, transition: 'border-color .2s' }}>
             <button
               onClick={() => setShowInstr(v => !v)}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-                padding: '10px 14px', background: showInstr ? '#071830' : '#050F1C',
-                border: 'none', cursor: 'pointer', color: instructions.trim() ? '#38BDF8' : '#2E7A97',
-              }}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'transparent', border: 'none', cursor: 'pointer' }}
             >
-              <span style={{
-                fontSize: 10, fontWeight: 900, letterSpacing: 1,
-                padding: '2px 8px', borderRadius: 5,
-                background: 'linear-gradient(90deg,#0EA5E9,#06B6D4)',
-                color: '#fff',
-              }}>IRIS</span>
-              <span style={{ fontSize: 12, fontWeight: 700, flex: 1, textAlign: 'left' }}>
-                Instruções para extração
+              <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1, padding: '2px 8px', borderRadius: 5, background: '#28374A', color: G.mustard }}>IRIS</span>
+              <span style={{ fontSize: 12, fontWeight: 700, flex: 1, textAlign: 'left', color: G.text }}>
+                Ajudar a IRIS a entender o arquivo
               </span>
-              {instructions.trim() && (
-                <span style={{ fontSize: 10, color: '#38BDF8', fontWeight: 700 }}>● ativa</span>
-              )}
-              <span style={{ fontSize: 11, color: '#2E7A97' }}>{showInstr ? '▲' : '▼'}</span>
+              {instructions.trim() && <span style={{ fontSize: 10, color: '#16A34A', fontWeight: 700 }}>● ativa</span>}
+              <span style={{ fontSize: 11, color: G.muted }}>{showInstr ? '▲' : '▼'}</span>
             </button>
             {showInstr && (
-              <div style={{ padding: '10px 14px', background: '#050F1C', borderTop: '1px solid #0F2845' }}>
-                <p style={{ fontSize: 11, color: '#2E7A97', margin: '0 0 8px' }}>
-                  Diga à IRIS como interpretar o arquivo. Ex: <em>"O código está na coluna REF"</em> ou <em>"Ignore a primeira coluna, use a coluna 3 como código"</em>
+              <div style={{ padding: '12px 14px', borderTop: `1px solid ${G.border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <p style={{ fontSize: 11, color: G.muted, margin: 0, lineHeight: 1.5 }}>
+                  Se a extração não ficou certa, clique nas dicas que descrevem o problema e envie novamente.
                 </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {DICAS.map(d => (
+                    <button key={d.label} onClick={() => appendDica(d.text)} style={{
+                      fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 20,
+                      border: `1px solid ${instructions.includes(d.text) ? '#28374A' : G.border}`,
+                      background: instructions.includes(d.text) ? '#28374A' : 'transparent',
+                      color: instructions.includes(d.text) ? G.mustard : G.text,
+                      cursor: 'pointer', transition: 'all .15s', whiteSpace: 'nowrap',
+                    }}>
+                      {instructions.includes(d.text) ? '✓ ' : '+ '}{d.label}
+                    </button>
+                  ))}
+                </div>
                 <textarea
                   value={instructions}
                   onChange={e => setInstructions(e.target.value)}
                   rows={3}
-                  placeholder="Ex: O código do produto está na coluna 'Referência'. A quantidade está na coluna 'Qtd Pedida'."
+                  placeholder="Ou escreva livremente: 'Os preços estão zerados, ignore-os. Os itens se repetem, some as quantidades.'"
                   style={{
                     width: '100%', boxSizing: 'border-box', resize: 'vertical',
-                    background: '#071828', border: '1px solid #1E4976', borderRadius: 8,
-                    color: '#BAE6FD', fontSize: 12, padding: '8px 10px',
+                    background: G.bg, border: `1px solid ${G.border}`, borderRadius: 8,
+                    color: G.text, fontSize: 12, padding: '8px 10px',
                     outline: 'none', fontFamily: 'inherit',
                   }}
                 />
+                {instructions.trim() && (
+                  <button onClick={() => setInstructions('')} style={{ alignSelf: 'flex-end', fontSize: 10, color: G.muted, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                    Limpar instruções
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1406,116 +1338,58 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
             onClick={() => !loading && fileRef.current?.click()}
-            onMouseMove={handleDropMouseMove}
-            onMouseLeave={() => setFlash(f => ({ ...f, on: false }))}
             style={{
-              position: 'relative', borderRadius: 16, overflow: 'hidden',
-              border: `2px dashed ${dragging ? '#38BDF8' : '#0F2845'}`,
-              background: dragging ? '#06152588' : '#071020',
+              position: 'relative', borderRadius: 14, overflow: 'hidden',
+              border: `2px dashed ${dragging ? '#28374A' : G.border}`,
+              background: dragging ? `${G.mustard}18` : G.card,
               cursor: loading ? 'default' : 'pointer',
-              transition: 'all 0.2s',
-              boxShadow: dragging ? '0 0 30px #0EA5E944 inset' : 'none',
-              minHeight: 180,
+              transition: 'all 0.2s', minHeight: 160,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
           >
             <input ref={fileRef} type="file" accept={ACCEPTED} style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ''; }} />
 
-            {/* Flashlight spotlight */}
-            {flash.on && !loading && (
-              <div style={{
-                position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
-                background: `radial-gradient(320px circle at ${flash.x}px ${flash.y}px, rgba(167,139,250,0.13), transparent 65%)`,
-              }} />
-            )}
-
-            {/* Scan line when loading */}
             {loading && (
-              <div style={{
-                position: 'absolute', left: 0, right: 0, height: 2,
-                background: 'linear-gradient(90deg, transparent, #38BDF8, #06B6D4, transparent)',
-                animation: 'ml-scan 1.6s ease-in-out infinite',
-                boxShadow: '0 0 12px #38BDF8',
-              }} />
+              <div style={{ position: 'absolute', left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${G.mustard}, transparent)`, animation: 'ml-scan 1.6s ease-in-out infinite' }} />
             )}
 
-            <div style={{ textAlign: 'center', padding: '28px 24px', position: 'relative', zIndex: 1 }}>
+            <div style={{ textAlign: 'center', padding: '24px', position: 'relative', zIndex: 1 }}>
               {loading ? (
                 <>
-                  <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 14 }}>
                     {[0, 1, 2].map(i => (
-                      <div key={i} style={{
-                        width: 10, height: 10, borderRadius: '50%',
-                        background: i === 0 ? '#0EA5E9' : i === 1 ? '#06B6D4' : '#06B6D4',
-                        animation: `ml-dot 1.2s ease-in-out ${i * 0.2}s infinite`,
-                      }} />
+                      <div key={i} style={{ width: 9, height: 9, borderRadius: '50%', background: '#28374A', animation: `ml-dot 1.2s ease-in-out ${i * 0.2}s infinite` }} />
                     ))}
                   </div>
-                  <p style={{ fontWeight: 800, fontSize: 14, margin: '0 0 4px', color: '#BAE6FD' }}>
-                    Analisando com IA...
-                  </p>
-                  <p style={{ fontSize: 11, color: '#2E7A97', margin: 0 }}>{fileName}</p>
+                  <p style={{ fontWeight: 800, fontSize: 14, margin: '0 0 3px', color: G.text }}>Analisando com IA...</p>
+                  <p style={{ fontSize: 11, color: G.muted, margin: 0 }}>{fileName}</p>
                 </>
               ) : fileName && aiItems.length > 0 ? (
                 <>
-                  <CheckCircle2 size={32} style={{ color: '#10B981', marginBottom: 10, filter: 'drop-shadow(0 0 8px #10B98155)' }} />
-                  <p style={{ fontWeight: 800, fontSize: 13, color: '#6EE7B7', margin: '0 0 2px' }}>{fileName}</p>
-                  <p style={{ fontSize: 11, color: '#2E7A97', margin: 0 }}>{aiItems.length} itens extraídos · clique para trocar o arquivo</p>
+                  <CheckCircle2 size={30} style={{ color: '#16A34A', marginBottom: 8 }} />
+                  <p style={{ fontWeight: 800, fontSize: 13, color: '#16A34A', margin: '0 0 2px' }}>{fileName}</p>
+                  <p style={{ fontSize: 11, color: G.muted, margin: 0 }}>{aiItems.length} itens extraídos · clique para trocar o arquivo</p>
                 </>
               ) : (
                 <>
-                  {/* Concentric sonar rings */}
-                  <div style={{ position: 'relative', width: 120, height: 120, margin: '0 auto 18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ position: 'relative', width: 100, height: 100, margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {[1, 2, 3].map(i => (
-                      <div key={i} style={{
-                        position: 'absolute',
-                        width: i * 38, height: i * 38,
-                        borderRadius: '50%',
-                        border: `1px solid ${i === 1 ? '#38BDF8' : i === 2 ? '#0EA5E9' : '#0C4A6E'}`,
-                        animation: `ml-ring ${i * 0.7 + 1.4}s ease-out ${(i - 1) * 0.5}s infinite`,
-                      }} />
+                      <div key={i} style={{ position: 'absolute', width: i * 32, height: i * 32, borderRadius: '50%', border: `1px solid ${G.border}`, animation: `ml-ring ${i * 0.7 + 1.4}s ease-out ${(i - 1) * 0.5}s infinite` }} />
                     ))}
-                    {/* Icon */}
-                    <div style={{
-                      position: 'relative', zIndex: 2,
-                      width: 56, height: 56, borderRadius: '50%',
-                      background: 'linear-gradient(135deg, #0C4A6E, #0EA5E9)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      boxShadow: '0 0 30px #0EA5E966, 0 0 60px #0EA5E922',
-                    }}>
-                      {/* Shimmer overlay */}
-                      <div style={{
-                        position: 'absolute', inset: 0, borderRadius: '50%', overflow: 'hidden',
-                        background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.12) 50%, transparent 100%)',
-                        backgroundSize: '200% 100%',
-                        animation: 'ml-shimmer 2.5s ease-in-out infinite',
-                      }} />
-                      <Wand2 size={22} style={{ color: '#E9D5FF', position: 'relative' }} />
+                    <div style={{ position: 'relative', zIndex: 2, width: 48, height: 48, borderRadius: '50%', background: '#28374A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Wand2 size={20} style={{ color: G.mustard }} />
                     </div>
                   </div>
-
-                  <p style={{ fontWeight: 900, fontSize: 15, color: '#BAE6FD', margin: '0 0 5px', letterSpacing: 0.3 }}>
-                    {dragging ? '✦ Solte para processar' : 'Arraste o arquivo aqui'}
+                  <p style={{ fontWeight: 800, fontSize: 14, color: G.text, margin: '0 0 4px' }}>
+                    {dragging ? 'Solte para processar' : 'Arraste o arquivo aqui'}
                   </p>
-                  <p style={{ fontSize: 11, color: '#2E7A97', margin: '0 0 18px' }}>PDF · Excel · Word · JPG · PNG · WEBP</p>
-
-                  {/* Format badges */}
-                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
-                    {[
-                      { label: 'PDF',   color: '#EF4444' },
-                      { label: 'EXCEL', color: '#22C55E' },
-                      { label: 'WORD',  color: '#2563EB' },
-                      { label: 'IMAGEM', color: '#3B82F6' },
-                    ].map(b => (
-                      <span key={b.label} style={{
-                        padding: '3px 10px', borderRadius: 20,
-                        background: `${b.color}15`, border: `1px solid ${b.color}40`,
-                        fontSize: 10, fontWeight: 800, color: b.color, letterSpacing: 0.8,
-                      }}>{b.label}</span>
+                  <p style={{ fontSize: 11, color: G.muted, margin: '0 0 14px' }}>PDF · Excel · Word · JPG · PNG · WEBP</p>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+                    {[{ label: 'PDF', color: '#DC2626' }, { label: 'EXCEL', color: '#16A34A' }, { label: 'WORD', color: '#2563EB' }, { label: 'IMAGEM', color: '#7C3AED' }].map(b => (
+                      <span key={b.label} style={{ padding: '2px 9px', borderRadius: 20, background: `${b.color}12`, border: `1px solid ${b.color}35`, fontSize: 10, fontWeight: 800, color: b.color, letterSpacing: 0.7 }}>{b.label}</span>
                     ))}
                   </div>
-
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 20, border: '1px solid #103060', background: '#06152566', fontSize: 11, color: '#4BAAC0' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 14px', borderRadius: 20, border: `1px solid ${G.border}`, background: G.bg, fontSize: 11, color: G.muted }}>
                     <Upload size={11} /> ou clique para selecionar
                   </div>
                 </>
@@ -1525,39 +1399,68 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
 
           {/* Aviso: catálogo vazio */}
           {priceTableItems.length === 0 && aiItems.length === 0 && !loading && (
-            <div style={{ borderRadius: 10, padding: '10px 14px', background: '#1C1000', border: '1px solid #F59E0B44', display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div style={{ borderRadius: 10, padding: '10px 14px', background: '#FEF3C7', border: '1px solid #FCD34D', display: 'flex', gap: 10, alignItems: 'center' }}>
               <span style={{ fontSize: 15 }}>⚠️</span>
-              <span style={{ fontSize: 11, color: '#FCD34D', fontWeight: 600 }}>
+              <span style={{ fontSize: 11, color: '#92400E', fontWeight: 600 }}>
                 Nenhuma tabela de preços carregada. Selecione a indústria e a tabela no pedido antes de usar o Magic Load.
               </span>
             </div>
           )}
 
           {/* Review table */}
-          {aiItems.length > 0 && !loading && (
-            <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #0A1E35', animation: 'ml-slide 0.3s ease-out' }}>
-              <div style={{ padding: '8px 14px', background: '#071525', borderBottom: '1px solid #0A1E35', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981', display: 'inline-block', boxShadow: '0 0 6px #10B981' }} />
-                  <span style={{ fontSize: 10, fontWeight: 800, color: '#6EE7B7', textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                    Conferência — {aiItems.length} item(s)
+          {fileName && !loading && (
+            <div style={{ borderRadius: 10, overflow: 'hidden', border: `1px solid ${G.border}`, animation: 'ml-slide 0.3s ease-out' }}>
+              <div style={{ padding: '8px 14px', background: '#28374A', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: aiItems.length > 0 ? '#4ADE80' : '#F87171', display: 'inline-block' }} />
+                  <span style={{ fontSize: 10, fontWeight: 800, color: '#F2EDE4', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                    {aiItems.length > 0 ? `Conferência — ${aiItems.length} item(s)` : 'Nenhum item identificado pela IA'}
                   </span>
                 </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#10B981' }}>{matchedCount} encontrado(s)</span>
-                  {aiItems.length - matchedCount > 0 && (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: '#F87171' }}>{aiItems.length - matchedCount} não encontrado(s)</span>
-                  )}
-                  <span style={{ fontSize: 9, color: '#2E7A97', letterSpacing: 0.5 }}>· clique no código para editar</span>
-                </div>
+                {aiItems.length > 0 && (
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#4ADE80' }}>{matchedCount} encontrado(s)</span>
+                    {aiItems.length - matchedCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: '#FCA5A5' }}>{aiItems.length - matchedCount} não encontrado(s)</span>}
+                    <span style={{ fontSize: 9, color: '#94A3B8' }}>· clique no código para editar</span>
+                  </div>
+                )}
               </div>
-              <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+
+              {aiItems.length > 0 && matchedCount === 0 && (
+                <div style={{ padding: '8px 14px', background: '#FEF2F2', borderBottom: `1px solid #FECACA`, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: 13 }}>⚠️</span>
+                  <span style={{ fontSize: 11, color: '#991B1B', lineHeight: 1.5 }}>
+                    Nenhum código encontrado na tabela de preços. <strong>Clique nos códigos em vermelho</strong> para corrigi-los, ou use as dicas acima e envie novamente.
+                  </span>
+                </div>
+              )}
+
+              {aiItems.length > 0 && matchedCount > 0 && matchedCount < aiItems.length && (
+                <div style={{ padding: '7px 14px', background: '#F0FDF4', borderBottom: `1px solid #BBF7D0`, display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11 }}>💡</span>
+                  <span style={{ fontSize: 11, color: '#166534', lineHeight: 1.5 }}>
+                    Clique nos códigos <span style={{ color: '#DC2626', fontWeight: 700 }}>✗</span> para corrigi-los. Apenas os ✓ serão importados.
+                  </span>
+                </div>
+              )}
+
+              {aiItems.length === 0 && (
+                <div style={{ padding: '24px', textAlign: 'center', color: G.muted }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>🔍</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: G.text, marginBottom: 4 }}>Nenhum produto identificado</div>
+                  <div style={{ fontSize: 11, color: G.muted, lineHeight: 1.6, maxWidth: 300, margin: '0 auto' }}>
+                    Use as dicas acima para explicar à IRIS onde estão os códigos e quantidades e envie o arquivo novamente.
+                  </div>
+                </div>
+              )}
+
+              <div style={{ maxHeight: 280, overflowY: 'auto', background: '#fff' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                   <thead>
-                    <tr style={{ background: '#071020' }}>
+                    <tr style={{ background: G.cardHi || G.bg }}>
                       <th style={{ padding: '6px 10px', width: 20 }}></th>
                       {['Código', 'Produto (tabela)', 'Qtd', 'Preço', ''].map(h => (
-                        <th key={h} style={{ padding: '6px 10px', textAlign: h === 'Qtd' || h === 'Preço' ? 'center' : 'left', fontWeight: 800, color: '#0A3558', fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8 }}>{h}</th>
+                        <th key={h} style={{ padding: '6px 10px', textAlign: h === 'Qtd' || h === 'Preço' ? 'center' : 'left', fontWeight: 800, color: G.muted, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8 }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -1565,66 +1468,43 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
                     {aiItems.map((it, i) => {
                       const matched = matchProduct(it.codigo, priceTableItems);
                       const isEditing = editIdx === i;
-                      const rowBg = i % 2 === 0 ? '#030D1A' : '#071525';
                       return (
-                        <tr key={i} style={{ background: rowBg, borderBottom: '1px solid #061525' }}>
-                          {/* status indicator */}
+                        <tr key={i} style={{ background: i % 2 === 0 ? '#fff' : G.bg, borderBottom: `1px solid ${G.border}` }}>
                           <td style={{ padding: '6px 10px', textAlign: 'center' }}>
-                            {matched
-                              ? <span style={{ color: '#10B981', fontSize: 14 }}>✓</span>
-                              : <span style={{ color: '#F87171', fontSize: 14 }}>✗</span>
-                            }
+                            {matched ? <span style={{ color: '#16A34A', fontSize: 14 }}>✓</span> : <span style={{ color: '#DC2626', fontSize: 14 }}>✗</span>}
                           </td>
-                          {/* código (clicável para editar) */}
                           <td style={{ padding: '5px 10px' }}>
                             {isEditing ? (
-                              <input
-                                autoFocus
-                                value={editCode}
-                                onChange={e => setEditCode(e.target.value)}
-                                onBlur={commitEdit}
-                                onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditIdx(null); }}
-                                style={{ background: '#0A2040', border: '1px solid #38BDF8', borderRadius: 4, color: '#38BDF8', fontFamily: 'monospace', fontWeight: 700, fontSize: 11, padding: '2px 6px', width: 90, outline: 'none' }}
+                              <input autoFocus value={editCode} onChange={e => setEditCode(e.target.value)}
+                                onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditIdx(null); }}
+                                style={{ background: G.bg, border: `1px solid #28374A`, borderRadius: 4, color: G.text, fontFamily: 'monospace', fontWeight: 700, fontSize: 11, padding: '2px 6px', width: 90, outline: 'none' }}
                               />
                             ) : (
-                              <span
-                                onClick={() => startEdit(i)}
-                                title="Clique para editar o código"
-                                style={{ fontFamily: 'monospace', fontWeight: 700, color: matched ? '#38BDF8' : '#F87171', cursor: 'pointer', borderBottom: '1px dashed', borderColor: matched ? '#38BDF840' : '#F8717140', paddingBottom: 1 }}
-                              >{it.codigo}</span>
+                              <span onClick={() => startEdit(i)} title="Clique para editar o código"
+                                style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 12, color: matched ? '#1D4ED8' : '#DC2626', cursor: 'pointer', borderBottom: '1px dashed', borderColor: matched ? '#1D4ED840' : '#DC262640', paddingBottom: 1 }}>
+                                {it.codigo}
+                              </span>
                             )}
                           </td>
-                          {/* nome do produto na tabela */}
-                          <td style={{ padding: '6px 10px', color: matched ? '#BAE6FD' : '#4B5563', fontStyle: matched ? 'normal' : 'italic', fontSize: 10 }}>
+                          <td style={{ padding: '6px 10px', color: matched ? G.text : G.muted, fontStyle: matched ? 'normal' : 'italic', fontSize: 10 }}>
                             {matched ? (matched.pro_nome || it.descricao || '—') : (it.descricao || 'não encontrado na tabela')}
                           </td>
-                          {/* qtd editável */}
                           <td style={{ padding: '5px 10px', textAlign: 'center' }}>
                             {isEditing ? (
-                              <input
-                                value={editQty}
-                                onChange={e => setEditQty(e.target.value)}
-                                onBlur={commitEdit}
-                                onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditIdx(null); }}
-                                style={{ background: '#0A2040', border: '1px solid #38BDF8', borderRadius: 4, color: '#4BAAC0', fontFamily: 'monospace', fontSize: 11, padding: '2px 4px', width: 55, outline: 'none', textAlign: 'center' }}
+                              <input value={editQty} onChange={e => setEditQty(e.target.value)}
+                                onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditIdx(null); }}
+                                style={{ background: G.bg, border: `1px solid #28374A`, borderRadius: 4, color: G.text, fontFamily: 'monospace', fontSize: 11, padding: '2px 4px', width: 55, outline: 'none', textAlign: 'center' }}
                               />
                             ) : (
-                              <span
-                                onClick={() => startEdit(i)}
-                                title="Clique para editar a quantidade"
-                                style={{ fontFamily: 'monospace', color: '#4BAAC0', cursor: 'pointer' }}
-                              >{it.quantidade}</span>
+                              <span onClick={() => startEdit(i)} title="Clique para editar a quantidade" style={{ fontFamily: 'monospace', color: G.text, cursor: 'pointer', fontWeight: 700 }}>{it.quantidade}</span>
                             )}
                           </td>
-                          <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: '#4BAAC0', textAlign: 'center' }}>
-                            {it.preco && it.preco > 0
-                              ? it.preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                              : <span style={{ color: '#2E7A97', fontStyle: 'italic' }}>tabela</span>
-                            }
+                          <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: G.muted, textAlign: 'center' }}>
+                            {it.preco && it.preco > 0 ? it.preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : <span style={{ fontStyle: 'italic' }}>tabela</span>}
                           </td>
                           <td style={{ padding: '6px 8px', textAlign: 'center' }}>
                             <button onClick={() => removeItem(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center' }} title="Remover">
-                              <X size={12} style={{ color: '#F87171' }} />
+                              <X size={12} style={{ color: '#DC2626' }} />
                             </button>
                           </td>
                         </tr>
@@ -1638,20 +1518,20 @@ export function MagicModal({ order, priceTableItems, orderItems, setOrderItems, 
         </div>
 
         {/* ── Footer ── */}
-        <div style={{ padding: '16px 28px', borderTop: '1px solid #0A1E35', background: '#030D18', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0, position: 'relative', zIndex: 1 }}>
-          <button onClick={onClose} style={{
-            padding: '9px 22px', borderRadius: 10, border: '1px solid #0F2845',
-            background: '#061525', fontSize: 12, fontWeight: 700, cursor: 'pointer', color: '#2E7A97',
-          }}>Cancelar</button>
+        <div style={{ padding: '14px 24px', borderTop: `1px solid ${G.border}`, background: G.card, display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+          <button onClick={onClose} style={{ padding: '8px 20px', borderRadius: 9, border: `1px solid ${G.border}`, background: 'transparent', fontSize: 12, fontWeight: 700, cursor: 'pointer', color: G.muted }}>
+            Cancelar
+          </button>
           {aiItems.length > 0 && !loading && (
-            <button onClick={handleConfirm} disabled={matchedCount === 0} style={{
-              padding: '9px 26px', borderRadius: 10, border: 'none',
-              background: matchedCount === 0 ? '#1F2937' : 'linear-gradient(135deg, #0EA5E9, #06B6D4)',
-              fontSize: 12, fontWeight: 900, cursor: matchedCount === 0 ? 'not-allowed' : 'pointer', color: matchedCount === 0 ? '#4B5563' : '#fff',
-              boxShadow: matchedCount === 0 ? 'none' : '0 0 20px #0EA5E955, 0 4px 12px rgba(0,0,0,0.3)',
+            <button onClick={handleConfirm} disabled={matchedCount === 0} title={matchedCount === 0 ? 'Corrija os códigos em vermelho antes de importar' : ''} style={{
+              padding: '8px 24px', borderRadius: 9, border: 'none',
+              background: matchedCount === 0 ? G.border : '#28374A',
+              fontSize: 12, fontWeight: 800, cursor: matchedCount === 0 ? 'not-allowed' : 'pointer',
+              color: matchedCount === 0 ? G.muted : G.mustard,
               display: 'flex', alignItems: 'center', gap: 7,
             }}>
-              <Wand2 size={13} /> Importar {matchedCount} de {aiItems.length}
+              <Wand2 size={13} />
+              {matchedCount === 0 ? 'Corrija os códigos para importar' : `Importar ${matchedCount} de ${aiItems.length}`}
             </button>
           )}
         </div>

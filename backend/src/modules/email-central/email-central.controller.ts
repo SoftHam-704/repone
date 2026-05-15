@@ -74,7 +74,7 @@ export async function listLeadsHandler(req: Request, res: Response): Promise<voi
     const offset = parseInt((req.query.offset as string) || '0');
 
     const params: any[] = [userId];
-    let where = 'WHERE el.usuario_id = $1';
+    let where = "WHERE el.usuario_id = $1 AND el.tipo != 'outro'";
 
     if (estado) { params.push(estado); where += ` AND el.estado = $${params.length}`; }
     if (tipo)   { params.push(tipo);   where += ` AND el.tipo   = $${params.length}`; }

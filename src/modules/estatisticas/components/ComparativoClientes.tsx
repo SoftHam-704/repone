@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeftRight, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { ArrowLeftRight, TrendingUp, TrendingDown, Minus, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 
@@ -43,6 +44,7 @@ export default function ComparativoClientes({ dataInicio, dataFim }: Props) {
   const [clientes,   setClientes]   = useState<CliOpt[]>([]);
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState('');
+  const [searched,   setSearched]   = useState(false);
 
   const [industria,   setIndustria]   = useState('');
   const [clienteRef,  setClienteRef]  = useState('');
@@ -62,7 +64,7 @@ export default function ComparativoClientes({ dataInicio, dataFim }: Props) {
 
   const load = useCallback(async () => {
     if (!canLoad) return;
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setSearched(true);
     try {
       const params = new URLSearchParams({
         dataInicial: dataInicio, dataFinal: dataFim,
@@ -79,6 +81,23 @@ export default function ComparativoClientes({ dataInicio, dataFim }: Props) {
 
   const refNome  = clientes.find(c => String(c.id) === clienteRef)?.nome  || 'Referência';
   const alvoNome = clientes.find(c => String(c.id) === clienteAlvo)?.nome || 'Alvo';
+
+  function exportExcel() {
+    const data = rows.map(r => ({
+      'Código': r.codigo,
+      'Descrição': r.descricao,
+      [`${refNome} — Qtd`]: r.qtd_ref,
+      [`${refNome} — Valor`]: r.val_ref,
+      [`${alvoNome} — Qtd`]: r.qtd_alvo,
+      [`${alvoNome} — Valor`]: r.val_alvo,
+      'Δ Valor %': r.val_ref > 0 ? ((r.val_alvo - r.val_ref) / r.val_ref * 100).toFixed(1) : '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [{ wch: 16 }, { wch: 50 }, { wch: 12 }, { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 10 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Comparativo Clientes');
+    XLSX.writeFile(wb, `comparativo-clientes.xlsx`);
+  }
 
   const totalValRef  = rows.reduce((s, r) => s + r.val_ref,  0);
   const totalValAlvo = rows.reduce((s, r) => s + r.val_alvo, 0);
@@ -181,15 +200,33 @@ export default function ComparativoClientes({ dataInicio, dataFim }: Props) {
         </div>
       )}
 
+      {searched && canLoad && !loading && !error && rows.length === 0 && (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: G.textMuted }}>
+          <ArrowLeftRight size={40} style={{ opacity: 0.3 }} />
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Nenhum produto encontrado para os filtros e período selecionados</span>
+        </div>
+      )}
+
       {error && (
         <div style={{ padding: '10px 16px', borderRadius: 10, background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', fontSize: 12, fontWeight: 600 }}>
           {error}
         </div>
       )}
 
-      {/* ── KPI strip ── */}
+      {/* ── KPI strip + Export ── */}
       {!loading && rows.length > 0 && (
         <div style={{ display: 'flex', gap: 12 }}>
+          <button
+            onClick={exportExcel}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+              background: '#1D6F42', color: '#fff', border: 'none', cursor: 'pointer',
+              alignSelf: 'flex-start',
+            }}
+          >
+            <Download size={13} /> Excel
+          </button>
           {[
             { label: `${refNome} — Valor`, val: fmt(totalValRef), color: REF_COLOR },
             { label: `${refNome} — Qtd`,   val: fmtQtd(totalQtdRef) + ' pç', color: REF_COLOR },

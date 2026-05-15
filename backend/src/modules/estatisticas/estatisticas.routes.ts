@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authMiddleware } from '../../middleware/auth';
 import { tenantMiddleware } from '../../middleware/tenant';
-import { mapaVendasHandler, clientInsightHandler, selloutPeriodoHandler, selloutRealHandler, mapaCliIndustriaHandler, clientesYoYHandler, mapaMensalItensHandler, comparativoClientesHandler, grupoLojasHandler, itensNuncaCompradosHandler, mapa3AnosHandler, ultimasComprasHandler, clientesInativosHandler, prodUnicaCompraHandler, vendaMensalIndustriaHandler, mapaPedidosHandler, curvaAbcProdutosHandler, mapaOportunidadesHandler } from './estatisticas.controller';
+import { mapaVendasHandler, clientInsightHandler, selloutPeriodoHandler, selloutRealHandler, mapaCliIndustriaHandler, clientesYoYHandler, mapaMensalItensHandler, comparativoClientesHandler, grupoLojasHandler, itensNuncaCompradosHandler, mapa3AnosHandler, ultimasComprasHandler, clientesInativosHandler, prodUnicaCompraHandler, vendaMensalIndustriaHandler, mapaPedidosHandler, curvaAbcProdutosHandler, mapaOportunidadesHandler, mapaIndustriaHandler } from './estatisticas.controller';
 
 const router = Router();
 router.use(authMiddleware, tenantMiddleware);
@@ -24,5 +24,6 @@ router.get('/mapa-vendas',     mapaVendasHandler);
 router.get('/client-insight',        clientInsightHandler);
 router.get('/curva-abc-produtos',    curvaAbcProdutosHandler);
 router.get('/mapa-oportunidades',    mapaOportunidadesHandler);
+router.get('/mapa-industria',        mapaIndustriaHandler);
 
 export default router;

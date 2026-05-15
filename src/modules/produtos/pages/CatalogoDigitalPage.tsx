@@ -144,7 +144,10 @@ export default function CatalogoDigitalPage() {
     try {
       const res = await api.get(`/products/catalog/${selIndustria}`);
       setData(res.data.data || []);
-    } catch { setData([]); }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Erro ao carregar catálogo.');
+      setData([]);
+    }
     finally { setLoading(false); }
   }, [selIndustria]);
 
@@ -509,7 +512,7 @@ export default function CatalogoDigitalPage() {
 
                   {/* Embalagem */}
                   <td style={{ ...tdBase, textAlign: 'center', color: G.textSec, fontSize: 12 }}>
-                    {row.pro_embalagem || 1}
+                    {row.pro_embalagem ?? ''}
                   </td>
 
                   {/* Grupo */}
@@ -525,13 +528,13 @@ export default function CatalogoDigitalPage() {
                         fontSize: 11, fontWeight: 800, letterSpacing: '0.05em',
                         background: '#FEF9C3', color: '#854D0E', border: '1px solid #FDE047',
                       }}>L</span>
-                    ) : (
+                    ) : row.pro_ciclo === 'C' ? (
                       <span style={{
                         display: 'inline-block', padding: '1px 7px', borderRadius: 6,
                         fontSize: 11, fontWeight: 800, letterSpacing: '0.05em',
                         background: '#DBEAFE', color: '#1E40AF', border: '1px solid #BFDBFE',
                       }}>C</span>
-                    )}
+                    ) : null}
                   </td>
 
                   {/* Line flags — individual columns */}

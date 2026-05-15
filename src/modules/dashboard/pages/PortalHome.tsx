@@ -5,7 +5,7 @@ import {
   ArrowUpRight, ArrowDownRight, Flame, Factory,
   UserCircle, Calendar as CalendarIcon, Cake,
   Check, X, Info, ShieldAlert, RefreshCw, Target,
-  TrendingUp, LineChart as LineChartIcon, Mic,
+  TrendingUp, LineChart as LineChartIcon,
   PieChart as PieChartIcon,
   Mail, MessageCircle, Inbox, Clock,
   ChevronRight, ChevronLeft, Bell, Users,
@@ -1122,6 +1122,10 @@ const PortalHome = () => {
     api.post('/email-central/sync').catch(() => {}); // fire & forget
   }, []);
 
+  const fetchWpp = useCallback(() => {
+    api.get('/whatsapp/resumo-portal').then(r => r.data.success && setWppResumo(r.data)).catch(() => {});
+  }, []);
+
   useEffect(() => {
     api.get('/dashboard/industries-list').then(r => r.data.success && setIndustries(r.data.data)).catch(console.error);
     api.get('/clients?limit=1000').then(r => {
@@ -1131,20 +1135,26 @@ const PortalHome = () => {
     const venCodigo = (user as any)?.seller?.ven_codigo ?? (user as any)?.ven_codigo;
     const crmP = venCodigo ? `?ven_codigo=${venCodigo}` : '';
     api.get(`/crm/dashboard${crmP}`).then(r => r.data.success && setCrmDash(r.data.data)).catch(() => {});
-    api.get('/whatsapp/resumo-portal').then(r => r.data.success && setWppResumo(r.data)).catch(() => {});
+    fetchWpp();
 
-    // Email Central: sync + leitura de resumo ao carregar dashboard
+    // Email Central: sync + leitura ao carregar dashboard
     syncEmailsSilencioso();
     fetchEmailResumo();
 
-    // Timer: atualiza resumo de emails a cada 5 minutos
+    // Timer de email: sync + leitura a cada 2 minutos
     const emailTimer = setInterval(() => {
       syncEmailsSilencioso();
       fetchEmailResumo();
-    }, 5 * 60 * 1000);
+    }, 2 * 60 * 1000);
 
     return () => clearInterval(emailTimer);
-  }, [fetchEmailResumo, syncEmailsSilencioso]);
+  }, [fetchEmailResumo, syncEmailsSilencioso, fetchWpp]);
+
+  // Timer dedicado ao WhatsApp: atualiza a cada 60 segundos
+  useEffect(() => {
+    const wppTimer = setInterval(fetchWpp, 60 * 1000);
+    return () => clearInterval(wppTimer);
+  }, [fetchWpp]);
 
   useEffect(() => {
     const p = params();
@@ -1435,29 +1445,8 @@ const PortalHome = () => {
             </motion.div>
 
             {/* Filtros compactos */}
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              {/* ANO */}
-              <div className="flex p-0.5 rounded-xl h-9 items-center gap-0.5"
-                style={{ background: G.card, border: `1px solid ${G.border}` }}>
-                {YEARS.map(y => (
-                  <button key={y} onClick={() => { setYear(y); if (month && y === currentYear && month > currentMonth) setMonth(null); }}
-                    className="px-2.5 py-1 rounded-lg text-xs font-bold transition-all"
-                    style={year === y ? { background: G.text, color: G.card } : { color: G.textSec }}>
-                    {y}
-                  </button>
-                ))}
-              </div>
-              {/* MÊS */}
-              <div className="flex overflow-x-auto scrollbar-hide p-0.5 rounded-xl h-9 items-center gap-0.5"
-                style={{ background: G.card, border: `1px solid ${G.border}`, maxWidth: 240 }}>
-                {MONTHS.map(m => (
-                  <button key={m.v} onClick={() => setMonth(month === m.v ? null : m.v)}
-                    className="whitespace-nowrap px-2.5 py-1 rounded-lg text-xs font-bold transition-all"
-                    style={month === m.v ? { background: G.text, color: G.card } : { color: G.textSec }}>
-                    {m.l}
-                  </button>
-                ))}
-              </div>
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex items-center gap-2">
               {/* INDÚSTRIA */}
               <select value={industryId} onChange={e => setIndustryId(e.target.value)}
                 className="h-9 rounded-xl px-3 pr-8 text-xs font-bold outline-none cursor-pointer"
@@ -1473,7 +1462,7 @@ const PortalHome = () => {
                   className="h-9 rounded-xl px-3 pr-8 text-xs font-bold outline-none cursor-pointer"
                   style={{
                     ...inp, minWidth: 220,
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%233d444d' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2020/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%233d444d' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
                     backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center',
                   }} />
                 {showClientDropdown && (
@@ -1493,15 +1482,29 @@ const PortalHome = () => {
                     </motion.div>
                   )}
               </div>
-
-              {/* IRIS — botão microfone alinhado com os filtros */}
-              <motion.button
-                initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.4, type: 'spring', stiffness: 260 }}
-                className="iris-glow h-9 w-9 rounded-xl flex items-center justify-center active:scale-95 transition-transform group flex-shrink-0"
-                style={{ backgroundColor: G.mustard }} onClick={() => {}} title="Abrir Iris AI">
-                <Mic size={16} style={{ color: G.text }} className="group-hover:scale-110 transition-transform" />
-              </motion.button>
+              {/* ANO */}
+              <div className="flex p-0.5 rounded-xl h-9 items-center gap-0.5"
+                style={{ background: G.card, border: `1px solid ${G.border}` }}>
+                {YEARS.map(y => (
+                  <button key={y} onClick={() => { setYear(y); if (month && y === currentYear && month > currentMonth) setMonth(null); }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold transition-all"
+                    style={year === y ? { background: G.text, color: G.card } : { color: G.textSec }}>
+                    {y}
+                  </button>
+                ))}
+              </div>
+              </div>
+              {/* MÊS — linha própria */}
+              <div className="flex p-0.5 rounded-xl h-9 items-center gap-0.5"
+                style={{ background: G.card, border: `1px solid ${G.border}` }}>
+                {MONTHS.map(m => (
+                  <button key={m.v} onClick={() => setMonth(month === m.v ? null : m.v)}
+                    className="whitespace-nowrap px-2.5 py-1 rounded-lg text-xs font-bold transition-all"
+                    style={month === m.v ? { background: G.text, color: G.card } : { color: G.textSec }}>
+                    {m.l}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>

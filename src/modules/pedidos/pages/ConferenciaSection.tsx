@@ -592,23 +592,25 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
       const st  = hasSuframa ? 0 : (n(p.st)  ?? it.ite_st);
       const nome = p.pro_nome || it.ite_nomeprod;
 
+      const descAdd = n(p.desconto_add) ?? it.ite_des10;
+
       if (promo > 0) {
         count++;
         return calcItem({
           ...it,
           ite_puni: promo, ite_promocao: 'S', ite_nomeprod: nome,
-          ite_ipi: ipi, ite_st: st,
+          ite_ipi: ipi, ite_st: st, ite_des10: descAdd,
           ite_des1: 0, ite_des2: 0, ite_des3: 0, ite_des4: 0, ite_des5: 0,
           ite_des6: 0, ite_des7: 0, ite_des8: 0, ite_des9: 0,
         });
       }
       if (especial > 0) {
         count++;
-        return calcItem({ ...it, ite_puni: especial, ite_promocao: 'N', ite_nomeprod: nome, ite_ipi: ipi, ite_st: st });
+        return calcItem({ ...it, ite_puni: especial, ite_promocao: 'N', ite_nomeprod: nome, ite_ipi: ipi, ite_st: st, ite_des10: descAdd });
       }
       if (bruto > 0) {
         count++;
-        return calcItem({ ...it, ite_puni: bruto, ite_promocao: 'N', ite_nomeprod: nome, ite_ipi: ipi, ite_st: st });
+        return calcItem({ ...it, ite_puni: bruto, ite_promocao: 'N', ite_nomeprod: nome, ite_ipi: ipi, ite_st: st, ite_des10: descAdd });
       }
       return it;
     }));
@@ -836,6 +838,21 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
       return calcItem({ ...it, ite_puni: p3, ite_promocao: 'S', ite_des1: 0, ite_des2: 0, ite_des3: 0, ite_des4: 0, ite_des5: 0, ite_des6: 0, ite_des7: 0, ite_des8: 0, ite_des9: 0 });
     }));
     toast.success(count > 0 ? `Preço 3 (especial) aplicado em ${count} item(s).` : 'Nenhum item possui preço especial cadastrado.');
+  }, [priceTableItems, setOrderItems]);
+
+  // ── D · Conversão → Complemento (truncado em 15) ─────────────────────────
+  const handleConversao = useCallback(() => {
+    let count = 0;
+    setOrderItems(prev => prev.map(it => {
+      const p = priceTableItems.find(c => c.pro_codigo === it.ite_produto) as any;
+      if (p?.pro_conversao) { count++; return { ...it, ite_embuch: String(p.pro_conversao).slice(0, 15) }; }
+      return it;
+    }));
+    if (count > 0) {
+      toast.success(`Conversão aplicada em ${count} item(s).`);
+    } else {
+      toast('Nenhum item possui conversão cadastrada.', { icon: 'ℹ️' });
+    }
   }, [priceTableItems, setOrderItems]);
 
   // ── C · Código Original ───────────────────────────────────────────────────
@@ -1148,30 +1165,31 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
           background: G.cardHi, flexShrink: 0,
           display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
         }}>
-          {/* Sincronização */}
+          {/* 1 — Sincronização */}
           <ActionBtn shortcut="1" label="Atz. Valores"   onClick={handleAtzValores} />
 
           <div style={{ width: 1, height: 24, background: G.border, margin: '0 4px' }} />
 
-          {/* Descontos */}
+          {/* 2-3 — Descontos */}
           <ActionBtn shortcut="2" label="Desc. Padrão"   onClick={handleDescPadrao} />
           <ActionBtn shortcut="3" label="Desc. Grupo"    onClick={handleDescGrupo} />
+
+          <div style={{ width: 1, height: 24, background: G.border, margin: '0 4px' }} />
+
+          {/* 4-9 — Preços / Impostos */}
+          <ActionBtn shortcut="4" label="Atz. Tabela"    onClick={handleAtzTabNova} />
+          <ActionBtn shortcut="5" label="IPI / ST"       onClick={() => setShowIpiSt(true)} />
+          <ActionBtn shortcut="6" label="Vlr. Normal"    onClick={handleVlrNormal} />
+          <ActionBtn shortcut="7" label="Último Preço"   onClick={handleUltimoPreco} />
           <ActionBtn shortcut="8" label="Forçar Desc."   onClick={handleForcarDescontos} />
           <ActionBtn shortcut="9" label="% Adicional"    onClick={() => setShowAdd(true)} />
 
           <div style={{ width: 1, height: 24, background: G.border, margin: '0 4px' }} />
 
-          {/* Preços */}
-          <ActionBtn shortcut="4" label="Atz. Tabela"    onClick={handleAtzTabNova} />
-          <ActionBtn shortcut="6" label="Vlr. Normal"    onClick={handleVlrNormal} />
-          <ActionBtn shortcut="7" label="Último Preço"   onClick={handleUltimoPreco} />
-          <ActionBtn shortcut="B" label="Preço 3"        onClick={handlePreco3} />
-
-          <div style={{ width: 1, height: 24, background: G.border, margin: '0 4px' }} />
-
-          {/* Impostos / outros */}
-          <ActionBtn shortcut="5" label="IPI / ST"       onClick={() => setShowIpiSt(true)} />
+          {/* A-P — Outros */}
           <ActionBtn shortcut="A" label="Múltiplos"      onClick={handleChecarMultiplos} />
+          <ActionBtn shortcut="B" label="Preço 3"        onClick={handlePreco3} />
+          <ActionBtn shortcut="D" label="Conversão"      onClick={handleConversao} />
           <ActionBtn shortcut="P" label="Excel Embal."   onClick={handleExcelForaEmbal} />
           {userParams?.mostraCodigoOri && <ActionBtn shortcut="C" label="Cód. Original"  onClick={handleCodOriginal} />}
 

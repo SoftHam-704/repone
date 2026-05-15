@@ -8,7 +8,6 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { api } from '@/shared/lib/api';
 import { G } from '@/shared/components/layout/CadastroShell';
-import { AppSidebar } from '@/shared/components/layout/AppSidebar';
 
 // Fix Leaflet default icon in Vite
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -212,9 +211,7 @@ export default function CampoAoVivoPage() {
   ];
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: G.bg }}>
-      <AppSidebar />
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: G.bg }}>
 
         {/* Header */}
         <div style={{ background: G.bg, borderBottom: `1px solid ${G.border}`, padding: '14px 24px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
@@ -345,7 +342,6 @@ export default function CampoAoVivoPage() {
             </>
           )}
         </div>
-      </main>
       <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
     </div>
   );

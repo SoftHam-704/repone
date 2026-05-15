@@ -251,14 +251,15 @@ export async function wppResumoPortalHandler(req: Request, res: Response): Promi
       ),
       db.query(
         `SELECT
-           c.id, c.estado, c.resumo_ia, c.ultima_msg_at,
+           c.id, c.estado, c.resumo_ia,
+           COALESCE(c.ultima_msg_at, c.updated_at, c.created_at) AS ultima_msg_at,
            COALESCE(ct.nome_informado, ct.nome_push, ct.telefone) AS nome,
            ct.telefone
          FROM wpp_conversa c
          JOIN wpp_contato ct ON ct.id = c.contato_id
          WHERE c.estado IN ('aguardando_humano', 'humano_ativo', 'ia_ativa', 'nova')
-         ORDER BY c.ultima_msg_at DESC NULLS LAST
-         LIMIT 4`
+         ORDER BY COALESCE(c.ultima_msg_at, c.updated_at, c.created_at) DESC NULLS LAST
+         LIMIT 10`
       ),
     ]);
 

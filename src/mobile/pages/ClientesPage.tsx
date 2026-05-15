@@ -134,7 +134,7 @@ export default function ClientesPage() {
     setCheckoutModal({ cli_codigo, nome });
   }
 
-  async function handleCheckoutConfirm(resultado: string, motivo: string | null) {
+  async function handleCheckoutConfirm(resultado: string, motivo: string | null, marketing: string | null) {
     if (!checkoutModal || !user?.codigo) return;
     const { cli_codigo } = checkoutModal;
     setLoadingCI(cli_codigo);
@@ -144,6 +144,7 @@ export default function ClientesPage() {
       const r = await api.post('/crm/visitas/checkout', {
         ven_codigo: user.codigo, cli_codigo, resultado,
         motivo_nao_positivo: motivo,
+        marketing_acao: marketing,
         campo_id,
         ...gps,
       });

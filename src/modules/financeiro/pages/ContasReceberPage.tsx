@@ -1,18 +1,21 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, Search, X, ChevronDown, ChevronUp, Check, Trash2, Eye } from 'lucide-react'
+import { Plus, Search, X, Check, Trash2, Eye, ArrowDownCircle } from 'lucide-react'
 import { api } from '@/shared/lib/api'
 
 const G = {
   bg:      '#E8E1D4',
-  card:    '#F2EDE4',
-  border:  '#D6CCBA',
+  card:    '#FFFFFF',
+  border:  '#D6CDB8',
   text:    '#28374A',
-  muted:   '#6B7A8A',
+  muted:   '#7A8899',
   mustard: '#FFD200',
-  green:   '#22C55E',
-  red:     '#EF4444',
-  amber:   '#F59E0B',
+  green:   '#059669',
+  red:     '#DC2626',
+  amber:   '#D97706',
+  navy:    '#1E2D3D',
 }
+
+const GRID_BG = `url("data:image/svg+xml,%3Csvg width='40' height='40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h40v40H0z' fill='none'/%3E%3Cpath d='M0 0v40M40 0v40M0 0h40M0 40h40' stroke='%23ffffff' stroke-width='0.4' stroke-opacity='0.07'/%3E%3C/svg%3E")`
 
 function fmtBRL(v: any) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0)
@@ -64,7 +67,7 @@ interface PlanoContas { id: number; codigo: string; descricao: string; tipo: str
 function StatusBadge({ status }: { status: Status }) {
   const map: Record<Status, { label: string; bg: string; color: string }> = {
     ABERTO:    { label: 'Aberto',    bg: '#E0F2FE', color: '#0369A1' },
-    RECEBIDO:  { label: 'Recebido',  bg: '#DCFCE7', color: '#166534' },
+    RECEBIDO:  { label: 'Recebido',  bg: '#D1FAE5', color: '#065F46' },
     VENCIDO:   { label: 'Vencido',   bg: '#FEE2E2', color: '#991B1B' },
     CANCELADO: { label: 'Cancelado', bg: '#F3F4F6', color: '#6B7280' },
   }
@@ -76,12 +79,23 @@ function StatusBadge({ status }: { status: Status }) {
   )
 }
 
-// ─── Modal Nova Conta ──────────────────────────────────────────────────────────
+const inputStyle: React.CSSProperties = {
+  display: 'block', width: '100%', marginTop: 4, padding: '8px 10px',
+  border: `1px solid ${G.border}`, borderRadius: 6, fontSize: 13,
+  background: '#fff', color: G.text, outline: 'none', boxSizing: 'border-box',
+}
+const btnSecondary: React.CSSProperties = {
+  padding: '8px 18px', border: `1px solid ${G.border}`, background: 'transparent',
+  borderRadius: 7, fontSize: 13, color: G.text, cursor: 'pointer',
+}
+const btnPrimary = (bg: string): React.CSSProperties => ({
+  padding: '8px 18px', border: 'none', background: bg,
+  borderRadius: 7, fontSize: 13, color: '#fff', cursor: 'pointer', fontWeight: 600,
+})
+
 function NovaContaModal({ onClose, onSaved, clientes, planoContas }: {
-  onClose: () => void
-  onSaved: () => void
-  clientes: FinCliente[]
-  planoContas: PlanoContas[]
+  onClose: () => void; onSaved: () => void
+  clientes: FinCliente[]; planoContas: PlanoContas[]
 }) {
   const [form, setForm] = useState({
     descricao: '', id_cliente: '', numero_documento: '',
@@ -91,7 +105,6 @@ function NovaContaModal({ onClose, onSaved, clientes, planoContas }: {
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   async function submit(e: React.FormEvent) {
@@ -116,7 +129,7 @@ function NovaContaModal({ onClose, onSaved, clientes, planoContas }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 520, maxHeight: '90vh', overflowY: 'auto' }}>
+      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 520, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: G.text }}>Nova Conta a Receber</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted }}><X size={18} /></button>
@@ -125,21 +138,16 @@ function NovaContaModal({ onClose, onSaved, clientes, planoContas }: {
           {error && <div style={{ background: '#FEE2E2', color: G.red, padding: '8px 12px', borderRadius: 6, fontSize: 13 }}>{error}</div>}
 
           <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Descrição *
-            <input value={form.descricao} onChange={e => set('descricao', e.target.value)}
-              style={inputStyle} placeholder="Ex: Comissão de Venda #1234" required />
+            <input value={form.descricao} onChange={e => set('descricao', e.target.value)} style={inputStyle} placeholder="Ex: Comissão de Venda #1234" required />
           </label>
-
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Valor Total *
-              <input value={form.valor_total} onChange={e => set('valor_total', e.target.value)}
-                style={inputStyle} placeholder="0,00" inputMode="decimal" required />
+              <input value={form.valor_total} onChange={e => set('valor_total', e.target.value)} style={inputStyle} placeholder="0,00" inputMode="decimal" required />
             </label>
             <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>N° Documento
-              <input value={form.numero_documento} onChange={e => set('numero_documento', e.target.value)}
-                style={inputStyle} placeholder="Opcional" />
+              <input value={form.numero_documento} onChange={e => set('numero_documento', e.target.value)} style={inputStyle} placeholder="Opcional" />
             </label>
           </div>
-
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Emissão
               <input type="date" value={form.data_emissao} onChange={e => set('data_emissao', e.target.value)} style={inputStyle} />
@@ -148,14 +156,12 @@ function NovaContaModal({ onClose, onSaved, clientes, planoContas }: {
               <input type="date" value={form.data_vencimento} onChange={e => set('data_vencimento', e.target.value)} style={inputStyle} required />
             </label>
           </div>
-
           <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Cliente
             <select value={form.id_cliente} onChange={e => set('id_cliente', e.target.value)} style={inputStyle}>
               <option value="">— Selecionar —</option>
               {clientes.map(c => <option key={c.id} value={c.id}>{c.nome_razao}</option>)}
             </select>
           </label>
-
           <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Plano de Contas
             <select value={form.id_plano_contas} onChange={e => set('id_plano_contas', e.target.value)} style={inputStyle}>
               <option value="">— Selecionar —</option>
@@ -164,23 +170,17 @@ function NovaContaModal({ onClose, onSaved, clientes, planoContas }: {
               ))}
             </select>
           </label>
-
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>N° Parcelas
-              <input type="number" value={form.numero_parcelas} onChange={e => set('numero_parcelas', e.target.value)}
-                style={inputStyle} min="1" max="60" />
+              <input type="number" value={form.numero_parcelas} onChange={e => set('numero_parcelas', e.target.value)} style={inputStyle} min="1" max="60" />
             </label>
             <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Intervalo (dias)
-              <input type="number" value={form.intervalo_dias} onChange={e => set('intervalo_dias', e.target.value)}
-                style={inputStyle} min="1" />
+              <input type="number" value={form.intervalo_dias} onChange={e => set('intervalo_dias', e.target.value)} style={inputStyle} min="1" />
             </label>
           </div>
-
           <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Observações
-            <textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)}
-              style={{ ...inputStyle, height: 70, resize: 'vertical' }} placeholder="Opcional" />
+            <textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)} style={{ ...inputStyle, height: 70, resize: 'vertical' }} placeholder="Opcional" />
           </label>
-
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
             <button type="button" onClick={onClose} style={btnSecondary}>Cancelar</button>
             <button type="submit" disabled={saving} style={btnPrimary(G.green)}>{saving ? 'Salvando...' : 'Salvar'}</button>
@@ -191,7 +191,6 @@ function NovaContaModal({ onClose, onSaved, clientes, planoContas }: {
   )
 }
 
-// ─── Modal Baixa Parcela ───────────────────────────────────────────────────────
 function BaixaModal({ conta, parcela, onClose, onSaved }: {
   conta: Conta; parcela: Parcela; onClose: () => void; onSaved: () => void
 }) {
@@ -203,7 +202,6 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }))
   const vPago = parseFloat(form.valor_recebido || '0')
   const residual = parcela.valor - vPago - parseFloat(form.desconto || '0')
@@ -228,13 +226,13 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 420 }}>
+      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: G.text }}>Registrar Recebimento</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted }}><X size={18} /></button>
         </div>
-        <div style={{ fontSize: 12, color: G.muted, marginBottom: 16 }}>
-          Parcela {parcela.numero_parcela} — {fmtBRL(parcela.valor)} — venc. {fmtDate(parcela.data_vencimento)}
+        <div style={{ fontSize: 12, color: G.muted, marginBottom: 16, padding: '8px 12px', background: G.bg, borderRadius: 6 }}>
+          Parcela {parcela.numero_parcela} · {fmtBRL(parcela.valor)} · venc. {fmtDate(parcela.data_vencimento)}
         </div>
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {error && <div style={{ background: '#FEE2E2', color: G.red, padding: '8px 12px', borderRadius: 6, fontSize: 13 }}>{error}</div>}
@@ -262,12 +260,11 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
             </div>
           )}
           <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Observações
-            <textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)}
-              style={{ ...inputStyle, height: 60, resize: 'vertical' }} />
+            <textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)} style={{ ...inputStyle, height: 60, resize: 'vertical' }} />
           </label>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={btnSecondary}>Cancelar</button>
-            <button type="submit" disabled={saving} style={btnPrimary(G.green)}>{saving ? 'Salvando...' : 'Confirmar'}</button>
+            <button type="submit" disabled={saving} style={btnPrimary(G.green)}>{saving ? 'Salvando...' : 'Confirmar Recebimento'}</button>
           </div>
         </form>
       </div>
@@ -275,7 +272,6 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
   )
 }
 
-// ─── Modal Detalhes ────────────────────────────────────────────────────────────
 function DetalhesModal({ contaId, onClose, onBaixa }: {
   contaId: number; onClose: () => void; onBaixa: (conta: Conta, parcela: Parcela) => void
 }) {
@@ -291,7 +287,7 @@ function DetalhesModal({ contaId, onClose, onBaixa }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 560, maxHeight: '85vh', overflowY: 'auto' }}>
+      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 560, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: G.text }}>Detalhes da Conta a Receber</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted }}><X size={18} /></button>
@@ -300,10 +296,10 @@ function DetalhesModal({ contaId, onClose, onBaixa }: {
           <div style={{ textAlign: 'center', color: G.muted, padding: 40 }}>Carregando...</div>
         ) : conta ? (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 13, color: G.text, marginBottom: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 13, color: G.text, marginBottom: 20, background: G.bg, padding: 14, borderRadius: 8 }}>
               <div><span style={{ color: G.muted }}>Descrição: </span>{conta.descricao}</div>
               <div><span style={{ color: G.muted }}>Cliente: </span>{conta.cliente_nome || '—'}</div>
-              <div><span style={{ color: G.muted }}>Valor Total: </span>{fmtBRL(conta.valor_total)}</div>
+              <div><span style={{ color: G.muted }}>Valor Total: </span><strong>{fmtBRL(conta.valor_total)}</strong></div>
               <div><span style={{ color: G.muted }}>Valor Recebido: </span>{fmtBRL(conta.valor_recebido)}</div>
               <div><span style={{ color: G.muted }}>Vencimento: </span>{fmtDate(conta.data_vencimento)}</div>
               <div><span style={{ color: G.muted }}>Status: </span><StatusBadge status={conta.status} /></div>
@@ -313,7 +309,7 @@ function DetalhesModal({ contaId, onClose, onBaixa }: {
               <thead>
                 <tr style={{ background: G.bg }}>
                   {['#', 'Vencimento', 'Valor', 'Recebido', 'Status', ''].map(h => (
-                    <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: G.muted, fontWeight: 500 }}>{h}</th>
+                    <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: G.muted, fontWeight: 600, fontSize: 11 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -346,22 +342,6 @@ function DetalhesModal({ contaId, onClose, onBaixa }: {
   )
 }
 
-// ─── Styles ────────────────────────────────────────────────────────────────────
-const inputStyle: React.CSSProperties = {
-  display: 'block', width: '100%', marginTop: 4, padding: '8px 10px',
-  border: `1px solid ${G.border}`, borderRadius: 6, fontSize: 13,
-  background: '#fff', color: G.text, outline: 'none', boxSizing: 'border-box',
-}
-const btnSecondary: React.CSSProperties = {
-  padding: '8px 18px', border: `1px solid ${G.border}`, background: 'transparent',
-  borderRadius: 7, fontSize: 13, color: G.text, cursor: 'pointer',
-}
-const btnPrimary = (bg: string): React.CSSProperties => ({
-  padding: '8px 18px', border: 'none', background: bg,
-  borderRadius: 7, fontSize: 13, color: '#fff', cursor: 'pointer', fontWeight: 600,
-})
-
-// ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function ContasReceberPage() {
   const [contas, setContas]           = useState<Conta[]>([])
   const [loading, setLoading]         = useState(true)
@@ -414,137 +394,156 @@ export default function ContasReceberPage() {
     saldo:    acc.saldo    + Number(c.saldo),
   }), { total: 0, recebido: 0, saldo: 0 })
 
+  const vencidas = filtered.filter(c => c.status === 'ABERTO' && new Date(c.data_vencimento) < new Date(todayISO())).length
   const isVencida = (c: Conta) => c.status === 'ABERTO' && new Date(c.data_vencimento) < new Date(todayISO())
 
   return (
-    <div style={{ padding: '24px 28px', background: G.bg, minHeight: '100%' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: G.text }}>Contas a Receber</h1>
-        <button onClick={() => setShowNova(true)} style={{ ...btnPrimary(G.green), display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={15} /> Nova Conta
-        </button>
-      </div>
+    <div style={{ background: G.bg, minHeight: '100%' }}>
 
-      {/* Summary Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
-        {[
-          { label: 'Total a Receber', value: totais.total,    color: G.text },
-          { label: 'Já Recebido',     value: totais.recebido, color: G.green },
-          { label: 'Saldo Pendente',  value: totais.saldo,    color: G.red },
-        ].map(({ label, value, color }) => (
-          <div key={label} style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, padding: '14px 18px' }}>
-            <div style={{ fontSize: 12, color: G.muted, marginBottom: 4 }}>{label}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color }}>{fmtBRL(value)}</div>
+      {/* Hero */}
+      <div style={{
+        background: G.navy, backgroundImage: GRID_BG,
+        padding: '28px 28px 52px', position: 'relative', overflow: 'hidden',
+      }}>
+        <div style={{
+          position: 'absolute', top: -40, right: -40, width: 160, height: 160,
+          borderRadius: '50%', background: `radial-gradient(circle, ${G.green}22 0%, transparent 70%)`,
+          pointerEvents: 'none',
+        }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ArrowDownCircle size={22} color={G.green} />
+            <div>
+              <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#FFFFFF' }}>Contas a Receber</h1>
+              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,.5)' }}>Comissões, receitas e valores a receber</p>
+            </div>
           </div>
-        ))}
-      </div>
-
-      {/* Filters */}
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, padding: '14px 18px', marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <label style={{ fontSize: 12, color: G.muted }}>De
-          <input type="date" value={filters.dataInicio} onChange={e => setFilter('dataInicio', e.target.value)} style={{ ...inputStyle, width: 140 }} />
-        </label>
-        <label style={{ fontSize: 12, color: G.muted }}>Até
-          <input type="date" value={filters.dataFim} onChange={e => setFilter('dataFim', e.target.value)} style={{ ...inputStyle, width: 140 }} />
-        </label>
-        <label style={{ fontSize: 12, color: G.muted }}>Status
-          <select value={filters.status} onChange={e => setFilter('status', e.target.value)} style={{ ...inputStyle, width: 130 }}>
-            <option value="">Todos</option>
-            <option value="ABERTO">Aberto</option>
-            <option value="RECEBIDO">Recebido</option>
-            <option value="VENCIDO">Vencido</option>
-            <option value="CANCELADO">Cancelado</option>
-          </select>
-        </label>
-        <label style={{ fontSize: 12, color: G.muted }}>Cliente
-          <select value={filters.idCliente} onChange={e => setFilter('idCliente', e.target.value)} style={{ ...inputStyle, width: 180 }}>
-            <option value="">Todos</option>
-            {clientes.map(c => <option key={c.id} value={c.id}>{c.nome_razao}</option>)}
-          </select>
-        </label>
-        <div style={{ position: 'relative', marginLeft: 'auto' }}>
-          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: G.muted }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar..." style={{ ...inputStyle, paddingLeft: 30, width: 180, marginTop: 0 }} />
+          <button onClick={() => setShowNova(true)} style={{ ...btnPrimary(G.green), display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Plus size={15} /> Nova Conta
+          </button>
         </div>
       </div>
 
-      {/* Table */}
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Carregando...</div>
-        ) : filtered.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Nenhuma conta encontrada.</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: G.bg, borderBottom: `1px solid ${G.border}` }}>
-                {['Descrição', 'Cliente', 'Vencimento', 'Valor Total', 'Recebido', 'Saldo', 'Status', ''].map(h => (
-                  <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: G.muted, fontSize: 12 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(c => (
-                <tr key={c.id} style={{ borderBottom: `1px solid ${G.border}`, background: isVencida(c) ? '#FFF8F8' : 'transparent' }}>
-                  <td style={{ padding: '10px 12px', color: G.text, fontWeight: 500 }}>{c.descricao}</td>
-                  <td style={{ padding: '10px 12px', color: G.muted }}>{c.cliente_nome || '—'}</td>
-                  <td style={{ padding: '10px 12px', color: isVencida(c) ? G.red : G.text }}>{fmtDate(c.data_vencimento)}</td>
-                  <td style={{ padding: '10px 12px', color: G.text }}>{fmtBRL(c.valor_total)}</td>
-                  <td style={{ padding: '10px 12px', color: G.green }}>{fmtBRL(c.valor_recebido)}</td>
-                  <td style={{ padding: '10px 12px', color: Number(c.saldo) > 0 ? G.amber : G.muted, fontWeight: 600 }}>{fmtBRL(c.saldo)}</td>
-                  <td style={{ padding: '10px 12px' }}><StatusBadge status={c.status} /></td>
-                  <td style={{ padding: '10px 12px' }}>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button title="Ver detalhes" onClick={() => setDetalhesId(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted, padding: 4 }}>
-                        <Eye size={15} />
-                      </button>
-                      {(c.status === 'ABERTO' || isVencida(c)) && (
-                        <button title="Registrar recebimento" onClick={async () => {
-                          const r = await api.get(`/financeiro/contas-receber/${c.id}`)
-                          if (r.data.success) {
-                            const parcela = r.data.data.parcelas?.find((p: Parcela) => p.status === 'ABERTO' || p.status === 'VENCIDO')
-                            if (parcela) setBaixaData({ conta: r.data.data, parcela })
-                          }
-                        }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.green, padding: 4 }}>
-                          <Check size={15} />
-                        </button>
-                      )}
-                      <button title="Excluir" onClick={() => handleDelete(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.red, padding: 4 }}>
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      {/* KPI Strip */}
+      <div style={{ padding: '0 28px', marginTop: -28, position: 'relative', zIndex: 1 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+          {[
+            { label: 'Total a Receber', value: fmtBRL(totais.total),    color: G.navy },
+            { label: 'Já Recebido',     value: fmtBRL(totais.recebido), color: G.green },
+            { label: 'Saldo Pendente',  value: fmtBRL(totais.saldo),    color: totais.saldo > 0 ? G.amber : G.muted },
+            { label: 'Vencidas',        value: String(vencidas),        color: vencidas > 0 ? G.red : G.muted },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{
+              background: G.card, borderRadius: 10, padding: '14px 18px',
+              borderLeft: `4px solid ${color}`, boxShadow: '0 2px 8px rgba(0,0,0,.08)',
+            }}>
+              <div style={{ fontSize: 12, color: G.muted, marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color }}>{value}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Modals */}
+      {/* Content */}
+      <div style={{ padding: '20px 28px 28px' }}>
+
+        {/* Filters */}
+        <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, padding: '14px 18px', marginBottom: 14, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+          <label style={{ fontSize: 12, color: G.muted }}>De
+            <input type="date" value={filters.dataInicio} onChange={e => setFilter('dataInicio', e.target.value)} style={{ ...inputStyle, width: 140 }} />
+          </label>
+          <label style={{ fontSize: 12, color: G.muted }}>Até
+            <input type="date" value={filters.dataFim} onChange={e => setFilter('dataFim', e.target.value)} style={{ ...inputStyle, width: 140 }} />
+          </label>
+          <label style={{ fontSize: 12, color: G.muted }}>Status
+            <select value={filters.status} onChange={e => setFilter('status', e.target.value)} style={{ ...inputStyle, width: 130 }}>
+              <option value="">Todos</option>
+              <option value="ABERTO">Aberto</option>
+              <option value="RECEBIDO">Recebido</option>
+              <option value="VENCIDO">Vencido</option>
+              <option value="CANCELADO">Cancelado</option>
+            </select>
+          </label>
+          <label style={{ fontSize: 12, color: G.muted }}>Cliente
+            <select value={filters.idCliente} onChange={e => setFilter('idCliente', e.target.value)} style={{ ...inputStyle, width: 180 }}>
+              <option value="">Todos</option>
+              {clientes.map(c => <option key={c.id} value={c.id}>{c.nome_razao}</option>)}
+            </select>
+          </label>
+          <div style={{ position: 'relative', marginLeft: 'auto' }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: G.muted }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar..." style={{ ...inputStyle, paddingLeft: 30, width: 180, marginTop: 0 }} />
+          </div>
+        </div>
+
+        {/* Table */}
+        <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+          {loading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Carregando...</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Nenhuma conta encontrada.</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: G.bg, borderBottom: `1px solid ${G.border}` }}>
+                  {['Descrição', 'Cliente', 'Vencimento', 'Valor Total', 'Recebido', 'Saldo', 'Status', ''].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: G.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(c => (
+                  <tr key={c.id} style={{ borderBottom: `1px solid ${G.border}`, background: isVencida(c) ? '#FFF8F8' : 'transparent' }}
+                    onMouseEnter={e => { if (!isVencida(c)) e.currentTarget.style.background = '#F9F7F4' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = isVencida(c) ? '#FFF8F8' : 'transparent' }}
+                  >
+                    <td style={{ padding: '10px 12px', color: G.text, fontWeight: 500 }}>{c.descricao}</td>
+                    <td style={{ padding: '10px 12px', color: G.muted }}>{c.cliente_nome || '—'}</td>
+                    <td style={{ padding: '10px 12px', color: isVencida(c) ? G.red : G.text, fontWeight: isVencida(c) ? 600 : 400 }}>{fmtDate(c.data_vencimento)}</td>
+                    <td style={{ padding: '10px 12px', color: G.text }}>{fmtBRL(c.valor_total)}</td>
+                    <td style={{ padding: '10px 12px', color: G.green }}>{fmtBRL(c.valor_recebido)}</td>
+                    <td style={{ padding: '10px 12px', color: Number(c.saldo) > 0 ? G.amber : G.muted, fontWeight: 600 }}>{fmtBRL(c.saldo)}</td>
+                    <td style={{ padding: '10px 12px' }}><StatusBadge status={c.status} /></td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button title="Ver detalhes" onClick={() => setDetalhesId(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted, padding: 4 }}>
+                          <Eye size={15} />
+                        </button>
+                        {(c.status === 'ABERTO' || isVencida(c)) && (
+                          <button title="Registrar recebimento" onClick={async () => {
+                            const r = await api.get(`/financeiro/contas-receber/${c.id}`)
+                            if (r.data.success) {
+                              const parcela = r.data.data.parcelas?.find((p: Parcela) => p.status === 'ABERTO' || p.status === 'VENCIDO')
+                              if (parcela) setBaixaData({ conta: r.data.data, parcela })
+                            }
+                          }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.green, padding: 4 }}>
+                            <Check size={15} />
+                          </button>
+                        )}
+                        <button title="Excluir" onClick={() => handleDelete(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.red, padding: 4 }}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
       {showNova && (
-        <NovaContaModal
-          onClose={() => setShowNova(false)}
-          onSaved={() => { setShowNova(false); load() }}
-          clientes={clientes}
-          planoContas={planoContas}
-        />
+        <NovaContaModal onClose={() => setShowNova(false)} onSaved={() => { setShowNova(false); load() }}
+          clientes={clientes} planoContas={planoContas} />
       )}
       {detalhesId !== null && (
-        <DetalhesModal
-          contaId={detalhesId}
-          onClose={() => setDetalhesId(null)}
-          onBaixa={(conta, parcela) => setBaixaData({ conta, parcela })}
-        />
+        <DetalhesModal contaId={detalhesId} onClose={() => setDetalhesId(null)}
+          onBaixa={(conta, parcela) => setBaixaData({ conta, parcela })} />
       )}
       {baixaData && (
-        <BaixaModal
-          conta={baixaData.conta}
-          parcela={baixaData.parcela}
-          onClose={() => setBaixaData(null)}
-          onSaved={() => { setBaixaData(null); load() }}
-        />
+        <BaixaModal conta={baixaData.conta} parcela={baixaData.parcela}
+          onClose={() => setBaixaData(null)} onSaved={() => { setBaixaData(null); load() }} />
       )}
     </div>
   )

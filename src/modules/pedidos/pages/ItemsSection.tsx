@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { ShoppingCart, Search, Trash2, CheckCircle, AlertTriangle, RotateCcw, ChevronDown } from 'lucide-react';
+import { ShoppingCart, Search, Trash2, CheckCircle, AlertTriangle, RotateCcw, ChevronDown, RefreshCw } from 'lucide-react';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 import { toast } from 'sonner';
@@ -359,6 +359,42 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
       des7: normH(order.ped_set), des8: normH(order.ped_oit), des9: normH(order.ped_nov),
       source: 'HEADER',
     };
+  }
+
+  // ── Reaplicar política de descontos em todos os itens do pedido ─────────────
+  function handleReaplicarPolitica() {
+    const catalogMap = new Map(priceTableItems.map(p => [p.pro_codigo.trim().toUpperCase(), p]));
+    let updated = 0;
+
+    setOrderItems(prev => prev.map(item => {
+      const product = catalogMap.get(item.ite_produto.trim().toUpperCase());
+      if (!product) return item; // produto fora do catálogo — mantém como está
+
+      const discs = resolveDiscounts(product);
+      const calc = calculateItem(
+        item.ite_puni, item.ite_quant,
+        discs.des1, discs.des2, discs.des3, discs.des4, discs.des5,
+        discs.des6, discs.des7, discs.des8, discs.des9,
+        product.desconto_add || 0,
+        item.ite_ipi, item.ite_st,
+      );
+      updated++;
+      return {
+        ...item,
+        ite_des1: discs.des1, ite_des2: discs.des2, ite_des3: discs.des3,
+        ite_des4: discs.des4, ite_des5: discs.des5, ite_des6: discs.des6,
+        ite_des7: discs.des7, ite_des8: discs.des8, ite_des9: discs.des9,
+        ite_des10: product.desconto_add || 0,
+        ite_puniliq: calc.puniliq,
+        ite_totbruto: calc.totbruto,
+        ite_totliquido: calc.totliquido,
+        ite_valcomipi: calc.valcomipi,
+        ite_valcomst: calc.valcomst,
+        discountSource: discs.source,
+      };
+    }));
+
+    toast.success(`Política reaplicada em ${updated} item(s).`);
   }
 
   // ── Select product from catalog ──────────────────────────────────────────────
@@ -904,9 +940,9 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
 
       {/* Table header */}
       <div style={{ flexShrink: 0, background: G.cardHi, borderBottom: `1px solid ${G.border}` }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 70px 70px 44px', padding: '5px 10px', gap: 6 }}>
-          {['Código', 'Descrição', 'Bruto', 'Promo', 'Mult.'].map(h => (
-            <span key={h} style={{ fontSize: 9, fontWeight: 900, color: G.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{h}</span>
+        <div style={{ display: 'grid', gridTemplateColumns: '90px 80px 1fr 70px 70px 44px', padding: '5px 10px', gap: 6 }}>
+          {['Código', 'Conversão', 'Descrição', 'Bruto', 'Promo', 'Mult.'].map(h => (
+            <span key={h} style={{ fontSize: 11, fontWeight: 900, color: G.textSec, textTransform: 'uppercase', letterSpacing: 0.5 }}>{h}</span>
           ))}
         </div>
       </div>
@@ -925,7 +961,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
                 key={p.pro_id}
                 onClick={() => !isView && handleSelectProduct(p)}
                 style={{
-                  display: 'grid', gridTemplateColumns: '90px 1fr 70px 70px 44px',
+                  display: 'grid', gridTemplateColumns: '90px 80px 1fr 70px 70px 44px',
                   padding: '5px 10px', gap: 6,
                   cursor: isView ? 'default' : 'pointer',
                   background: isSelected ? `${G.mustard}22` : i % 2 === 0 ? G.card : G.cardHi,
@@ -933,19 +969,22 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
                   borderBottom: `1px solid ${G.border}40`,
                 }}
               >
-                <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 900, color: G.textSec, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 900, color: G.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {p.pro_codigo}
                 </span>
-                <span style={{ fontSize: 11, color: G.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: G.textSec, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {p.pro_conversao || '—'}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: G.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {p.pro_nome}
                 </span>
-                <span style={{ fontFamily: 'monospace', fontSize: 11, color: G.textMuted, textAlign: 'right' }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 13, color: G.textSec, textAlign: 'right' }}>
                   {fmtBRL(p.preco_bruto)}
                 </span>
-                <span style={{ fontFamily: 'monospace', fontSize: 11, color: p.preco_promo > 0 ? G.success : G.textMuted, textAlign: 'right', fontWeight: p.preco_promo > 0 ? 900 : 400 }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 13, color: p.preco_promo > 0 ? G.success : G.textSec, textAlign: 'right', fontWeight: p.preco_promo > 0 ? 900 : 400 }}>
                   {p.preco_promo > 0 ? fmtBRL(p.preco_promo) : '—'}
                 </span>
-                <span style={{ fontFamily: 'monospace', fontSize: 11, color: G.textMuted, textAlign: 'right' }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 13, color: G.textSec, textAlign: 'right' }}>
                   {p.pro_embalagem > 0 ? p.pro_embalagem : '—'}
                 </span>
               </div>
@@ -988,10 +1027,27 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
         <div style={{ ...cardStyle, flex: 1, minHeight: 0 }}>
           {cardHeader(
             'Itens Digitalizados',
-            <span style={{
-              fontSize: 10, fontWeight: 900, padding: '2px 8px', borderRadius: 999,
-              background: `${G.textSec}18`, color: G.textSec,
-            }}>{orderItems.length}</span>,
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {!isView && orderItems.length > 0 && (
+                <button
+                  onClick={handleReaplicarPolitica}
+                  title="Reaplicar política de descontos do cliente em todos os itens"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    padding: '2px 8px', borderRadius: 999, border: 'none',
+                    background: '#2563EB18', color: '#2563EB',
+                    fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                  }}
+                >
+                  <RefreshCw size={10} />
+                  Reaplicar Política
+                </button>
+              )}
+              <span style={{
+                fontSize: 10, fontWeight: 900, padding: '2px 8px', borderRadius: 999,
+                background: `${G.textSec}18`, color: G.textSec,
+              }}>{orderItems.length}</span>
+            </div>,
           )}
           {renderItemsGrid()}
 

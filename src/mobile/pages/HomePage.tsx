@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
   ShoppingCart, CalendarDays, Users, Package, BarChart3,
   Target, Sparkles, Wifi, WifiOff, ArrowUpRight,
-  AlertTriangle, Shield, ChevronRight, Zap, LogOut,
+  AlertTriangle, Shield, ChevronRight, Zap, LogOut, Loader2,
 } from 'lucide-react';
 import { api }           from '@/shared/lib/api';
 import { useAuthStore }  from '@/shared/stores/useAuthStore';
@@ -21,16 +21,24 @@ const MESES = [
 ];
 
 /* ─── types ─────────────────────────────────────────────────────────────────── */
+interface IndMetaRow {
+  for_codigo:  number;
+  for_nomered: string;
+  vendido:     number;
+  meta:        number;
+  pct:         number;
+}
 interface DashStats {
-  total_sales:    number;
-  monthly_goal:   number;
-  progress:       number;
-  ticket_medio:   number;
-  total_orders:   number;
-  active_clients: number;
-  churn_count:    number;
-  recent_orders:  RecentOrder[];
-  insights:       Insight[];
+  total_sales:     number;
+  monthly_goal:    number;
+  progress:        number;
+  ticket_medio:    number;
+  total_orders:    number;
+  active_clients:  number;
+  churn_count:     number;
+  recent_orders:   RecentOrder[];
+  insights:        Insight[];
+  industrias_meta: IndMetaRow[];
 }
 interface RecentOrder {
   ped_pedido:  string;
@@ -192,6 +200,174 @@ function SalesHeader({ nome, empresa, loading, selectedYear, selectedMonth, onYe
   );
 }
 
+/* ─── INDUSTRIAS META ────────────────────────────────────────────────────────── */
+function indBarColor(pct: number, hasMeta: boolean): string {
+  if (!hasMeta)   return '#e2e8f0';
+  if (pct >= 100) return '#059669';
+  if (pct >= 80)  return '#d97706';
+  if (pct >= 50)  return '#f59e0b';
+  return '#dc2626';
+}
+
+function IndustriasMeta({ rows, year, month }: { rows: IndMetaRow[]; year: number; month: number }) {
+  if (!rows || rows.length === 0) return null;
+
+  const now            = new Date();
+  const isCurrentMonth = now.getFullYear() === year && (now.getMonth() + 1) === month;
+  const dayOfMonth     = now.getDate();
+  const daysInMonth    = new Date(year, month, 0).getDate();
+
+  const GRID_MAX     = 10;
+  const gridRows     = rows.slice(0, GRID_MAX);
+  const scrollRows   = rows.slice(GRID_MAX);
+
+  /* ── status geral ── */
+  const rowsWithMeta = rows.filter(r => r.meta > 0);
+  const minPct       = rowsWithMeta.length > 0 ? Math.min(...rowsWithMeta.map(r => r.pct)) : 100;
+  const worstColor   = indBarColor(minPct, rowsWithMeta.length > 0);
+  const worstLabel   = minPct >= 100 ? 'META' : minPct >= 80 ? 'OK' : minPct >= 50 ? 'ATENÇÃO' : 'CRÍTICO';
+
+  /* ── projeção total ── */
+  const totalVendido = rows.reduce((s, r) => s + r.vendido, 0);
+  const totalMeta    = rows.reduce((s, r) => s + r.meta, 0);
+  const totalPct     = totalMeta > 0 ? (totalVendido / totalMeta) * 100 : 0;
+  const projPct      = isCurrentMonth && dayOfMonth > 0 && totalPct > 0 && totalMeta > 0
+    ? Math.round((totalPct / dayOfMonth) * daysInMonth * 10) / 10
+    : null;
+
+  return (
+    <motion.div
+      initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+      transition={{ type: 'spring', stiffness: 200, damping: 22, delay: 0.1 }}
+      style={{
+        margin: '16px 16px 34px',   /* 34px bottom = 22px (overlap do AnalyticsCard) + 12px gap */
+        borderRadius: 20, background: '#FFF',
+        boxShadow: '0 4px 20px rgba(40,55,74,0.09)',
+        border: '1px solid var(--border)',
+        overflow: 'hidden',
+      }}>
+
+      {/* ── Header discreto — mesmo estilo dos outros cards ── */}
+      <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 4, height: 16, background: 'var(--mustard)', borderRadius: 2, boxShadow: '0 0 6px rgba(255,210,0,0.4)' }} />
+          <span style={{ fontSize: 11, fontWeight: 900, color: 'var(--navy)', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Meta por Indústria
+          </span>
+          <span style={{ fontSize: 9, color: '#94a3b8', fontWeight: 700 }}>({rows.length})</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {projPct !== null && (
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 7, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>Projeção</div>
+              <div style={{ fontSize: 12, fontWeight: 900, fontFamily: 'monospace',
+                color: projPct >= 100 ? '#059669' : projPct >= 80 ? '#d97706' : '#dc2626' }}>
+                {projPct.toFixed(1)}%
+              </div>
+            </div>
+          )}
+          <div style={{
+            padding: '3px 9px', borderRadius: 20,
+            background: `${worstColor}18`, border: `1px solid ${worstColor}44`,
+          }}>
+            <span style={{ fontSize: 8, fontWeight: 900, color: worstColor, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+              {worstLabel}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Separador ── */}
+      <div style={{ height: 1, background: 'var(--border)', margin: '0 18px' }} />
+
+      {/* ── Grid top 10: 2 colunas, sem bordas pesadas ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+        {gridRows.map((row, i) => {
+          const color    = indBarColor(row.pct, row.meta > 0);
+          const barWidth = Math.min(row.pct, 100);
+          const isLeft   = i % 2 === 0;
+          const isLastRow = i >= gridRows.length - 2;
+          return (
+            <div key={row.for_codigo} style={{
+              padding: '12px 14px',
+              borderRight:  isLeft  ? '1px solid var(--border)' : 'none',
+              borderBottom: isLastRow && scrollRows.length === 0 ? 'none' : '1px solid var(--border)',
+            }}>
+              {/* dot + nome + % */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                <span style={{
+                  flex: 1, fontSize: 10, fontWeight: 700, color: 'var(--navy)',
+                  textTransform: 'uppercase', letterSpacing: 0.2,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {row.for_nomered}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 900, color, fontFamily: 'monospace', flexShrink: 0 }}>
+                  {row.meta > 0 ? `${row.pct}%` : '—'}
+                </span>
+              </div>
+              {/* barra fina */}
+              <div style={{ height: 3, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
+                {row.meta > 0 && (
+                  <motion.div
+                    initial={{ width: 0 }} animate={{ width: `${barWidth}%` }}
+                    transition={{ duration: 1, delay: 0.2 + i * 0.04, ease: [0.22, 1, 0.36, 1] }}
+                    style={{ height: '100%', background: color, borderRadius: 3 }}
+                  />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Scroll horizontal — demais indústrias ── */}
+      {scrollRows.length > 0 && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '10px 0 12px' }}>
+          <div style={{ fontSize: 8, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase',
+            letterSpacing: 0.8, padding: '0 18px 8px' }}>
+            Demais · {scrollRows.length}
+          </div>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingLeft: 18, paddingRight: 18, WebkitOverflowScrolling: 'touch' }}>
+            {scrollRows.map((row, i) => {
+              const color = indBarColor(row.pct, row.meta > 0);
+              const bw    = Math.min(row.pct, 100);
+              return (
+                <div key={row.for_codigo} style={{
+                  flexShrink: 0, width: 84,
+                  background: '#f8fafc', borderRadius: 10,
+                  border: '1px solid var(--border)', padding: '8px 9px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 5 }}>
+                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 8, fontWeight: 700, color: 'var(--navy)',
+                      textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {row.for_nomered}
+                    </span>
+                  </div>
+                  <div style={{ height: 3, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden', marginBottom: 4 }}>
+                    {row.meta > 0 && (
+                      <motion.div
+                        initial={{ width: 0 }} animate={{ width: `${bw}%` }}
+                        transition={{ duration: 0.9, delay: 0.4 + i * 0.03, ease: [0.22, 1, 0.36, 1] }}
+                        style={{ height: '100%', background: color, borderRadius: 3 }}
+                      />
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10, fontWeight: 900, color, fontFamily: 'monospace', textAlign: 'right' }}>
+                    {row.meta > 0 ? `${row.pct}%` : '—'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 /* ─── ANALYTICS CARD ─────────────────────────────────────────────────────────── */
 function AnalyticsCard({ stats, year, month }: { stats: DashStats; year: number; month: number }) {
   const mesNome = MESES[month - 1];
@@ -279,6 +455,243 @@ function AnalyticsCard({ stats, year, month }: { stats: DashStats; year: number;
         ))}
       </div>
     </motion.div>
+  );
+}
+
+/* ─── IRIS PORTFOLIO ANALYSIS ───────────────────────────────────────────────── */
+interface PortfolioRow {
+  for_codigo: number; for_nomered: string;
+  total_12m: number; pedidos_12m: number; clientes_ativos: number;
+  contribuicao_pct: number; tendencia_pct: number | null;
+  ult_90d: number; ant_90d: number;
+  score: number; zona: 'MANTER' | 'MONITORAR' | 'REVISAR'; narrative: string;
+}
+
+const ZONA_CFG = {
+  REVISAR:   { color: '#dc2626', bg: 'rgba(220,38,38,0.07)',   border: 'rgba(220,38,38,0.20)',   label: 'Revisar',   icon: '⚠️' },
+  MONITORAR: { color: '#d97706', bg: 'rgba(217,119,6,0.07)',   border: 'rgba(217,119,6,0.20)',   label: 'Monitorar', icon: '👀' },
+  MANTER:    { color: '#059669', bg: 'rgba(5,150,105,0.07)',   border: 'rgba(5,150,105,0.20)',   label: 'Manter',    icon: '✓'  },
+};
+
+function PortfolioCard({ row, delay }: { row: PortfolioRow; delay: number }) {
+  const cfg = ZONA_CFG[row.zona];
+  const fmtK = (v: number) =>
+    v >= 1_000_000 ? `R$ ${(v / 1_000_000).toFixed(1).replace('.', ',')}M`
+    : v >= 1_000   ? `R$ ${Math.round(v / 1_000)}k`
+    : `R$ ${v.toFixed(0)}`;
+
+  return (
+    <motion.div initial={{ x: -12, opacity: 0 }} animate={{ x: 0, opacity: 1 }}
+      transition={{ delay, type: 'spring', stiffness: 260, damping: 24 }}
+      style={{
+        background: cfg.bg, border: `1.5px solid ${cfg.border}`,
+        borderRadius: 14, padding: '13px 14px', marginBottom: 8,
+        borderLeft: `4px solid ${cfg.color}`,
+      }}>
+      {/* header: nome + badge zona */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 900, color: 'var(--navy)', textTransform: 'uppercase' }}>
+          {row.for_nomered}
+        </span>
+        <span style={{
+          fontSize: 8, fontWeight: 900, color: cfg.color,
+          background: cfg.bg, border: `1px solid ${cfg.border}`,
+          padding: '3px 9px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: 0.8,
+        }}>
+          {cfg.icon} {cfg.label}
+        </span>
+      </div>
+
+      {/* métricas */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+        {[
+          { label: 'Receita 12m',  value: fmtK(row.total_12m) },
+          { label: '% Carteira',   value: `${row.contribuicao_pct.toFixed(1)}%` },
+          { label: 'Clientes',     value: String(row.clientes_ativos) },
+          ...(row.tendencia_pct != null ? [{ label: 'Tendência 90d', value: `${row.tendencia_pct > 0 ? '+' : ''}${row.tendencia_pct}%` }] : []),
+        ].map(m => (
+          <div key={m.label} style={{
+            flex: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 9,
+            padding: '6px 4px', textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 7, fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 2 }}>
+              {m.label}
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 900, color: 'var(--navy)', fontFamily: 'monospace' }}>
+              {m.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* narrativa IRIS */}
+      <div style={{
+        background: 'rgba(255,255,255,0.5)', borderRadius: 10, padding: '9px 11px',
+        borderLeft: `3px solid ${cfg.color}`,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+          <Sparkles size={9} color={cfg.color} />
+          <span style={{ fontSize: 8, fontWeight: 900, color: cfg.color, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            IRIS
+          </span>
+        </div>
+        <p style={{ fontSize: 11, color: 'var(--navy)', lineHeight: 1.55, margin: 0 }}>
+          {row.narrative}
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+function PortfolioIris() {
+  const [open,    setOpen]    = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [data,    setData]    = useState<PortfolioRow[] | null>(null);
+  const { isOnline } = useOffline();
+
+  const load = async () => {
+    if (data) { setOpen(true); return; }
+    setLoading(true); setOpen(true);
+    try {
+      const r = await api.get('/dashboard/iris-portfolio-analysis');
+      if (r.data.success) setData(r.data.data);
+    } catch { setData([]); }
+    finally  { setLoading(false); }
+  };
+
+  if (!isOnline && !data) return null;
+
+  const revisar   = data?.filter(r => r.zona === 'REVISAR')   ?? [];
+  const monitorar = data?.filter(r => r.zona === 'MONITORAR') ?? [];
+  const manter    = data?.filter(r => r.zona === 'MANTER')    ?? [];
+
+  return (
+    <div style={{ padding: '20px 16px 0' }}>
+      {/* ── trigger button / header ── */}
+      <motion.div
+        initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+        onClick={() => open ? setOpen(false) : load()}
+        style={{
+          background: open ? 'var(--navy)' : '#FFF',
+          borderRadius: open ? '16px 16px 0 0' : 16,
+          padding: '14px 16px', cursor: 'pointer',
+          border: '1px solid var(--border)',
+          boxShadow: '0 2px 12px rgba(40,55,74,0.08)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          transition: 'background 0.2s, border-radius 0.2s',
+        }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: 10,
+            background: open ? 'rgba(255,210,0,0.2)' : 'var(--navy)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Sparkles size={15} color={open ? 'var(--mustard)' : '#FFF'} />
+          </div>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 900, color: open ? '#FFF' : 'var(--navy)', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+              Análise de Portfólio
+            </div>
+            <div style={{ fontSize: 9, color: open ? 'rgba(255,255,255,0.5)' : 'var(--navy-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              IRIS · Viabilidade por Indústria
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {data && !open && revisar.length > 0 && (
+            <span style={{
+              fontSize: 9, fontWeight: 900, color: '#dc2626',
+              background: 'rgba(220,38,38,0.1)', padding: '3px 9px', borderRadius: 20,
+            }}>
+              {revisar.length} a revisar
+            </span>
+          )}
+          <ChevronRight size={16} color={open ? 'rgba(255,255,255,0.5)' : 'var(--navy-muted)'}
+            style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+        </div>
+      </motion.div>
+
+      {/* ── painel expandido ── */}
+      {open && (
+        <div style={{
+          background: 'var(--sand-bg)', border: '1px solid var(--border)',
+          borderTop: 'none', borderRadius: '0 0 16px 16px',
+          padding: '16px 14px 14px',
+        }}>
+          {loading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '24px 0', color: 'var(--navy-muted)', fontSize: 12 }}>
+              <Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite' }} />
+              IRIS analisando seu portfólio...
+            </div>
+          ) : !data || data.length === 0 ? (
+            <p style={{ textAlign: 'center', fontSize: 12, color: 'var(--navy-muted)', padding: '20px 0' }}>
+              Dados insuficientes para análise.
+            </p>
+          ) : (
+            <>
+              {/* sumário de zonas */}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+                {([['REVISAR', revisar.length], ['MONITORAR', monitorar.length], ['MANTER', manter.length]] as const).map(([zona, count]) => {
+                  const cfg = ZONA_CFG[zona];
+                  return (
+                    <div key={zona} style={{
+                      flex: 1, textAlign: 'center', background: cfg.bg,
+                      border: `1px solid ${cfg.border}`, borderRadius: 12, padding: '8px 4px',
+                    }}>
+                      <div style={{ fontSize: 18, fontWeight: 900, color: cfg.color }}>{count}</div>
+                      <div style={{ fontSize: 8, fontWeight: 900, color: cfg.color, textTransform: 'uppercase', letterSpacing: 0.6 }}>{cfg.label}</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* REVISAR */}
+              {revisar.length > 0 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                    <span style={{ fontSize: 9, fontWeight: 900, color: '#dc2626', textTransform: 'uppercase', letterSpacing: 0.8 }}>⚠️ Revisar representação</span>
+                    <div style={{ flex: 1, height: 1, background: 'rgba(220,38,38,0.2)' }} />
+                  </div>
+                  {revisar.map((r, i) => <PortfolioCard key={r.for_codigo} row={r} delay={i * 0.06} />)}
+                </>
+              )}
+
+              {/* MONITORAR */}
+              {monitorar.length > 0 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '14px 0 10px' }}>
+                    <span style={{ fontSize: 9, fontWeight: 900, color: '#d97706', textTransform: 'uppercase', letterSpacing: 0.8 }}>👀 Monitorar de perto</span>
+                    <div style={{ flex: 1, height: 1, background: 'rgba(217,119,6,0.2)' }} />
+                  </div>
+                  {monitorar.map((r, i) => <PortfolioCard key={r.for_codigo} row={r} delay={0.2 + i * 0.05} />)}
+                </>
+              )}
+
+              {/* MANTER — só contagem */}
+              {manter.length > 0 && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10, marginTop: 14,
+                  background: 'rgba(5,150,105,0.07)', border: '1px solid rgba(5,150,105,0.2)',
+                  borderRadius: 12, padding: '12px 14px',
+                }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 10, background: 'rgba(5,150,105,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontSize: 14 }}>✓</span>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: '#059669' }}>
+                      {manter.length} indústria{manter.length !== 1 ? 's' : ''} saudável{manter.length !== 1 ? 'is' : ''}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#059669', fontWeight: 700, opacity: 0.7 }}>
+                      {manter.map(r => r.for_nomered).join(' · ')}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -499,7 +912,7 @@ export default function HomePage() {
 
   const fetchStats = useMemo(() => async (year: number, month: number) => {
     if (!isOnline) {
-      setStats({ total_sales: 0, monthly_goal: 0, progress: 0, ticket_medio: 0, total_orders: 0, active_clients: 0, churn_count: 0, recent_orders: [], insights: [] });
+      setStats({ total_sales: 0, monthly_goal: 0, progress: 0, ticket_medio: 0, total_orders: 0, active_clients: 0, churn_count: 0, recent_orders: [], insights: [], industrias_meta: [] });
       return;
     }
     setLoading(true);
@@ -508,7 +921,7 @@ export default function HomePage() {
       if (r.data.success) setStats(r.data.data);
       else throw new Error('no data');
     } catch {
-      setStats({ total_sales: 0, monthly_goal: 0, progress: 0, ticket_medio: 0, total_orders: 0, active_clients: 0, churn_count: 0, recent_orders: [], insights: [] });
+      setStats({ total_sales: 0, monthly_goal: 0, progress: 0, ticket_medio: 0, total_orders: 0, active_clients: 0, churn_count: 0, recent_orders: [], insights: [], industrias_meta: [] });
     } finally {
       setLoading(false);
     }
@@ -559,11 +972,13 @@ export default function HomePage() {
 
         {stats ? (
           <>
+            <IndustriasMeta rows={stats.industrias_meta ?? []} year={selectedYear} month={selectedMonth} />
             <AnalyticsCard stats={stats} year={selectedYear} month={selectedMonth} />
             <QuickActions />
             <SmartInsights insights={stats.insights} />
             <RiskInsights churnCount={stats.churn_count} />
             <RecentOrders orders={stats.recent_orders} />
+            <PortfolioIris />
           </>
         ) : (
           <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--navy-muted)' }}>

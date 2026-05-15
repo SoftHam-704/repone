@@ -6,6 +6,7 @@ export interface MobileClient {
   cli_email:   string;
   cli_cnpj:    string;
   cli_fone1:   string;
+  cli_atuacao?:  string;
   cli_endereco?: string;
   cli_endnum?:   string;
   cli_bairro?:   string;

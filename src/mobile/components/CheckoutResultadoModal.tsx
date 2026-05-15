@@ -17,25 +17,38 @@ const MOTIVOS = [
   'Outro',
 ];
 
+const MARKETING_OPCOES = [
+  { value: 'dia_foco',       emoji: '🎯', label: 'Dia Foco' },
+  { value: 'relacionamento', emoji: '🤝', label: 'Relacionamento' },
+  { value: 'sellout_cliente',emoji: '📦', label: 'Sell-out Cliente' },
+] as const;
+
+type MarketingValue = 'dia_foco' | 'relacionamento' | 'sellout_cliente';
+
 interface Props {
   clienteNome: string;
-  onConfirm: (resultado: string, motivo: string | null) => Promise<void>;
+  onConfirm: (resultado: string, motivo: string | null, marketing: MarketingValue | null) => Promise<void>;
   onCancel: () => void;
 }
 
 export function CheckoutResultadoModal({ clienteNome, onConfirm, onCancel }: Props) {
   const [selecionado, setSelecionado] = useState<string | null>(null);
-  const [motivo, setMotivo]           = useState('');
-  const [loading, setLoading]         = useState(false);
+  const [motivo,      setMotivo]      = useState('');
+  const [marketing,   setMarketing]   = useState<MarketingValue | null>(null);
+  const [loading,     setLoading]     = useState(false);
 
   const podeConfirmar =
-    selecionado !== null &&
+    (selecionado !== null || marketing !== null) &&
     (selecionado !== 'nao_positivou' || motivo !== '');
 
   async function handleConfirm() {
     if (!podeConfirmar) return;
     setLoading(true);
-    await onConfirm(selecionado!, selecionado === 'nao_positivou' ? motivo : null);
+    await onConfirm(
+      selecionado ?? 'visita_marketing',
+      selecionado === 'nao_positivou' ? motivo : null,
+      marketing,
+    );
     setLoading(false);
   }
 
@@ -50,6 +63,7 @@ export function CheckoutResultadoModal({ clienteNome, onConfirm, onCancel }: Pro
         width: '100%', maxWidth: 480,
         background: '#1E2A3A', borderRadius: '20px 20px 0 0',
         padding: '24px 20px 40px',
+        overflowY: 'auto', maxHeight: '92vh',
       }}>
         <div style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,0.45)', letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 4 }}>
           Check-out
@@ -57,6 +71,8 @@ export function CheckoutResultadoModal({ clienteNome, onConfirm, onCancel }: Pro
         <div style={{ fontSize: 17, fontWeight: 800, color: '#fff', marginBottom: 22 }}>
           {clienteNome}
         </div>
+
+        {/* ── Como foi a visita ── */}
         <div style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,0.5)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 }}>
           Como foi a visita?
         </div>
@@ -104,7 +120,43 @@ export function CheckoutResultadoModal({ clienteNome, onConfirm, onCancel }: Pro
           </select>
         )}
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+        {/* ── Marketing (opcional) ── */}
+        <div style={{
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          marginTop: 6, paddingTop: 18, marginBottom: 18,
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,0.5)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 }}>
+            Marketing <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.3)', textTransform: 'none', fontSize: 10 }}>— opcional</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {MARKETING_OPCOES.map(op => {
+              const ativo = marketing === op.value;
+              return (
+                <button
+                  key={op.value}
+                  onClick={() => setMarketing(ativo ? null : op.value as MarketingValue)}
+                  style={{
+                    flex: 1,
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                    padding: '10px 6px', borderRadius: 12,
+                    border: ativo ? '2px solid #A78BFA' : '1px solid rgba(255,255,255,0.1)',
+                    background: ativo ? 'rgba(167,139,250,0.15)' : 'rgba(255,255,255,0.04)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
+                  }}>
+                  <span style={{ fontSize: 20 }}>{op.emoji}</span>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, textAlign: 'center', lineHeight: 1.2,
+                    color: ativo ? '#C4B5FD' : 'rgba(255,255,255,0.55)',
+                  }}>{op.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Botões ── */}
+        <div style={{ display: 'flex', gap: 10 }}>
           <button
             onClick={onCancel}
             style={{

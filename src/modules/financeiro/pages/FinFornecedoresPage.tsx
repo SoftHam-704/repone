@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, Factory } from 'lucide-react'
+import { Plus, Pencil, Trash2, Factory, X } from 'lucide-react'
 import { api } from '@/shared/lib/api'
 
 const G = {
   bg:      '#E8E1D4',
-  card:    '#F2EDE4',
-  border:  '#D6CCBA',
+  card:    '#FFFFFF',
+  border:  '#D6CDB8',
   text:    '#28374A',
-  muted:   '#6B7A8A',
+  muted:   '#7A8899',
   mustard: '#FFD200',
-  green:   '#22C55E',
-  red:     '#EF4444',
+  green:   '#059669',
+  red:     '#DC2626',
+  navy:    '#1E2D3D',
 }
+
+const GRID_BG = `url("data:image/svg+xml,%3Csvg width='40' height='40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h40v40H0z' fill='none'/%3E%3Cpath d='M0 0v40M40 0v40M0 0h40M0 40h40' stroke='%23ffffff' stroke-width='0.4' stroke-opacity='0.07'/%3E%3C/svg%3E")`
 
 interface FinFornecedor {
   id: number
@@ -61,7 +64,6 @@ const btnPrimary = (bg: string): React.CSSProperties => ({
   cursor: 'pointer', fontWeight: 600,
 })
 
-// ─── Modal ───────────────────────────────────────────────────────────────────
 function FinFornecedorModal({ initial, onClose, onSaved }: {
   initial: FinFornecedor | null
   onClose: () => void
@@ -106,10 +108,10 @@ function FinFornecedorModal({ initial, onClose, onSaved }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 640, maxHeight: '90vh', overflowY: 'auto' }}>
+      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 640, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: G.text }}>{editing ? 'Editar' : 'Novo'} Fornecedor Financeiro</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted, fontSize: 18 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted }}><X size={18} /></button>
         </div>
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {error && <div style={{ background: '#FEE2E2', color: G.red, padding: '8px 12px', borderRadius: 6, fontSize: 13 }}>{error}</div>}
@@ -193,7 +195,6 @@ function FinFornecedorModal({ initial, onClose, onSaved }: {
   )
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function FinFornecedoresPage() {
   const [items, setItems]     = useState<FinFornecedor[]>([])
   const [loading, setLoading] = useState(true)
@@ -215,79 +216,121 @@ export default function FinFornecedoresPage() {
     load()
   }
 
+  const ativos   = items.filter(i => i.ativo).length
+  const inativos = items.filter(i => !i.ativo).length
+
   return (
-    <div style={{ padding: '24px 28px', background: G.bg, minHeight: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Factory size={22} color={G.mustard} />
-          <div>
-            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: G.text }}>Fornecedores Financeiros</h1>
-            <p style={{ margin: 0, fontSize: 12, color: G.muted }}>Fornecedores para contas a pagar e lançamentos financeiros</p>
+    <div style={{ background: G.bg, minHeight: '100%' }}>
+
+      {/* Hero */}
+      <div style={{
+        background: G.navy, backgroundImage: GRID_BG,
+        padding: '28px 28px 52px', position: 'relative', overflow: 'hidden',
+      }}>
+        <div style={{
+          position: 'absolute', top: -40, right: -40, width: 160, height: 160,
+          borderRadius: '50%', background: `radial-gradient(circle, ${G.mustard}20 0%, transparent 70%)`,
+          pointerEvents: 'none',
+        }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Factory size={22} color={G.mustard} />
+            <div>
+              <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#FFFFFF' }}>Fornecedores Financeiros</h1>
+              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,.5)' }}>Fornecedores vinculados a contas a pagar</p>
+            </div>
           </div>
+          <button onClick={() => setModal({ open: true, item: null })}
+            style={{ ...btnPrimary(G.mustard), display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Plus size={15} /> Novo Fornecedor
+          </button>
         </div>
-        <button onClick={() => setModal({ open: true, item: null })}
-          style={{ ...btnPrimary(G.mustard), color: G.text, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={15} /> Novo Fornecedor
-        </button>
       </div>
 
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nome ou CPF/CNPJ..."
-          style={{ width: '100%', padding: '7px 10px', border: `1px solid ${G.border}`, borderRadius: 6, fontSize: 13, background: '#fff', color: G.text, outline: 'none', boxSizing: 'border-box' }} />
+      {/* KPI Strip */}
+      <div style={{ padding: '0 28px', marginTop: -28, position: 'relative', zIndex: 1 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+          {[
+            { label: 'Total de Fornecedores', value: items.length, color: G.navy },
+            { label: 'Ativos',                value: ativos,       color: G.green },
+            { label: 'Inativos',              value: inativos,     color: G.muted },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{
+              background: G.card, borderRadius: 10, padding: '14px 18px',
+              borderLeft: `4px solid ${color}`, boxShadow: '0 2px 8px rgba(0,0,0,.08)',
+            }}>
+              <div style={{ fontSize: 12, color: G.muted, marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color }}>{value}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Carregando...</div>
-        ) : items.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Nenhum fornecedor financeiro encontrado.</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: G.bg }}>
-                {['Tipo', 'CPF / CNPJ', 'Razão Social', 'Fantasia', 'Cidade / UF', 'Telefone', 'E-mail', 'Status', ''].map(h => (
-                  <th key={h} style={{ padding: '10px 14px', textAlign: 'left', color: G.muted, fontWeight: 500, fontSize: 12 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {items.map(item => (
-                <tr key={item.id} style={{ borderTop: `1px solid ${G.border}` }}>
-                  <td style={{ padding: '9px 14px' }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
-                      background: item.tipo_pessoa === 'J' ? '#DBEAFE' : '#EDE9FE',
-                      color: item.tipo_pessoa === 'J' ? '#1E40AF' : '#6D28D9' }}>
-                      {item.tipo_pessoa === 'J' ? 'PJ' : 'PF'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '9px 14px', fontFamily: 'monospace', fontSize: 12, color: G.muted }}>{item.cpf_cnpj || '—'}</td>
-                  <td style={{ padding: '9px 14px', fontWeight: 600, color: G.text }}>{item.nome_razao}</td>
-                  <td style={{ padding: '9px 14px', color: G.muted }}>{item.nome_fantasia || '—'}</td>
-                  <td style={{ padding: '9px 14px', color: G.muted, fontSize: 12 }}>{item.cidade}{item.uf ? ` / ${item.uf}` : ''}</td>
-                  <td style={{ padding: '9px 14px', color: G.muted, fontSize: 12 }}>{item.telefone || item.celular || '—'}</td>
-                  <td style={{ padding: '9px 14px', color: G.muted, fontSize: 12 }}>{item.email || '—'}</td>
-                  <td style={{ padding: '9px 14px' }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
-                      background: item.ativo ? '#DCFCE7' : '#F3F4F6',
-                      color: item.ativo ? '#166534' : '#6B7280' }}>
-                      {item.ativo ? 'Ativo' : 'Inativo'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '9px 14px' }}>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => setModal({ open: true, item })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted, padding: 4 }} title="Editar">
-                        <Pencil size={14} />
-                      </button>
-                      <button onClick={() => handleDelete(item.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.red, padding: 4 }} title="Inativar">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
+      <div style={{ padding: '20px 28px 28px' }}>
+
+        {/* Search */}
+        <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, padding: '12px 16px', marginBottom: 14, boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nome ou CPF/CNPJ..."
+            style={{ width: '100%', padding: '7px 10px', border: `1px solid ${G.border}`, borderRadius: 6, fontSize: 13, background: '#fff', color: G.text, outline: 'none', boxSizing: 'border-box' }} />
+        </div>
+
+        {/* Table */}
+        <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+          {loading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Carregando...</div>
+          ) : items.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Nenhum fornecedor encontrado.</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: G.bg }}>
+                  {['Tipo', 'CPF / CNPJ', 'Razão Social', 'Fantasia', 'Cidade / UF', 'Telefone', 'E-mail', 'Status', ''].map(h => (
+                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', color: G.muted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+              </thead>
+              <tbody>
+                {items.map(item => (
+                  <tr key={item.id} style={{ borderTop: `1px solid ${G.border}` }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#F9F7F4')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <td style={{ padding: '9px 14px' }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
+                        background: item.tipo_pessoa === 'J' ? '#DBEAFE' : '#EDE9FE',
+                        color: item.tipo_pessoa === 'J' ? '#1E40AF' : '#6D28D9' }}>
+                        {item.tipo_pessoa === 'J' ? 'PJ' : 'PF'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '9px 14px', fontFamily: 'monospace', fontSize: 12, color: G.muted }}>{item.cpf_cnpj || '—'}</td>
+                    <td style={{ padding: '9px 14px', fontWeight: 600, color: G.text }}>{item.nome_razao}</td>
+                    <td style={{ padding: '9px 14px', color: G.muted }}>{item.nome_fantasia || '—'}</td>
+                    <td style={{ padding: '9px 14px', color: G.muted, fontSize: 12 }}>{item.cidade}{item.uf ? ` / ${item.uf}` : ''}</td>
+                    <td style={{ padding: '9px 14px', color: G.muted, fontSize: 12 }}>{item.telefone || item.celular || '—'}</td>
+                    <td style={{ padding: '9px 14px', color: G.muted, fontSize: 12 }}>{item.email || '—'}</td>
+                    <td style={{ padding: '9px 14px' }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                        background: item.ativo ? '#D1FAE5' : '#F3F4F6',
+                        color: item.ativo ? '#065F46' : '#6B7280' }}>
+                        {item.ativo ? 'Ativo' : 'Inativo'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '9px 14px' }}>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => setModal({ open: true, item })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted, padding: 4 }} title="Editar">
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => handleDelete(item.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.red, padding: 4 }} title="Inativar">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
 
       {modal.open && (

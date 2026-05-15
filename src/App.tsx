@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { lazy } from 'react'
 import LoginPage from '@/modules/auth/pages/LoginPage'
 import OrderReportEngine from '@/modules/pedidos/pages/OrderReportEngine'
+import PortalLojista from '@/modules/portal-pub/pages/PortalLojista'
 
 import { AuthGuard } from '@/shared/components/AuthGuard'
 import { MainLayout } from '@/shared/components/layout/MainLayout'
@@ -9,7 +10,7 @@ import { MainLayout } from '@/shared/components/layout/MainLayout'
 const BIPage = lazy(() => import('@/modules/bi/pages/BIPage'))
 const MobileApp = lazy(() => import('@/mobile/MobileApp'))
 
-const isMobileDevice = () => window.innerWidth < 768
+const isMobileDevice = () => window.innerWidth < 1024
 
 // Rota raiz: mobile vai para /mobile, desktop vai para /dashboard
 const RootRedirect = () => <Navigate to={isMobileDevice() ? '/mobile' : '/dashboard'} replace />
@@ -23,6 +24,8 @@ function App() {
       <Routes>
         {/* Rota especial de impressão — standalone, sem layout */}
         <Route path="/print/order/:id" element={<OrderReportEngine />} />
+        {/* Portal público do lojista — sem autenticação */}
+        <Route path="/portal" element={<PortalLojista />} />
         <Route path="/login" element={<LoginPage />} />
 
         {/* Raiz: mobile → /mobile, desktop → /dashboard */}

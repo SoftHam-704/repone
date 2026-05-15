@@ -1430,3 +1430,80 @@ export async function mapaOportunidadesHandler(req: Request | any, res: Response
     res.status(500).json({ success: false, error: err.message });
   }
 }
+
+// ─── GET /api/estatisticas/mapa-industria ─────────────────────────────────────
+export async function mapaIndustriaHandler(req: Request | any, res: Response) {
+  try {
+    const db = req.db!;
+    const { dataInicial, dataFinal, industria, cliente, vendedor, grupo } = req.query;
+
+    if (!dataInicial || !dataFinal) {
+      return res.status(400).json({ success: false, error: 'Período obrigatório' });
+    }
+
+    const grupoFlag = String(grupo) === 'true';
+    const params: any[] = [dataInicial, dataFinal];
+    let paramCount = 3;
+    const conditions: string[] = [
+      `p.ped_data BETWEEN $1::date AND $2::date`,
+      `p.ped_situacao IN ('P', 'F')`,
+    ];
+
+    if (industria && industria !== 'ALL') {
+      conditions.push(`p.ped_industria = $${paramCount}`);
+      params.push(Number(industria));
+      paramCount++;
+    }
+
+    if (vendedor && vendedor !== 'ALL') {
+      conditions.push(`p.ped_vendedor = $${paramCount}`);
+      params.push(Number(vendedor));
+      paramCount++;
+    }
+
+    if (cliente && cliente !== 'ALL') {
+      if (grupoFlag) {
+        conditions.push(
+          `c.cli_redeloja = (SELECT cli_redeloja FROM clientes WHERE cli_codigo = $${paramCount})`
+        );
+      } else {
+        conditions.push(`p.ped_cliente = $${paramCount}`);
+      }
+      params.push(Number(cliente));
+      paramCount++;
+    }
+
+    if (grupoFlag) {
+      conditions.push(`c.cli_redeloja IS NOT NULL AND TRIM(c.cli_redeloja) <> ''`);
+    }
+
+    const query = `
+      SELECT
+        f.for_nomered               AS industria_nome,
+        TO_CHAR(p.ped_data, 'MM/YYYY') AS mes,
+        SUM(ip.ite_totliquido)::numeric AS valor,
+        SUM(ip.ite_quant)::numeric      AS qtd
+      FROM pedidos p
+      JOIN itens_ped ip ON TRIM(p.ped_pedido) = TRIM(ip.ite_pedido)
+      JOIN fornecedores f ON p.ped_industria = f.for_codigo AND f.for_tipo2 = 'A'
+      LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY 1, 2
+      ORDER BY 1, 2
+    `;
+
+    const result = await db.query(query, params);
+
+    const data = result.rows.map((r: any) => ({
+      industria_nome: r.industria_nome,
+      mes:            r.mes,
+      valor:          parseFloat(r.valor) || 0,
+      qtd:            parseFloat(r.qtd)   || 0,
+    }));
+
+    res.json({ success: true, data });
+  } catch (err: any) {
+    console.error('[mapaIndustriaHandler]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}

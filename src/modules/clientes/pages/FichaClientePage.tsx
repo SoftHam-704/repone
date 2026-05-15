@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Save, Loader2, User,
   MapPin, AlertTriangle,
-  Phone, Search, Copy, Plus, Pencil, Trash2, X,
+  Phone, Search, Copy, Plus, Pencil, Trash2, X, Link2, Share2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppSidebar } from '@/shared/components/layout/AppSidebar';
@@ -24,6 +24,7 @@ interface Cliente {
   cli_cnpj: string;
   cli_inscricao: string;
   cli_tipopes: string;
+  cli_atuacao: string;
   cli_nome: string;
   cli_nomred: string;
   cli_fantasia: string;
@@ -104,11 +105,13 @@ interface CliInd {
   cli_desc4: number; cli_desc5: number; cli_desc6: number;
   cli_desc7: number; cli_desc8: number; cli_desc9: number;
   cli_desc10: number; cli_desc11: number;
+  cli_canal: string;
 }
 
 const emptyCliInd: Partial<CliInd> = {
   cli_desc1:0, cli_desc2:0, cli_desc3:0, cli_desc4:0, cli_desc5:0,
   cli_desc6:0, cli_desc7:0, cli_desc8:0, cli_desc9:0, cli_desc10:0, cli_desc11:0,
+  cli_canal: 'varejo',
 };
 
 const FRETES = ['CIF','FOB','CIF+IPI','FOB+IPI','CIF+IPI+ST','FOB+IPI+ST'];
@@ -287,6 +290,11 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
   const [grupos, setGrupos]           = useState<{value:number;label:string}[]>([]);
   const [discModal, setDiscModal]     = useState<{open:boolean;editing:Partial<CliDescpro>}>({ open:false, editing:emptyDescpro });
   const [savingDisc, setSavingDisc]   = useState(false);
+  const [portalModal, setPortalModal] = useState(false);
+  const [portalToken, setPortalToken] = useState<string | null>(null);
+  const [portalSchema, setPortalSchema] = useState<string | null>(null);
+  const [loadingPortal, setLoadingPortal] = useState(false);
+  const [portalCopied, setPortalCopied] = useState(false);
 
   // Carregar dados do cliente
   useEffect(() => {
@@ -530,6 +538,38 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
     }
   };
 
+  const openPortalModal = async () => {
+    setPortalModal(true);
+    if (portalToken) return; // já gerado
+    setLoadingPortal(true);
+    try {
+      const r = await api.post(`/clients/${id}/portal-token`);
+      setPortalToken(r.data.token);
+      setPortalSchema(r.data.schema);
+    } catch {
+      toast.error('Erro ao gerar token de acesso.');
+    } finally {
+      setLoadingPortal(false);
+    }
+  };
+
+  const portalLink = portalToken && portalSchema
+    ? `${window.location.origin}/portal?t=${portalToken}&s=${portalSchema}`
+    : null;
+
+  const copyPortalLink = () => {
+    if (!portalLink) return;
+    navigator.clipboard.writeText(portalLink);
+    setPortalCopied(true);
+    setTimeout(() => setPortalCopied(false), 2000);
+  };
+
+  const shareWhatsApp = () => {
+    if (!portalLink) return;
+    const msg = encodeURIComponent(`Olá! Acesse seus pedidos pelo link:\n${portalLink}`);
+    window.open(`https://wa.me/?text=${msg}`, '_blank');
+  };
+
   const copiarEnderecoCobranca = () => {
     setData(prev => ({
       ...prev,
@@ -592,6 +632,22 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
             Cancelar
           </button>
 
+          {!isNew && (
+            <button
+              onClick={openPortalModal}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7,
+                background: 'rgba(255,255,255,0.12)', color: '#fff',
+                border: '1px solid rgba(255,255,255,0.2)', borderRadius: 10, padding: '9px 16px',
+                fontWeight: 700, fontSize: 13, cursor: 'pointer',
+              }}
+              title="Portal do Lojista"
+            >
+              <Share2 size={14} />
+              Portal
+            </button>
+          )}
+
           <button
             onClick={save}
             disabled={saving}
@@ -607,6 +663,83 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
             {saving ? 'Salvando...' : 'Salvar'}
           </button>
         </div>
+
+        {/* ── Portal Modal ───────────────────────────────────────────────────── */}
+        {portalModal && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }} onClick={() => setPortalModal(false)}>
+            <div style={{
+              background: '#fff', borderRadius: 16,
+              padding: 28, maxWidth: 460, width: '90%',
+              boxShadow: '0 20px 60px #0004',
+            }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                <Share2 size={18} color='#1E2D3D' />
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: '#28374A' }}>Portal do Lojista</div>
+                  <div style={{ fontSize: 12, color: '#6B7A8A' }}>Link de acesso exclusivo sem login</div>
+                </div>
+                <button onClick={() => setPortalModal(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#6B7A8A' }}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              {loadingPortal ? (
+                <div style={{ textAlign: 'center', padding: 24, color: '#6B7A8A', fontSize: 13 }}>
+                  <Loader2 size={20} className="animate-spin" style={{ margin: '0 auto 8px', display: 'block' }} />
+                  Gerando link de acesso...
+                </div>
+              ) : portalLink ? (
+                <>
+                  <div style={{
+                    background: '#F2EDE4', borderRadius: 10, padding: '10px 14px',
+                    border: '1px solid #D6CCBA', marginBottom: 16,
+                    fontSize: 11, color: '#28374A', wordBreak: 'break-all', fontFamily: 'monospace',
+                  }}>
+                    {portalLink}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      onClick={copyPortalLink}
+                      style={{
+                        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                        padding: '10px 16px', borderRadius: 10, border: '1px solid #D6CCBA',
+                        background: portalCopied ? '#D1FAE5' : '#F2EDE4',
+                        color: portalCopied ? '#065F46' : '#28374A',
+                        fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                      }}
+                    >
+                      <Copy size={14} />
+                      {portalCopied ? 'Copiado!' : 'Copiar Link'}
+                    </button>
+                    <button
+                      onClick={shareWhatsApp}
+                      style={{
+                        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                        padding: '10px 16px', borderRadius: 10, border: 'none',
+                        background: '#25D366', color: '#fff',
+                        fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                      }}
+                    >
+                      <Share2 size={14} />
+                      WhatsApp
+                    </button>
+                  </div>
+                  <p style={{ fontSize: 11, color: '#6B7A8A', marginTop: 12, textAlign: 'center' }}>
+                    O link não expira. O lojista pode acessar seus pedidos a qualquer momento.
+                  </p>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 16, color: '#EF4444', fontSize: 13 }}>
+                  Erro ao gerar link. Tente novamente.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── Tab bar ───────────────────────────────────────────────────────── */}
         <div style={{
@@ -718,7 +851,7 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
                       </Field>
                     </div>
 
-                    {/* Linha 5 — Status e Data de Abertura */}
+                    {/* Linha 5 — Status, Data de Abertura e Área de Atuação */}
                     <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end' }}>
                       <Field label="STATUS">
                         <div style={{
@@ -749,6 +882,22 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
                       </Field>
                       <Field label="DATA DE ABERTURA">
                         <input style={{ ...inp, width: 180 }} type="date" value={(data.cli_dtabertura || '').substring(0, 10)} onChange={e => set('cli_dtabertura', e.target.value)} />
+                      </Field>
+                      <Field label="ÁREA DE ATUAÇÃO">
+                        <select
+                          value={data.cli_atuacao || ''}
+                          onChange={e => set('cli_atuacao', e.target.value)}
+                          style={{ ...inp, width: 180 }}
+                        >
+                          <option value="">—</option>
+                          <option value="P">Prospect</option>
+                          <option value="VAR">Varejo</option>
+                          <option value="OFC">Oficina</option>
+                          <option value="DIST">Distribuição</option>
+                          <option value="ATA">Atacado</option>
+                          <option value="FRO">Frotas</option>
+                          <option value="IND">Indústria</option>
+                        </select>
                       </Field>
                     </div>
                   </div>
@@ -1127,11 +1276,11 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
                     <div style={{ fontSize:13, color:G.textMuted }}>Nenhuma indústria vinculada a este cliente.</div>
                   </div>
                 ) : (
-                  <div style={{ background:'#fff', borderRadius:14, border:`1px solid ${G.border}`, overflow:'hidden' }}>
-                    <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                  <div style={{ background:'#fff', borderRadius:14, border:`1px solid ${G.border}`, overflowX:'auto' }}>
+                    <table style={{ width:'100%', minWidth:820, borderCollapse:'collapse' }}>
                       <thead>
                         <tr style={{ background:G.card, borderBottom:`1px solid ${G.border}` }}>
-                          {['Indústria','Tabela','Cond. Pagto','Frete','Descontos (1º-9º)','% add','Cód. Indústria','Ações'].map(h => (
+                          {['Indústria','Canal','Tabela','Cond. Pagto','Frete','Descontos (1º-9º)','% add','Cód. Indústria','Ações'].map(h => (
                             <th key={h} style={{ padding:'10px 14px', fontSize:10, fontWeight:800, color:G.textMuted, textAlign:'left', textTransform:'uppercase', letterSpacing:0.8, whiteSpace:'nowrap' }}>{h}</th>
                           ))}
                         </tr>
@@ -1142,6 +1291,17 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
                             <td style={{ padding:'12px 14px' }}>
                               <span style={{ fontWeight:800, fontSize:13, color:G.text }}>{ind.industria_nome || `#${ind.cli_forcodigo}`}</span>
                               {ind.transportadora_nome && <div style={{ fontSize:11, color:G.textMuted, marginTop:2 }}>🚚 {ind.transportadora_nome}</div>}
+                            </td>
+                            <td style={{ padding:'12px 14px' }}>
+                              <span style={{
+                                fontSize:10, fontWeight:800, borderRadius:4, padding:'2px 8px',
+                                background: ind.cli_canal === 'distribuidor' ? '#EBF5FB' : '#F0F9F0',
+                                color:      ind.cli_canal === 'distribuidor' ? '#1A5276'  : '#1E8449',
+                                border:     `1px solid ${ind.cli_canal === 'distribuidor' ? '#AED6F1' : '#A9DFBF'}`,
+                                textTransform:'uppercase', letterSpacing:0.5,
+                              }}>
+                                {ind.cli_canal === 'distribuidor' ? 'Distribuidor' : 'Varejo'}
+                              </span>
                             </td>
                             <td style={{ padding:'12px 14px', fontSize:12, color:G.textSec }}>{ind.cli_tabela || '—'}</td>
                             <td style={{ padding:'12px 14px', fontSize:12, color:G.textSec }}>{ind.cli_prazopg || '—'}</td>
@@ -1253,7 +1413,7 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
           style={{ position:'fixed', inset:0, background:'rgba(40,55,74,0.55)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
           onClick={e => { if (e.target === e.currentTarget) setIndModal({ open:false, editing:emptyCliInd }); }}
         >
-          <div style={{ width:'100%', maxWidth:680, background:'#fff', borderRadius:20, overflow:'hidden', boxShadow:'0 24px 80px rgba(40,55,74,0.35)', maxHeight:'90vh', display:'flex', flexDirection:'column' }}>
+          <div style={{ width:'100%', maxWidth:820, background:'#fff', borderRadius:20, overflow:'hidden', boxShadow:'0 24px 80px rgba(40,55,74,0.35)', maxHeight:'90vh', display:'flex', flexDirection:'column' }}>
             {/* Header */}
             <div style={{ padding:'16px 24px', background:G.text, display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
               <div>
@@ -1271,8 +1431,8 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
 
             {/* Body */}
             <div style={{ padding:24, overflowY:'auto', display:'flex', flexDirection:'column', gap:14 }}>
-              {/* Row 1: Indústria + Transportadora */}
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+              {/* Row 1: Indústria + Transportadora + Canal */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 140px', gap:12 }}>
                 <div>
                   <span style={label}>INDÚSTRIA *</span>
                   <select
@@ -1295,6 +1455,13 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
                   <select style={{ ...inp, appearance:'none' }} value={indModal.editing.cli_transportadora || ''} onChange={e => setIndModal(prev => ({ ...prev, editing: { ...prev.editing, cli_transportadora: parseInt(e.target.value) || null } }))}>
                     <option value="">Selecione...</option>
                     {carriers.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <span style={label}>CANAL</span>
+                  <select style={{ ...inp, appearance:'none' }} value={indModal.editing.cli_canal || 'varejo'} onChange={e => setIndModal(prev => ({ ...prev, editing: { ...prev.editing, cli_canal: e.target.value } }))}>
+                    <option value="varejo">Varejo</option>
+                    <option value="distribuidor">Distribuidor</option>
                   </select>
                 </div>
               </div>

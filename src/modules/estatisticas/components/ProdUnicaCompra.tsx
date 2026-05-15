@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShoppingCart, ChevronDown, ChevronRight, Package } from 'lucide-react';
+import { ShoppingCart, ChevronDown, ChevronRight, Package, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 
@@ -155,6 +156,20 @@ export default function ProdUnicaCompra({ dataInicio, dataFim }: Props) {
   const totalClientes = grupos.length;
   const totalQtd      = rows.reduce((s, r) => s + r.quantidade, 0);
 
+  function exportExcel() {
+    const data = rows.map(r => ({
+      'Cliente': r.cliente_nome,
+      'Código': r.produto_codigo,
+      'Produto': r.produto_desc,
+      'Qtd': r.quantidade,
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [{ wch: 40 }, { wch: 16 }, { wch: 50 }, { wch: 10 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Única Compra');
+    XLSX.writeFile(wb, `prod-unica-compra.xlsx`);
+  }
+
   return (
     <div style={{ padding: '20px 24px', background: G.bg, minHeight: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -193,9 +208,20 @@ export default function ProdUnicaCompra({ dataInicio, dataFim }: Props) {
         </div>
       )}
 
-      {/* KPIs */}
+      {/* KPIs + Export */}
       {!loading && grupos.length > 0 && (
         <div style={{ display: 'flex', gap: 12 }}>
+          <button
+            onClick={exportExcel}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+              background: '#1D6F42', color: '#fff', border: 'none', cursor: 'pointer',
+              alignSelf: 'flex-start',
+            }}
+          >
+            <Download size={13} /> Excel
+          </button>
           {[
             { label: 'Clientes com única compra', val: String(totalClientes), color: '#7C3AED' },
             { label: 'Produtos identificados',    val: String(totalProdutos), color: '#D97706' },

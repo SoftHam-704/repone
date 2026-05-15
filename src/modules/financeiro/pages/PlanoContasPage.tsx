@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, BookOpen } from 'lucide-react'
+import { Plus, Pencil, Trash2, BookOpen, HelpCircle, X, TrendingUp, TrendingDown, GitBranch } from 'lucide-react'
 import { api } from '@/shared/lib/api'
 
 const G = {
   bg:      '#E8E1D4',
-  card:    '#F2EDE4',
-  border:  '#D6CCBA',
+  card:    '#FFFFFF',
+  border:  '#D6CDB8',
   text:    '#28374A',
-  muted:   '#6B7A8A',
+  muted:   '#7A8899',
   mustard: '#FFD200',
-  green:   '#22C55E',
-  red:     '#EF4444',
+  green:   '#059669',
+  red:     '#DC2626',
+  navy:    '#1E2D3D',
 }
+
+const GRID_BG = `url("data:image/svg+xml,%3Csvg width='40' height='40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h40v40H0z' fill='none'/%3E%3Cpath d='M0 0v40M40 0v40M0 0h40M0 40h40' stroke='%23ffffff' stroke-width='0.4' stroke-opacity='0.07'/%3E%3C/svg%3E")`
 
 interface PlanoItem {
   id: number
@@ -34,10 +37,10 @@ const btnSecondary: React.CSSProperties = {
 }
 const btnPrimary = (bg: string): React.CSSProperties => ({
   padding: '7px 16px', border: 'none', background: bg,
-  borderRadius: 7, fontSize: 13, color: '#fff', cursor: 'pointer', fontWeight: 600,
+  borderRadius: 7, fontSize: 13, color: bg === G.mustard ? G.text : '#fff',
+  cursor: 'pointer', fontWeight: 600,
 })
 
-// ─── Modal Plano ──────────────────────────────────────────────────────────────
 function PlanoModal({ initial, items, onClose, onSaved }: {
   initial: Partial<PlanoItem> | null
   items: PlanoItem[]
@@ -83,10 +86,10 @@ function PlanoModal({ initial, items, onClose, onSaved }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 480 }}>
+      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: G.text }}>{editing ? 'Editar' : 'Nova'} Conta</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted, fontSize: 18 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted }}><X size={18} /></button>
         </div>
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {error && <div style={{ background: '#FEE2E2', color: G.red, padding: '8px 12px', borderRadius: 6, fontSize: 13 }}>{error}</div>}
@@ -140,13 +143,13 @@ function PlanoModal({ initial, items, onClose, onSaved }: {
   )
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function PlanoContasPage() {
   const [items, setItems]     = useState<PlanoItem[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
   const [filterTipo, setFilterTipo] = useState<'' | 'R' | 'D'>('')
   const [modal, setModal]     = useState<{ open: boolean; item: Partial<PlanoItem> | null }>({ open: false, item: null })
+  const [helpOpen, setHelpOpen] = useState(false)
 
   function load() {
     setLoading(true)
@@ -179,106 +182,136 @@ export default function PlanoContasPage() {
   }
 
   return (
-    <div style={{ padding: '24px 28px', background: G.bg, minHeight: '100%' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <BookOpen size={22} color={G.mustard} />
-          <div>
-            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: G.text }}>Plano de Contas</h1>
-            <p style={{ margin: 0, fontSize: 12, color: G.muted }}>Estrutura hierárquica de receitas e despesas</p>
+    <div style={{ background: G.bg, minHeight: '100%' }}>
+
+      {/* Hero */}
+      <div style={{
+        background: G.navy, backgroundImage: GRID_BG,
+        padding: '28px 28px 52px', position: 'relative', overflow: 'hidden',
+      }}>
+        <div style={{
+          position: 'absolute', top: -40, right: -40, width: 160, height: 160,
+          borderRadius: '50%', background: `radial-gradient(circle, ${G.mustard}20 0%, transparent 70%)`,
+          pointerEvents: 'none',
+        }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <BookOpen size={22} color={G.mustard} />
+            <div>
+              <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#FFFFFF' }}>Plano de Contas</h1>
+              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,.5)' }}>Estrutura hierárquica de receitas e despesas</p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setHelpOpen(true)}
+              style={{ width: 34, height: 34, borderRadius: 8, border: '1px solid rgba(255,255,255,.2)', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,.7)' }}
+              title="Ajuda">
+              <HelpCircle size={17} />
+            </button>
+            <button onClick={() => setModal({ open: true, item: null })}
+              style={{ ...btnPrimary(G.mustard), display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Plus size={15} /> Nova Conta
+            </button>
           </div>
         </div>
-        <button onClick={() => setModal({ open: true, item: null })}
-          style={{ ...btnPrimary(G.mustard), display: 'flex', alignItems: 'center', gap: 6, color: G.text }}>
-          <Plus size={15} /> Nova Conta
-        </button>
       </div>
 
-      {/* Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
-        {[
-          { label: 'Total de Contas', value: items.length, color: G.text },
-          { label: 'Receitas',         value: receitas,    color: G.green },
-          { label: 'Despesas',         value: despesas,    color: G.red },
-        ].map(({ label, value, color }) => (
-          <div key={label} style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, padding: '14px 18px', textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: G.muted, marginBottom: 4 }}>{label}</div>
-            <div style={{ fontSize: 26, fontWeight: 700, color }}>{value}</div>
-          </div>
-        ))}
+      {/* KPI Strip */}
+      <div style={{ padding: '0 28px', marginTop: -28, position: 'relative', zIndex: 1 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+          {[
+            { label: 'Total de Contas', value: items.length, color: G.navy },
+            { label: 'Contas de Receita', value: receitas,   color: G.green },
+            { label: 'Contas de Despesa', value: despesas,   color: G.red },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{
+              background: G.card, borderRadius: 10, padding: '14px 18px',
+              borderLeft: `4px solid ${color}`, boxShadow: '0 2px 8px rgba(0,0,0,.08)',
+            }}>
+              <div style={{ fontSize: 12, color: G.muted, marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color }}>{value}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Filters */}
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por código ou descrição..."
-          style={{ flex: 1, padding: '7px 10px', border: `1px solid ${G.border}`, borderRadius: 6, fontSize: 13, background: '#fff', color: G.text, outline: 'none' }} />
-        <select value={filterTipo} onChange={e => setFilterTipo(e.target.value as '' | 'R' | 'D')}
-          style={{ padding: '7px 10px', border: `1px solid ${G.border}`, borderRadius: 6, fontSize: 13, background: '#fff', color: G.text, outline: 'none' }}>
-          <option value="">Todos os tipos</option>
-          <option value="R">Receitas</option>
-          <option value="D">Despesas</option>
-        </select>
-      </div>
+      {/* Content */}
+      <div style={{ padding: '20px 28px 28px' }}>
 
-      {/* Table */}
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, overflow: 'hidden' }}>
-        {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Carregando...</div>
-        ) : filtered.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Nenhuma conta encontrada.</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: G.bg }}>
-                {['Código', 'Descrição', 'Tipo', 'Nível', 'Status', ''].map(h => (
-                  <th key={h} style={{ padding: '10px 14px', textAlign: 'left', color: G.muted, fontWeight: 500, fontSize: 12 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(item => (
-                <tr key={item.id} style={{ borderTop: `1px solid ${G.border}` }}>
-                  <td style={{ padding: '9px 14px', fontFamily: 'monospace', color: G.muted, fontSize: 12 }}>{item.codigo}</td>
-                  <td style={{ padding: '9px 14px', color: G.text, fontWeight: item.nivel === 1 ? 700 : 400 }}>
-                    {nivelPad(item)}{item.descricao}
-                  </td>
-                  <td style={{ padding: '9px 14px' }}>
-                    <span style={{
-                      fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
-                      background: item.tipo === 'R' ? '#DCFCE7' : '#FEE2E2',
-                      color: item.tipo === 'R' ? '#166534' : '#991B1B'
-                    }}>
-                      {item.tipo === 'R' ? 'Receita' : 'Despesa'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '9px 14px', color: G.muted }}>{item.nivel}</td>
-                  <td style={{ padding: '9px 14px' }}>
-                    <span style={{
-                      fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
-                      background: item.ativo ? '#DCFCE7' : '#F3F4F6',
-                      color: item.ativo ? '#166534' : '#6B7280'
-                    }}>
-                      {item.ativo ? 'Ativo' : 'Inativo'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '9px 14px' }}>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => setModal({ open: true, item })}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted, padding: 4 }} title="Editar">
-                        <Pencil size={14} />
-                      </button>
-                      <button onClick={() => handleDelete(item.id)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.red, padding: 4 }} title="Inativar">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
+        {/* Filters */}
+        <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, padding: '12px 16px', marginBottom: 14, display: 'flex', gap: 12, alignItems: 'center', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por código ou descrição..."
+            style={{ flex: 1, padding: '7px 10px', border: `1px solid ${G.border}`, borderRadius: 6, fontSize: 13, background: '#fff', color: G.text, outline: 'none' }} />
+          <select value={filterTipo} onChange={e => setFilterTipo(e.target.value as '' | 'R' | 'D')}
+            style={{ padding: '7px 10px', border: `1px solid ${G.border}`, borderRadius: 6, fontSize: 13, background: '#fff', color: G.text, outline: 'none' }}>
+            <option value="">Todos os tipos</option>
+            <option value="R">Receitas</option>
+            <option value="D">Despesas</option>
+          </select>
+        </div>
+
+        {/* Table */}
+        <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+          {loading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Carregando...</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Nenhuma conta encontrada.</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: G.bg }}>
+                  {['Código', 'Descrição', 'Tipo', 'Nível', 'Status', ''].map(h => (
+                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', color: G.muted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+              </thead>
+              <tbody>
+                {filtered.map(item => (
+                  <tr key={item.id} style={{ borderTop: `1px solid ${G.border}` }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#F9F7F4')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <td style={{ padding: '9px 14px', fontFamily: 'monospace', color: G.muted, fontSize: 12 }}>{item.codigo}</td>
+                    <td style={{ padding: '9px 14px', color: G.text, fontWeight: item.nivel === 1 ? 700 : 400 }}>
+                      {nivelPad(item)}{item.descricao}
+                    </td>
+                    <td style={{ padding: '9px 14px' }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                        background: item.tipo === 'R' ? '#D1FAE5' : '#FEE2E2',
+                        color: item.tipo === 'R' ? '#065F46' : '#991B1B',
+                      }}>
+                        {item.tipo === 'R' ? 'Receita' : 'Despesa'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '9px 14px', color: G.muted }}>{item.nivel}</td>
+                    <td style={{ padding: '9px 14px' }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                        background: item.ativo ? '#D1FAE5' : '#F3F4F6',
+                        color: item.ativo ? '#065F46' : '#6B7280',
+                      }}>
+                        {item.ativo ? 'Ativo' : 'Inativo'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '9px 14px' }}>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => setModal({ open: true, item })}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted, padding: 4 }} title="Editar">
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => handleDelete(item.id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.red, padding: 4 }} title="Inativar">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
 
       {modal.open && (
@@ -288,6 +321,44 @@ export default function PlanoContasPage() {
           onClose={() => setModal({ open: false, item: null })}
           onSaved={() => { setModal({ open: false, item: null }); load() }}
         />
+      )}
+
+      {helpOpen && (
+        <div onClick={() => setHelpOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(40,55,74,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: G.card, borderRadius: 16, width: '100%', maxWidth: 560, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.22)' }}>
+            <div style={{ padding: '20px 24px 16px', borderBottom: `1px solid ${G.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: G.navy, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <HelpCircle size={20} color="#fff" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: G.text }}>Como usar o Plano de Contas</h2>
+                  <p style={{ margin: 0, fontSize: 11, color: G.muted }}>Guia rápido da funcionalidade</p>
+                </div>
+              </div>
+              <button onClick={() => setHelpOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: G.muted, padding: 4 }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {[
+                { icon: TrendingUp, color: G.green, title: 'Contas de Receita (R)', desc: 'Agrupe todas as entradas financeiras: comissões, serviços, aluguéis. Use o código hierárquico (ex: 1.1, 1.2) para organizar em grupos e subgrupos.' },
+                { icon: TrendingDown, color: G.red, title: 'Contas de Despesa (D)', desc: 'Classifique seus gastos por natureza: aluguel, folha, fornecedores, impostos. Cada conta vinculada em Contas a Pagar aparece no DRE.' },
+                { icon: GitBranch, color: '#7C3AED', title: 'Hierarquia de contas', desc: 'Crie contas pai e filho. As contas filho herdam o tipo da conta pai. O DRE agrupa automaticamente os totais por nível hierárquico.' },
+              ].map(({ icon: Icon, color, title, desc }) => (
+                <div key={title} style={{ display: 'flex', gap: 14, padding: '14px 16px', borderRadius: 10, background: G.bg, border: `1px solid ${G.border}` }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: color + '18', border: `1px solid ${color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon size={17} color={color} />
+                  </div>
+                  <div>
+                    <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 700, color: G.text }}>{title}</p>
+                    <p style={{ margin: 0, fontSize: 12, color: G.muted, lineHeight: 1.6 }}>{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

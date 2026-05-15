@@ -1,5 +1,7 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Loader2, Package }                  from 'lucide-react';
+
+const PAGE_SIZE = 100;
 import { db }           from '../db/db';
 import { api }          from '@/shared/lib/api';
 import { useOffline }   from '../hooks/useOffline';
@@ -189,7 +191,9 @@ export default function TabelaPrecosPage() {
   const [loadingTabs,   setLoadingTabs]   = useState(false);
   const [loadingRows,   setLoadingRows]   = useState(false);
   const [discounts,     setDiscounts]     = useState<string[]>(['','','','','']);
-  const cache = useRef<Map<string, ProdRow[]>>(new Map());
+  const [displayLimit,  setDisplayLimit]  = useState(PAGE_SIZE);
+  const cache      = useRef<Map<string, ProdRow[]>>(new Map());
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   /* ── 1. Load industries ── */
   useEffect(() => {
@@ -321,12 +325,28 @@ export default function TabelaPrecosPage() {
   }, [selectedInd, selectedTab, loadRows]);
 
   /* ── filter ── */
-  const shown = search.trim()
+  const shown = useMemo(() => search.trim()
     ? rows.filter(r =>
         r.pro_codigo.toLowerCase().includes(search.toLowerCase()) ||
         r.pro_nome.toLowerCase().includes(search.toLowerCase())
       )
-    : rows;
+    : rows, [rows, search]);
+
+  /* ── reset display window when source data changes ── */
+  useEffect(() => { setDisplayLimit(PAGE_SIZE); }, [shown]);
+
+  /* ── infinite scroll sentinel ── */
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) {
+        setDisplayLimit(prev => Math.min(prev + PAGE_SIZE, shown.length));
+      }
+    }, { rootMargin: '300px' });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [shown.length, displayLimit]);
 
   const isLoading = loadingInds || loadingTabs || loadingRows;
 
@@ -447,6 +467,11 @@ export default function TabelaPrecosPage() {
               {shown.length === rows.length
                 ? `${rows.length} produto${rows.length !== 1 ? 's' : ''}`
                 : `${shown.length} de ${rows.length}`}
+              {displayLimit < shown.length && (
+                <span style={{ color: '#2563EB', marginLeft: 6 }}>
+                  · exibindo {displayLimit}
+                </span>
+              )}
               {!isOnline && <span style={{ color: '#D97706', marginLeft: 6 }}>· Dados locais</span>}
             </span>
           </div>
@@ -468,7 +493,20 @@ export default function TabelaPrecosPage() {
               : 'Nenhum resultado para a busca.'}
           </div>
         ) : (
-          shown.map(row => <ProductRow key={row.pro_codigo} row={row} discounts={discounts} />)
+          <>
+            {shown.slice(0, displayLimit).map(row => (
+              <ProductRow key={row.pro_codigo} row={row} discounts={discounts} />
+            ))}
+            {displayLimit < shown.length && (
+              <div ref={sentinelRef} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: 6, padding: 16, color: 'var(--navy-muted)', fontSize: 12,
+              }}>
+                <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
+                Carregando mais...
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

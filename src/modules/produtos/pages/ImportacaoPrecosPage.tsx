@@ -123,10 +123,10 @@ const btnBase: CSSProperties = {
 };
 
 // ─── Classic Import ───────────────────────────────────────────────────────────
-function ClassicImport() {
+function ClassicImport({ initialIndustria }: { initialIndustria?: Industry }) {
   const [activeTab, setActiveTab]           = useState(0);
   const [formData, setFormData]             = useState({
-    industria: '', nomeTabela: '',
+    industria: initialIndustria ? String(initialIndustria.value) : '', nomeTabela: '',
     dataTabela: new Date().toISOString().split('T')[0], dataVencimento: '',
   });
   const [textareas, setTextareas]           = useState<TextareasState>(EMPTY);
@@ -141,7 +141,7 @@ function ClassicImport() {
   const [showNewTableInput, setShowNewTableInput] = useState(false);
 
   useEffect(() => {
-    api.get('/aux/industrias').then(r => setIndustries(r.data.data || [])).catch(() => {});
+    if (!initialIndustria) api.get('/aux/industrias').then(r => setIndustries(r.data.data || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -167,11 +167,13 @@ function ClassicImport() {
   }, [textareas]);
 
   const parseValue = (val: string | undefined): number | null => {
-    if (!val && val !== '0') return null;
+    if (!val) return null;
     const c = val.toString().replace(/[^\d,.-]/g, '');
-    if (!c) return 0;
-    if (c.includes(',') && c.includes('.')) return parseFloat(c.replace(/\./g, '').replace(',', '.')) || 0;
-    return parseFloat(c.replace(',', '.')) || 0;
+    if (!c) return null;
+    const n = c.includes(',') && c.includes('.')
+      ? parseFloat(c.replace(/\./g, '').replace(',', '.'))
+      : parseFloat(c.replace(',', '.'));
+    return isNaN(n) ? null : n;
   };
 
   const handleImport = async () => {
@@ -305,12 +307,18 @@ function ClassicImport() {
         <div style={{ display:'grid', gridTemplateColumns:'2.5fr 2fr 1.2fr 1.2fr auto', gap:10, alignItems:'end' }}>
           <div>
             <div style={{ fontSize:8, color:V.gold, fontWeight:800, letterSpacing:'0.8px', marginBottom:4 }}>INDÚSTRIA *</div>
-            <select value={String(formData.industria)}
-              onChange={e => setFormData(p => ({ ...p, industria:e.target.value, nomeTabela:'' }))}
-              style={{ width:'100%', height:34, padding:'0 10px', borderRadius:7, border:`1px solid ${V.navyBorder}`, background:V.navyMid, fontSize:11, fontWeight:600, color:V.textLight, outline:'none', cursor:'pointer', appearance:'none' }}>
-              <option value="">Selecione a indústria...</option>
-              {industries.map(i => <option key={i.value} value={String(i.value)}>{i.label}</option>)}
-            </select>
+            {initialIndustria ? (
+              <div style={{ height:34, display:'flex', alignItems:'center', paddingLeft:10, borderRadius:7, border:`1px solid ${V.gold}66`, background:V.navyMid, fontSize:11, fontWeight:800, color:'white' }}>
+                {initialIndustria.label}
+              </div>
+            ) : (
+              <select value={String(formData.industria)}
+                onChange={e => setFormData(p => ({ ...p, industria:e.target.value, nomeTabela:'' }))}
+                style={{ width:'100%', height:34, padding:'0 10px', borderRadius:7, border:`1px solid ${V.navyBorder}`, background:V.navyMid, fontSize:11, fontWeight:600, color:V.textLight, outline:'none', cursor:'pointer', appearance:'none' }}>
+                <option value="">Selecione a indústria...</option>
+                {industries.map(i => <option key={i.value} value={String(i.value)}>{i.label}</option>)}
+              </select>
+            )}
           </div>
 
           <div>
@@ -495,9 +503,9 @@ function ResultBox({ result }: { result: ImportResult }) {
         <>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:16 }}>
             {[
-              { label:'Total',       value:result.resumo.total,       border:C.slate200, color:C.slate800 },
-              { label:'Inseridos',   value:result.resumo.inseridos,   border:C.emeraldBorder, color:C.emeraldDark },
-              { label:'Atualizados', value:result.resumo.atualizados, border:'#bfdbfe', color:C.blue },
+              { label:'Total',       value:result.resumo.total,               border:C.slate200, color:C.slate800 },
+              { label:'Inseridos',   value:result.resumo.produtosNovos,       border:C.emeraldBorder, color:C.emeraldDark },
+              { label:'Atualizados', value:result.resumo.produtosAtualizados, border:'#bfdbfe', color:C.blue },
               ...(result.resumo.erros > 0 ? [{ label:'Erros', value:result.resumo.erros, border:C.red200, color:C.red500 }] : []),
             ].map(s => (
               <div key={s.label} style={{ background:C.white, border:`2px solid ${s.border}`, borderRadius:12, padding:'14px 16px' }}>
@@ -545,7 +553,8 @@ function ResultBox({ result }: { result: ImportResult }) {
 }
 
 // ─── Magic Import ─────────────────────────────────────────────────────────────
-const MAGIC_FIELDS = [
+// Campos principais — sempre visíveis no mapeamento
+const MAGIC_MAIN = [
   { key:'codigo',        label:'Código *',          required:true  },
   { key:'descricao',     label:'Descrição *',        required:true  },
   { key:'linha',         label:'Marca / Linha',      required:false },
@@ -560,23 +569,53 @@ const MAGIC_FIELDS = [
   { key:'aplicacao',     label:'Aplicação',          required:false },
   { key:'grupo',         label:'Grupo de Produto',   required:false },
   { key:'codbarras',     label:'Código de Barras',   required:false },
+  { key:'ciclo',         label:'Ciclo (C/L)',         required:false },
 ];
 
-function MagicImport() {
+// Flags de segmento — colapsáveis
+const MAGIC_FLAGS = [
+  { key:'linhaleve',        label:'Linha Leve (S/N)'    },
+  { key:'linhapesada',      label:'Linha Pesada (S/N)'  },
+  { key:'linhaagricola',    label:'Linha Agrícola (S/N)'},
+  { key:'linhautilitarios', label:'Utilitários (S/N)'   },
+  { key:'motocicletas',     label:'Motocicletas (S/N)'  },
+  { key:'offroad',          label:'Off-Road (S/N)'      },
+  { key:'linhaamarela',     label:'Linha Amarela (S/N)' },
+];
+
+const MAGIC_FIELDS = [...MAGIC_MAIN, ...MAGIC_FLAGS];
+
+// Aliases: colunas com nomes alternativos frequentes (ex: GRP → grupo, NOME → descricao)
+const MAGIC_ALIASES: Record<string,string[]> = {
+  descricao:        ['nome','produto','nomeproduto','descproduto'],
+  grupo:            ['grp','grupoprod','grupodeprodutos'],
+  embalagem:        ['emb','qtdemb','cxpcs'],
+  conversao:        ['conv'],
+  linhaleve:        ['leve'],
+  linhapesada:      ['pesada','pesad'],
+  linhaagricola:    ['agricola','agric'],
+  linhautilitarios: ['util','utilitario'],
+  motocicletas:     ['moto'],
+  offroad:          ['off'],
+  linhaamarela:     ['amarela','amar','amarelo'],
+};
+
+function MagicImport({ initialIndustria }: { initialIndustria?: Industry }) {
   const [industries, setIndustries] = useState<Industry[]>([]);
   const [existingTables, setExistingTables] = useState<ExistingTable[]>([]);
-  const [selInd, setSelInd]     = useState('');
+  const [selInd, setSelInd]       = useState(initialIndustria ? String(initialIndustria.value) : '');
   const [nomeTabela, setNomeTabela] = useState('');
   const [novaTabela, setNovaTabela] = useState('');
-  const [step, setStep]         = useState<'upload'|'mapping'|'importing'|'done'>('upload');
-  const [headers, setHeaders]   = useState<string[]>([]);
-  const [preview, setPreview]   = useState<any[][]>([]);
-  const [rawData, setRawData]   = useState<any[][]>([]);
-  const [mapping, setMapping]   = useState<Record<string,string>>({});
-  const [result, setResult]     = useState<ImportResult|null>(null);
+  const [step, setStep]           = useState<'upload'|'mapping'|'importing'|'done'>('upload');
+  const [headers, setHeaders]     = useState<string[]>([]);
+  const [preview, setPreview]     = useState<any[][]>([]);
+  const [rawData, setRawData]     = useState<any[][]>([]);
+  const [mapping, setMapping]     = useState<Record<string,string>>({});
+  const [result, setResult]       = useState<ImportResult|null>(null);
+  const [showFlags, setShowFlags] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { api.get('/aux/industrias').then(r => setIndustries(r.data.data||[])).catch(()=>{}); }, []);
+  useEffect(() => { if (!initialIndustria) api.get('/aux/industrias').then(r => setIndustries(r.data.data||[])).catch(()=>{}); }, []);
   useEffect(() => {
     setExistingTables([]); setNomeTabela('');
     if (!selInd) return;
@@ -584,6 +623,40 @@ function MagicImport() {
   }, [selInd]);
 
   const tabelaFinal = nomeTabela === '__nova__' ? novaTabela : nomeTabela;
+
+  // Auto-mapper sem colisões: exato > h-contém-chave > chave-contém-h > alias
+  const autoMap = (hdrs: string[]): Record<string,string> => {
+    const norm = (s:string) => s.toLowerCase().replace(/[^a-z0-9]/g,'');
+    const normHdrs = hdrs.map(norm);
+    const used = new Set<number>();
+    const auto: Record<string,string> = {};
+
+    const find = (fn: string, aliases: string[]): number => {
+      // 1. exact
+      let i = normHdrs.findIndex((h,j) => !used.has(j) && h === fn);
+      // 2. header contains key (key at least 4 chars)
+      if (i < 0 && fn.length >= 4)
+        i = normHdrs.findIndex((h,j) => !used.has(j) && h.includes(fn));
+      // 3. key contains header (both at least 4 chars — avoids short noise matches)
+      if (i < 0 && fn.length >= 4)
+        i = normHdrs.findIndex((h,j) => !used.has(j) && h.length >= 4 && fn.includes(h));
+      // 4. alias exact or alias contained in header
+      if (i < 0) {
+        for (const a of aliases) {
+          const an = norm(a);
+          i = normHdrs.findIndex((h,j) => !used.has(j) && (h === an || (an.length >= 3 && h.includes(an))));
+          if (i >= 0) break;
+        }
+      }
+      return i;
+    };
+
+    for (const f of MAGIC_FIELDS) {
+      const i = find(norm(f.key), (MAGIC_ALIASES[f.key] || []).map(a => a));
+      if (i >= 0) { auto[f.key] = String(i); used.add(i); }
+    }
+    return auto;
+  };
 
   const handleFile = async (file: File) => {
     try {
@@ -594,41 +667,144 @@ function MagicImport() {
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
       if (rows.length < 2) { toast.error('Planilha vazia.'); return; }
       const hdrs = rows[0].map((h:any) => String(h));
-      const dataRows = rows.slice(1).filter((row: any[]) => row.some(cell => String(cell).trim() !== ''));
-      setHeaders(hdrs); setRawData(dataRows); setPreview(dataRows.slice(0, 6));
-      const auto: Record<string,string> = {};
-      const norm = (s:string) => s.toLowerCase().replace(/[^a-z0-9]/g,'');
-      MAGIC_FIELDS.forEach(f => {
-        const fn = norm(f.key);
-        const idx = hdrs.map(norm).findIndex(h => h.includes(fn) || fn.includes(h.substring(0,4)));
-        if (idx >= 0) auto[f.key] = String(idx);
-      });
+      const dataRows = rows.slice(1).filter((r:any[]) => r.some(c => String(c).trim() !== ''));
+      setHeaders(hdrs); setRawData(dataRows); setPreview(dataRows.slice(0, 5));
+      const auto = autoMap(hdrs);
+      // Se alguma flag foi detectada, abrir a seção automaticamente
+      if (MAGIC_FLAGS.some(f => auto[f.key] !== undefined)) setShowFlags(true);
       setMapping(auto); setStep('mapping');
     } catch { toast.error('Erro ao ler arquivo Excel.'); }
   };
 
   const doImport = async () => {
     if (!selInd || !tabelaFinal) { toast.error('Selecione indústria e tabela.'); return; }
-    const get = (row:any[], key:string) => { const idx = mapping[key]; if (idx===undefined||idx==='') return ''; return String(row[parseInt(idx)]??'').trim(); };
+    const get = (row:any[], key:string) => {
+      const idx = mapping[key];
+      if (idx === undefined || idx === '') return '';
+      return String(row[parseInt(idx)] ?? '').trim();
+    };
     const produtos = rawData.map(row => ({
-      codigo:get(row,'codigo'), descricao:get(row,'descricao'), linha:get(row,'linha'),
-      precobruto:get(row,'precobruto'),
-      precopromo:get(row,'precopromo'), precoespecial:get(row,'precoespecial'), ipi:get(row,'ipi'),
-      st:get(row,'st'), embalagem:get(row,'embalagem'), peso:get(row,'peso'),
-      conversao:get(row,'conversao'), aplicacao:get(row,'aplicacao'),
-      grupo:get(row,'grupo'), codbarras:get(row,'codbarras'),
+      codigo:          get(row,'codigo'),
+      descricao:       get(row,'descricao'),
+      linha:           get(row,'linha'),
+      precobruto:      get(row,'precobruto'),
+      precopromo:      get(row,'precopromo'),
+      precoespecial:   get(row,'precoespecial'),
+      ipi:             get(row,'ipi'),
+      st:              get(row,'st'),
+      embalagem:       get(row,'embalagem'),
+      peso:            get(row,'peso'),
+      conversao:       get(row,'conversao'),
+      aplicacao:       get(row,'aplicacao'),
+      grupo:           get(row,'grupo'),
+      codbarras:       get(row,'codbarras'),
+      ciclo:           get(row,'ciclo'),
+      linhaleve:       get(row,'linhaleve')        || null,
+      linhapesada:     get(row,'linhapesada')      || null,
+      linhaagricola:   get(row,'linhaagricola')    || null,
+      linhautilitarios:get(row,'linhautilitarios') || null,
+      motocicletas:    get(row,'motocicletas')     || null,
+      offroad:         get(row,'offroad')          || null,
+      linhaamarela:    get(row,'linhaamarela')     || null,
     })).filter(p => p.codigo);
     setStep('importing');
     try {
       const r = await api.post('/price-tables/import', {
-        industria:parseInt(selInd), nomeTabela:tabelaFinal,
+        industria: parseInt(selInd), nomeTabela: tabelaFinal,
         dataTabela: new Date().toISOString().split('T')[0], produtos,
       });
       setResult(r.data); setStep('done');
     } catch (e:any) { toast.error(e?.response?.data?.message||'Erro.'); setStep('mapping'); }
   };
 
-  const sel: CSSProperties = { width:'100%', height:42, padding:'0 12px', borderRadius:10, border:`2px solid ${C.slate200}`, background:C.white, fontSize:13, fontWeight:600, color:C.slate700, outline:'none', cursor:'pointer', appearance:'none' };
+  const downloadGabarito = async () => {
+    const XLSX = await import('xlsx');
+
+    // Aba 1: Gabarito Magic Import
+    const magicHdr = [
+      'codigo','descricao','linha','precobruto','precopromo','precoespecial',
+      'ipi','st','embalagem','peso','conversao','aplicacao','grupo','codbarras','ciclo',
+      'linhaleve','linhapesada','linhaagricola','linhautilitarios','motocicletas','offroad','linhaamarela',
+    ];
+    const magicEx = [
+      ['ABC-1234','FILTRO DE OLEO MOTOR 1.0','LINHA LEVE',45.90,41.50,39.00,4.0,12.0,12,0.35,'1 CX = 12 UN','VECTRA 2.0 2000-2010',1,'','C','S','N','N','N','N','N','N'],
+      ['XYZ-5678','VELA DE IGNICAO IRIDIUM','IGNIÇÃO',28.50,'','',0.0,0.0,4,0.08,'','GOL G4 1.0',2,'','C','S','N','N','N','N','N','N'],
+      ['DEF-9999','AMORTECEDOR DIANTEIRO ESQ','SUSPENSÃO',189.90,175.00,'',0.0,12.0,1,3.20,'','ONIX 2013+',3,'','C','N','S','N','N','N','N','N'],
+      ['GHI-0011','CORREIA DENTADA KIT C/TENSOR','DISTRIBUIÇÃO',95.00,88.00,80.00,4.0,0.0,1,0.42,'1 KIT','CIVIC 1.7 2001-2006',4,'','L','S','N','N','N','N','N','N'],
+      ['JKL-2233','PASTILHA FREIO DIANTEIRA','FREIOS',52.00,47.50,'',0.0,12.0,1,0.55,'1 JG','HB20 2012+',5,'','C','S','N','N','N','N','N','N'],
+    ];
+
+    // Aba 2: Legenda
+    const legenda = [
+      ['CAMPO','NOME NA UI','OBRIGATÓRIO','TIPO','EXEMPLOS / OBSERVAÇÃO'],
+      ['codigo','Código','SIM','Texto','ABC-1234 / 60228 — SKU da indústria'],
+      ['descricao','Descrição / Nome','SIM','Texto','FILTRO DE OLEO MOTOR 1.0'],
+      ['linha','Marca / Linha','não','Texto','LINHA LEVE / IGNIÇÃO / FREIOS'],
+      ['precobruto','Preço Bruto','SIM','Número','45.90 — usar ponto como decimal, sem R$'],
+      ['precopromo','Preço Promoção','não','Número','41.50 — preço de campanha'],
+      ['precoespecial','Preço Especial','não','Número','39.00 — preço negociado'],
+      ['ipi','% IPI','não','Número','4.0 = 4%'],
+      ['st','% ST','não','Número','12.0 = 12% ICMS-ST'],
+      ['embalagem','Embalagem','não','Inteiro','12 = caixa com 12 unidades'],
+      ['peso','Peso (kg)','não','Número','0.35 — peso unitário em kg'],
+      ['conversao','Conversão','não','Texto','1 CX = 12 UN / vendido por KG'],
+      ['aplicacao','Aplicação','não','Texto','VECTRA 2.0 2000-2010 / GOL 1.0'],
+      ['grupo','Grupo de Produto','não','Texto/Número','FILTROS / CORREIAS — impacta BI de mix'],
+      ['codbarras','Código de Barras','não','Texto','7891234567890'],
+      ['ciclo','Ciclo','não','C ou L','C = Corrente (padrão) / L = Lançamento'],
+      ['','','','',''],
+      ['SEGMENTOS (S = sim, N = não)','','','',''],
+      ['linhaleve','Linha Leve','não','S ou N','S = produto pertence à linha leve'],
+      ['linhapesada','Linha Pesada','não','S ou N','S = caminhões / veículos pesados'],
+      ['linhaagricola','Linha Agrícola','não','S ou N','S = tratores / máquinas agrícolas'],
+      ['linhautilitarios','Utilitários','não','S ou N','S = vans / utilitários'],
+      ['motocicletas','Motocicletas','não','S ou N','S = moto'],
+      ['offroad','Off-Road','não','S ou N','S = veículos off-road'],
+      ['linhaamarela','Linha Amarela','não','S ou N','S = construção / máquinas amarelas'],
+      ['','','','',''],
+      ['NOMES ALTERNATIVOS ACEITOS NA DETECÇÃO AUTOMÁTICA','','','',''],
+      ['descricao','nome, produto, nomeproduto','','',''],
+      ['grupo','grp, grupoprod','','',''],
+      ['embalagem','emb, qtdemb','','',''],
+      ['linhaleve','leve','','',''],
+      ['linhapesada','pesada, pesad','','',''],
+      ['linhaagricola','agricola, agric','','',''],
+      ['linhautilitarios','util, utilitario','','',''],
+      ['motocicletas','moto','','',''],
+      ['offroad','off','','',''],
+      ['linhaamarela','amarela, amar, amarelo','','',''],
+    ];
+
+    // Aba 3: Como Usar
+    const comoUsar = [
+      ['COMO USAR ESTA PLANILHA'],[''],
+      ['1. Preencha a aba "Gabarito_MagicImport" com os dados da lista de preços'],
+      ['2. Salve o arquivo'],
+      ['3. Acesse: Utilitários → Importação de Tabela de Preços → ✨ Magic Import'],
+      ['4. Arraste ou selecione este arquivo'],
+      ['5. Confira o mapeamento automático de colunas'],
+      ['6. Selecione a Indústria e o Nome da Tabela'],
+      ['7. Clique em "Importar"'],[''],
+      ['CAMPOS QUE IMPACTAM O BI'],
+      ['  grupo    → gráfico Mix de Pastas e cross-sell'],
+      ['  linhaleve/pesada/etc → filtros de segmento no BI'],
+      ['  precobruto + ipi + st → preço líquido e rentabilidade'],[''],
+      ['REGRAS'],
+      ['  • Preços: ponto decimal (45.90), sem R$'],
+      ['  • Código: SKU oficial da indústria (chave de atualização)'],
+      ['  • Segmentos: S ou N (não deixe em branco se quiser limpar um segmento)'],
+      ['  • Se o código já existir, preços e dados serão ATUALIZADOS'],
+      ['  • Se for novo, o produto será CRIADO no catálogo'],
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([magicHdr,...magicEx]), 'Gabarito_MagicImport');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(legenda),  'Legenda de Campos');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(comoUsar), 'Como Usar');
+    XLSX.writeFile(wb, 'Gabarito_ImportacaoPrecos.xlsx');
+  };
+
+  const sel: CSSProperties = { width:'100%', height:36, padding:'0 10px', borderRadius:8, border:`2px solid ${C.slate200}`, background:C.white, fontSize:12, fontWeight:600, color:C.slate700, outline:'none', cursor:'pointer', appearance:'none' };
 
   if (step==='importing') return (
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:280, gap:16 }}>
@@ -649,19 +825,28 @@ function MagicImport() {
   );
 
   if (step==='mapping') return (
-    <div style={{ maxWidth:860, display:'flex', flexDirection:'column', gap:20 }}>
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+    <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>
+    <div style={{ flex:1, overflowY:'auto', padding:'16px 24px', display:'flex', flexDirection:'column', gap:12, maxWidth:960, width:'100%', boxSizing:'border-box' }}>
+
+      {/* Indústria + Tabela */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
         <div>
-          <label style={{ fontSize:11, fontWeight:700, color:C.slate600, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6, display:'flex', alignItems:'center', gap:6 }}>
+          <label style={{ fontSize:11, fontWeight:700, color:C.slate600, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:3, display:'flex', alignItems:'center', gap:6 }}>
             <Factory size={13} color={C.emerald} />Indústria *
           </label>
-          <select value={selInd} onChange={e => setSelInd(e.target.value)} style={sel}>
-            <option value="">Selecione...</option>
-            {industries.map(i => <option key={i.value} value={String(i.value)}>{i.label}</option>)}
-          </select>
+          {initialIndustria ? (
+            <div style={{ height:36, display:'flex', alignItems:'center', paddingLeft:10, borderRadius:8, border:`2px solid ${C.emeraldBorder}`, background:C.emeraldBg, fontSize:12, fontWeight:800, color:C.slate800 }}>
+              {initialIndustria.label}
+            </div>
+          ) : (
+            <select value={selInd} onChange={e => setSelInd(e.target.value)} style={sel}>
+              <option value="">Selecione...</option>
+              {industries.map(i => <option key={i.value} value={String(i.value)}>{i.label}</option>)}
+            </select>
+          )}
         </div>
         <div>
-          <label style={{ fontSize:11, fontWeight:700, color:C.slate600, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6, display:'flex', alignItems:'center', gap:6 }}>
+          <label style={{ fontSize:11, fontWeight:700, color:C.slate600, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:3, display:'flex', alignItems:'center', gap:6 }}>
             <Tag size={13} color="#3b82f6" />Tabela *
           </label>
           <select value={nomeTabela} onChange={e => setNomeTabela(e.target.value)} disabled={!selInd} style={{ ...sel, textTransform:'uppercase', fontWeight:700 }}>
@@ -673,17 +858,21 @@ function MagicImport() {
       </div>
       {nomeTabela==='__nova__' && (
         <input value={novaTabela} onChange={e => setNovaTabela(e.target.value.toUpperCase())} placeholder="Nome da nova tabela..."
-          style={{ height:42, padding:'0 12px', borderRadius:10, border:`2px solid ${C.emeraldBorder}`, fontSize:13, fontWeight:700, color:C.slate800, outline:'none', textTransform:'uppercase', width:'50%', boxSizing:'border-box' }} />
+          style={{ height:36, padding:'0 10px', borderRadius:8, border:`2px solid ${C.emeraldBorder}`, fontSize:12, fontWeight:700, color:C.slate800, outline:'none', textTransform:'uppercase', width:'50%', boxSizing:'border-box' }} />
       )}
 
+      {/* Mapeamento de colunas */}
       <div>
-        <p style={{ fontSize:11, fontWeight:700, color:C.slate500, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:12 }}>
+        <p style={{ fontSize:11, fontWeight:700, color:C.slate500, textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8 }}>
           Planilha: <strong style={{ color:C.slate800 }}>{headers.length} colunas</strong> · <strong style={{ color:C.slate800 }}>{rawData.length} linhas</strong>
+          <span style={{ marginLeft:8, color:C.slate400, fontWeight:400 }}>— verifique o mapeamento abaixo e corrija se necessário</span>
         </p>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-          {MAGIC_FIELDS.map(f => (
+
+        {/* Campos principais */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+          {MAGIC_MAIN.map(f => (
             <div key={f.key}>
-              <label style={{ fontSize:11, fontWeight:700, color:C.slate600, marginBottom:4, display:'block' }}>{f.label}</label>
+              <label style={{ fontSize:11, fontWeight:700, color: f.required ? C.emeraldDark : C.slate600, marginBottom:2, display:'block' }}>{f.label}</label>
               <select value={mapping[f.key]??''} onChange={e => setMapping(p => ({ ...p, [f.key]:e.target.value }))} style={sel}>
                 <option value="">— não mapear —</option>
                 {headers.map((h,i) => <option key={i} value={String(i)}>Col {i+1}: {h||'(sem nome)'}</option>)}
@@ -691,8 +880,36 @@ function MagicImport() {
             </div>
           ))}
         </div>
+
+        {/* Flags de segmento — colapsável */}
+        <div style={{ marginTop:16, border:`1px solid ${C.slate200}`, borderRadius:12, overflow:'hidden' }}>
+          <button
+            onClick={() => setShowFlags(v => !v)}
+            style={{ width:'100%', padding:'10px 14px', background:C.slate50, border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:12, fontWeight:700, color:C.slate600 }}
+          >
+            <span>Segmentos de Linha (LEVE / PESADA / AGRÍCOLA / etc.)</span>
+            <span style={{ fontSize:10, color:C.slate400 }}>{showFlags ? '▲ ocultar' : '▼ expandir'}</span>
+          </button>
+          {showFlags && (
+            <div style={{ padding:'12px 14px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, background:C.white }}>
+              <p style={{ gridColumn:'1/-1', fontSize:11, color:C.slate400, margin:'0 0 4px', fontWeight:500 }}>
+                Use S/N, SIM/NÃO, 1/0 ou X nas células. Deixe em branco para não alterar.
+              </p>
+              {MAGIC_FLAGS.map(f => (
+                <div key={f.key}>
+                  <label style={{ fontSize:11, fontWeight:700, color:C.slate600, marginBottom:4, display:'block' }}>{f.label}</label>
+                  <select value={mapping[f.key]??''} onChange={e => setMapping(p => ({ ...p, [f.key]:e.target.value }))} style={sel}>
+                    <option value="">— não mapear —</option>
+                    {headers.map((h,i) => <option key={i} value={String(i)}>Col {i+1}: {h||'(sem nome)'}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
+      {/* Prévia — só campos principais mapeados */}
       {preview.length > 0 && (
         <div style={{ ...card, overflow:'hidden' }}>
           <div style={{ background:C.slate50, padding:'8px 14px', borderBottom:`1px solid ${C.slate200}`, fontSize:10, fontWeight:700, color:C.slate500, textTransform:'uppercase', letterSpacing:'0.1em' }}>
@@ -701,15 +918,15 @@ function MagicImport() {
           <div style={{ overflowX:'auto' }}>
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
               <thead style={{ background:C.slate50 }}>
-                <tr>{MAGIC_FIELDS.filter(f => mapping[f.key]!==undefined&&mapping[f.key]!=='').map(f => (
-                  <th key={f.key} style={{ padding:'8px 10px', textAlign:'left', fontWeight:700, color:C.slate500, borderBottom:`1px solid ${C.slate200}` }}>{f.key.toUpperCase()}</th>
+                <tr>{MAGIC_MAIN.filter(f => mapping[f.key]!==undefined&&mapping[f.key]!=='').map(f => (
+                  <th key={f.key} style={{ padding:'8px 10px', textAlign:'left', fontWeight:700, color:C.slate500, borderBottom:`1px solid ${C.slate200}`, whiteSpace:'nowrap' }}>{f.key.toUpperCase()}</th>
                 ))}</tr>
               </thead>
               <tbody>
                 {preview.map((row,i) => (
                   <tr key={i} style={{ borderBottom:`1px solid ${C.slate50}` }}>
-                    {MAGIC_FIELDS.filter(f => mapping[f.key]!==undefined&&mapping[f.key]!=='').map(f => (
-                      <td key={f.key} style={{ padding:'8px 10px', fontFamily:'monospace', color:C.slate700 }}>{String(row[parseInt(mapping[f.key])]??'')}</td>
+                    {MAGIC_MAIN.filter(f => mapping[f.key]!==undefined&&mapping[f.key]!=='').map(f => (
+                      <td key={f.key} style={{ padding:'8px 10px', fontFamily:'monospace', color:C.slate700, whiteSpace:'nowrap' }}>{String(row[parseInt(mapping[f.key])]??'')}</td>
                     ))}
                   </tr>
                 ))}
@@ -719,7 +936,10 @@ function MagicImport() {
         </div>
       )}
 
-      <div style={{ display:'flex', justifyContent:'space-between', paddingTop:16, borderTop:`2px solid ${C.slate200}` }}>
+    </div>{/* fim scroll area */}
+
+      {/* Botões — sempre visíveis na base */}
+      <div style={{ flexShrink:0, display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 24px', borderTop:`2px solid ${C.slate200}`, background:C.white }}>
         <button onClick={() => setStep('upload')}
           style={{ ...btnBase, padding:'10px 20px', border:`1px solid ${C.slate200}`, background:C.white, fontSize:13, color:C.slate600 }}>
           <ArrowLeft size={14} />Voltar
@@ -753,9 +973,16 @@ function MagicImport() {
       </div>
       <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display:'none' }}
         onChange={e => { const f = e.target.files?.[0]; if(f) handleFile(f); }} />
-      <p style={{ marginTop:16, fontSize:11, color:C.slate400, fontWeight:600, textAlign:'center' }}>
-        Detecção automática de colunas com mapeamento visual antes de importar.
-      </p>
+      <div style={{ marginTop:16, display:'flex', alignItems:'center', justifyContent:'center', gap:12 }}>
+        <p style={{ margin:0, fontSize:11, color:C.slate400, fontWeight:600 }}>
+          Detecção automática de colunas com mapeamento visual antes de importar.
+        </p>
+        <button onClick={e => { e.stopPropagation(); downloadGabarito(); }}
+          style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 14px', borderRadius:8, border:`1px solid ${C.slate200}`, background:C.white, fontSize:11, fontWeight:700, color:C.slate600, cursor:'pointer', flexShrink:0 }}>
+          <FileSpreadsheet size={12} />
+          Baixar Gabarito
+        </button>
+      </div>
     </div>
   );
 }
@@ -875,15 +1102,15 @@ function TabelaHelpModal({ onClose }: { onClose: () => void }) {
 }
 
 // ─── Página Principal ─────────────────────────────────────────────────────────
-export default function ImportacaoPrecosPage() {
+export default function ImportacaoPrecosPage({ initialIndustria, onClose }: { initialIndustria?: Industry; onClose?: () => void } = {}) {
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<'classic'|'magic'>(searchParams.get('tab') === 'magic' ? 'magic' : 'classic');
   const [showHelp, setShowHelp] = useState(false);
   return (
-    <div style={{ minHeight:'100vh', background: tab==='classic' ? '#E8E1D4' : 'linear-gradient(135deg,#f1f5f9 0%,#ffffff 50%,#ecfdf5 100%)' }}>
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', background: tab==='classic' ? '#E8E1D4' : 'linear-gradient(135deg,#f1f5f9 0%,#ffffff 50%,#ecfdf5 100%)' }}>
       {showHelp && <TabelaHelpModal onClose={() => setShowHelp(false)} />}
       {/* Tab switcher */}
-      <div style={{ display:'flex', alignItems:'center', background:'#1E2D3D', position:'sticky', top:0, zIndex:10, boxShadow:'0 2px 8px -2px rgba(0,0,0,0.3)', padding:'0 20px' }}>
+      <div style={{ flexShrink:0, display:'flex', alignItems:'center', background:'#1E2D3D', boxShadow:'0 2px 8px -2px rgba(0,0,0,0.3)', padding:'0 20px' }}>
         {([
           { key:'classic', label:'📋  Importar Tabela',  desc:'Colar colunas do Excel' },
           { key:'magic',   label:'✨  Magic Import',     desc:'Upload Excel com detecção automática' },
@@ -894,13 +1121,21 @@ export default function ImportacaoPrecosPage() {
             <span style={{ fontSize:10, fontWeight:600, color:'#64748B' }}>{t.desc}</span>
           </button>
         ))}
-        <button onClick={() => setShowHelp(true)}
-          style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:5, padding:'6px 12px', borderRadius:8, border:'1px solid #2E4A66', background:'rgba(184,150,46,0.08)', cursor:'pointer', color:'#B8962E', fontSize:11, fontWeight:800 }}>
-          <HelpCircle size={13} /> Ajuda
-        </button>
+        <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:8 }}>
+          <button onClick={() => setShowHelp(true)}
+            style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 12px', borderRadius:8, border:'1px solid #2E4A66', background:'rgba(184,150,46,0.08)', cursor:'pointer', color:'#B8962E', fontSize:11, fontWeight:800 }}>
+            <HelpCircle size={13} /> Ajuda
+          </button>
+          {onClose && (
+            <button onClick={onClose}
+              style={{ display:'flex', alignItems:'center', justifyContent:'center', width:30, height:30, borderRadius:8, border:'1px solid #2E4A66', background:'rgba(255,255,255,0.06)', cursor:'pointer', color:'#94A3B8' }}>
+              <X size={16} />
+            </button>
+          )}
+        </div>
       </div>
-      {tab==='classic' ? <ClassicImport /> : (
-        <div style={{ padding:24 }}><MagicImport /></div>
+      {tab==='classic' ? <ClassicImport initialIndustria={initialIndustria} /> : (
+        <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}><MagicImport initialIndustria={initialIndustria} /></div>
       )}
     </div>
   );

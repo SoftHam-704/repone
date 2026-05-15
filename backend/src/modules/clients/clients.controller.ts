@@ -26,6 +26,7 @@ export async function listClientsHandler(req: Request, res: Response): Promise<v
         c.cli_vendedor,
         COALESCE(v.ven_nome, '')                               AS cli_vendedor_nome,
         c.cli_tipopes,
+        c.cli_atuacao,
         CASE WHEN c.cli_tipopes = 'A' THEN true ELSE false END AS cli_status
       FROM clientes c
       LEFT JOIN cidades    cid ON c.cli_idcidade = cid.cid_codigo
@@ -150,13 +151,14 @@ export async function createClientHandler(req: Request, res: Response): Promise<
         cli_obspedido, cli_suframa,
         cli_latitude, cli_longitude,
         cli_tipopes, cli_redeloja, cli_dtabertura, cli_datacad,
-        cli_cepcob, cli_endcob, cli_baicob, cli_cidcob, cli_ufcob, cli_fone3
+        cli_cepcob, cli_endcob, cli_baicob, cli_cidcob, cli_ufcob, cli_fone3,
+        cli_atuacao
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36
+        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37
       ) RETURNING cli_codigo
     `, [
-      data.cli_nome, data.cli_fantasia, data.cli_nomred, data.cli_cnpj, data.cli_inscricao,
+      data.cli_nome, data.cli_fantasia, data.cli_nomred, data.cli_cnpj || null, data.cli_inscricao,
       data.cli_endereco, data.cli_endnum || null, data.cli_complemento || null, data.cli_bairro, data.cli_cep,
       data.cli_idcidade || null, data.cli_cidade, data.cli_uf,
       data.cli_fone1, data.cli_fone2, data.cli_email, data.cli_emailnfe, data.cli_emailfinanc,
@@ -170,6 +172,7 @@ export async function createClientHandler(req: Request, res: Response): Promise<
       data.cli_tipopes || 'A', data.cli_redeloja,
       data.cli_dtabertura || null, data.cli_datacad || new Date(),
       data.cli_cepcob, data.cli_endcob, data.cli_baicob, data.cli_cidcob, data.cli_ufcob, data.cli_fone3,
+      data.cli_atuacao || null,
     ]);
 
     res.json({ success: true, message: 'Cliente cadastrado com sucesso!', id: result.rows[0].cli_codigo });
@@ -207,8 +210,9 @@ export async function updateClientHandler(req: Request, res: Response): Promise<
         cli_obspedido=$23, cli_suframa=$24,
         cli_latitude=$25, cli_longitude=$26,
         cli_tipopes=$27, cli_redeloja=$28, cli_dtabertura=$29,
-        cli_cepcob=$30, cli_endcob=$31, cli_baicob=$32, cli_cidcob=$33, cli_ufcob=$34, cli_fone3=$35
-      WHERE cli_codigo=$36
+        cli_cepcob=$30, cli_endcob=$31, cli_baicob=$32, cli_cidcob=$33, cli_ufcob=$34, cli_fone3=$35,
+        cli_atuacao=$36
+      WHERE cli_codigo=$37
     `, [
       data.cli_nome, data.cli_fantasia, data.cli_nomred, data.cli_cnpj, data.cli_inscricao,
       data.cli_endereco, data.cli_endnum || null, data.cli_complemento || null, data.cli_bairro, data.cli_cep,
@@ -223,6 +227,7 @@ export async function updateClientHandler(req: Request, res: Response): Promise<
       data.cli_longitude && !isNaN(data.cli_longitude) ? parseFloat(data.cli_longitude) : null,
       data.cli_tipopes, data.cli_redeloja, data.cli_dtabertura || null,
       data.cli_cepcob, data.cli_endcob, data.cli_baicob, data.cli_cidcob, data.cli_ufcob, data.cli_fone3,
+      data.cli_atuacao || null,
       id,
     ]);
 
@@ -366,6 +371,7 @@ export async function listIndustriesHandler(req: Request, res: Response): Promis
         ci.cli_prazopg, ci.cli_transportadora, ci.cli_tabela,
         ci.cli_comprador, ci.cli_emailcomprador, ci.cli_frete,
         ci.cli_codcliind, ci.cli_obsparticular, ci.cli_ipi,
+        ci.cli_canal,
         f.for_nomered  AS industria_nome,
         t.for_nomered  AS transportadora_nome
       FROM cli_ind ci
@@ -409,6 +415,7 @@ export async function upsertIndustryHandler(req: Request, res: Response): Promis
       d.cli_frete          || '',
       d.cli_emailcomprador || '',
       d.cli_desc11 || 0,
+      d.cli_canal  || 'varejo',
     ];
 
     const existing = await db.query(
@@ -426,8 +433,9 @@ export async function upsertIndustryHandler(req: Request, res: Response): Promis
           cli_prazopg=$12, cli_ipi=$13, cli_tabela=$14,
           cli_codcliind=$15, cli_obsparticular=$16,
           cli_comprador=$17, cli_frete=$18,
-          cli_emailcomprador=$19, cli_desc11=$20
-        WHERE cli_lancamento=$21
+          cli_emailcomprador=$19, cli_desc11=$20,
+          cli_canal=$21
+        WHERE cli_lancamento=$22
         RETURNING cli_lancamento
       `, [...values, existing.rows[0].cli_lancamento]);
     } else {
@@ -438,11 +446,13 @@ export async function upsertIndustryHandler(req: Request, res: Response): Promis
           cli_desc6, cli_desc7, cli_desc8, cli_desc9, cli_desc10,
           cli_transportadora, cli_prazopg, cli_ipi, cli_tabela,
           cli_codcliind, cli_obsparticular, cli_comprador,
-          cli_frete, cli_emailcomprador, cli_desc11
+          cli_frete, cli_emailcomprador, cli_desc11,
+          cli_canal
         ) VALUES (
-          $21, $22,
+          $22, $23,
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-          $11,$12,$13,$14,$15,$16,$17,$18,$19,$20
+          $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+          $21
         ) RETURNING cli_lancamento
       `, [...values, parseInt(String(id)), parseInt(d.cli_forcodigo)]);
     }
@@ -659,3 +669,26 @@ export async function vincularRegioesHandler(req: Request, res: Response): Promi
     res.status(500).json({ success: false, message: error.message });
   }
 }
+
+// ─── POST /api/clients/:id/portal-token ───────────────────────────────────────
+export async function generatePortalTokenHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const db    = req.db!;
+    const schema = req.schema!;
+
+    const r = await db.query(`
+      INSERT INTO portal_clientes (cli_codigo)
+      VALUES ($1)
+      ON CONFLICT (cli_codigo) DO UPDATE SET ativo = true
+      RETURNING token, ativo, criado_em
+    `, [parseInt(String(id))]);
+
+    const { token } = r.rows[0];
+    res.json({ success: true, token, schema });
+  } catch (error: any) {
+    console.error('❌ [CLIENTS] portal-token:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+

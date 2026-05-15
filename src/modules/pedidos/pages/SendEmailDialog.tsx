@@ -28,9 +28,10 @@ interface SendEmailDialogProps {
   isOpen: boolean;
   onClose: () => void;
   orderData: any;
+  separateGroups?: 'S' | 'N';
 }
 
-const SendEmailDialog: React.FC<SendEmailDialogProps> = ({ isOpen, onClose, orderData }) => {
+const SendEmailDialog: React.FC<SendEmailDialogProps> = ({ isOpen, onClose, orderData, separateGroups = 'N' }) => {
   const authUser = useAuthStore(state => state.user);
   const [loading, setLoading] = useState(false);
   const [companyData, setCompanyData] = useState<any>(null);
@@ -129,7 +130,7 @@ const SendEmailDialog: React.FC<SendEmailDialogProps> = ({ isOpen, onClose, orde
       addLog('Gerando PDF em alta fidelidade...');
       const model = localStorage.getItem('printModel') || '1';
       const pdfBlob = await pdf(
-        <OrderPdfReport model={model} order={orderData.order} items={orderData.items} companyData={companyData} />
+        <OrderPdfReport model={model} order={orderData.order} items={orderData.items} companyData={companyData} separateGroups={separateGroups} />
       ).toBlob();
       addLog('PDF gerado com sucesso.');
 

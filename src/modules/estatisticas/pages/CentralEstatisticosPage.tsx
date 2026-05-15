@@ -26,9 +26,17 @@ import VendaMensalIndustria from '../components/VendaMensalIndustria';
 import MapaPedidos from '../components/MapaPedidos';
 import CurvaABC from '../components/CurvaABC';
 import MapaOportunidades from '../components/MapaOportunidades';
+import MapaIndustria from '../components/MapaIndustria';
 
 // ─── Rotinas disponíveis ───────────────────────────────────────────────────────
 const ROTINAS = [
+  {
+    id: 'mapa-industria',
+    label: 'Mapa por Indústria',
+    desc: 'Faturamento mensal por indústria — valor e quantidade',
+    icon: BarChart2,
+    color: '#0891B2',
+  },
   {
     id: 'mapa-vendas',
     label: 'Mapa de Vendas',
@@ -404,7 +412,9 @@ export default function CentralEstatisticosPage() {
             transition={{ duration: 0.18 }}
             style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}
           >
-            {rotinaAtiva === 'mapa-vendas'
+            {rotinaAtiva === 'mapa-industria'
+              ? <MapaIndustria dataInicio={dataInicio} dataFim={dataFim} />
+              : rotinaAtiva === 'mapa-vendas'
               ? <MapaVendas dataInicio={dataInicio} dataFim={dataFim} />
               : rotinaAtiva === 'sellout'
               ? <SelloutPeriodo dataInicio={dataInicio} dataFim={dataFim} />

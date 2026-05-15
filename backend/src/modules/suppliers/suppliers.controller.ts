@@ -76,8 +76,9 @@ export async function updateSupplierHandler(req: Request, res: Response): Promis
         for_percom=$13, for_tipofrete=$14, for_codrep=$15, for_homepage=$16,
         for_des1=$17, for_des2=$18, for_des3=$19, for_des4=$20, for_des5=$21,
         for_des6=$22, for_des7=$23, for_des8=$24, for_des9=$25, for_des10=$26,
-        for_obs2=$27, for_logotipo=$28, for_tipo2=$29, for_min_order=$30
-      WHERE for_codigo=$31
+        for_obs2=$27, for_logotipo=$28, for_tipo2=$29, for_min_order=$30,
+        for_usa_menor_preco=$31
+      WHERE for_codigo=$32
     `, [
       data.for_nome, data.for_nomered, data.for_cgc || null, data.for_inscricao || null,
       data.for_fone || null, data.for_fone2 || null, data.for_email || null, data.for_endereco || null, data.for_bairro || null,
@@ -86,6 +87,7 @@ export async function updateSupplierHandler(req: Request, res: Response): Promis
       data.for_des1 || 0, data.for_des2 || 0, data.for_des3 || 0, data.for_des4 || 0, data.for_des5 || 0,
       data.for_des6 || 0, data.for_des7 || 0, data.for_des8 || 0, data.for_des9 || 0, data.for_des10 || 0,
       data.for_obs2 || null, data.for_logotipo || null, data.for_tipo2 || 'A', data.for_min_order || 0,
+      data.for_usa_menor_preco ?? false,
       parseInt(id as string),
     ]);
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Pencil, Trash2, Package, RefreshCw, ChevronDown, X, Calculator, Upload, Wand2, SquarePen } from 'lucide-react';
+import ImportacaoPrecosPage from './ImportacaoPrecosPage';
 import * as XLSX from 'xlsx';
 import {
   CadastroShell, CadastroTable, Th, Td, TrHover,
@@ -219,8 +219,8 @@ function PctModal({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ProdutosPage() {
-  const navigate = useNavigate();
   const [industrias, setIndustrias]   = useState<SelectOption[]>([]);
+  const [importModal, setImportModal] = useState<{ tab?: 'classic'|'magic' } | null>(null);
   const [tabelas, setTabelas]         = useState<SelectOption[]>([]);
   const [grupos, setGrupos]           = useState<SelectOption[]>([]);
   const [grupoDesc, setGrupoDesc]     = useState<SelectOption[]>([]);
@@ -532,18 +532,7 @@ export default function ProdutosPage() {
   const importBar = (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginBottom: 10 }}>
       <button
-        onClick={() => navigate('/utilitarios/importacao-precos')}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '8px 16px', borderRadius: 10, cursor: 'pointer',
-          border: `1px solid ${G.border}`, background: 'transparent',
-          fontSize: 13, fontWeight: 700, color: G.textSec,
-        }}
-      >
-        <Upload size={14} /> Importar Tabela
-      </button>
-      <button
-        onClick={() => navigate('/utilitarios/importacao-precos?tab=magic')}
+        onClick={() => setImportModal({ tab: 'magic' })}
         style={{
           display: 'flex', alignItems: 'center', gap: 6,
           padding: '8px 18px', borderRadius: 10, cursor: 'pointer',
@@ -552,7 +541,7 @@ export default function ProdutosPage() {
           boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
         }}
       >
-        <Wand2 size={14} /> MAGIC IMPORT
+        <Wand2 size={14} /> Magic Import Tabela
       </button>
     </div>
   );
@@ -931,7 +920,7 @@ export default function ProdutosPage() {
                   return (
                     <TrHover key={`${row.pro_id}-${row.itab_tabela}`} onClick={() => openEdit(row)}>
                       <Td>
-                        <span style={{ fontSize: 11, color: G.textMuted, fontWeight: 700 }}>{row.itab_idprod || row.pro_id}</span>
+                        <span style={{ fontSize: 12, color: G.textMuted, fontWeight: 700 }}>{row.itab_idprod || row.pro_id}</span>
                       </Td>
                       <Td>
                         <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 800, color: '#1D4ED8' }}>
@@ -986,12 +975,12 @@ export default function ProdutosPage() {
                         <span style={{ fontSize: 12, color: G.textSec }}>{fmtPct(row.itab_st)}</span>
                       </Td>
                       <Td>
-                        <span style={{ fontFamily: 'monospace', fontSize: 11, color: G.textMuted }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: 12, color: G.textMuted }}>
                           {row.pro_codigonormalizado || '—'}
                         </span>
                       </Td>
                       <Td align="center">
-                        <span style={{ fontSize: 11, color: G.textMuted }}>{fmtDate(row.itab_datatabela)}</span>
+                        <span style={{ fontSize: 12, color: G.textMuted }}>{fmtDate(row.itab_datatabela)}</span>
                       </Td>
                       <Td align="center">
                         <span style={{
@@ -1072,6 +1061,18 @@ export default function ProdutosPage() {
       )}
       {pctModal === 'st' && (
         <PctModal title="Atualizar ST para todos os produtos" onConfirm={applySt} onClose={() => setPctModal(null)} />
+      )}
+
+      {/* ── Modal de Importação ─────────────────────────────────────────── */}
+      {importModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '95vw', maxWidth: 1400, height: '92vh', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+            <ImportacaoPrecosPage
+              initialIndustria={selIndustria ? industrias.find(i => String(i.value) === selIndustria) : undefined}
+              onClose={() => { setImportModal(null); fetchData({ offset: 0, q: search }); }}
+            />
+          </div>
+        </div>
       )}
     </>
   );

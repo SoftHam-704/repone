@@ -97,8 +97,8 @@ async function buildWorkbook(order: any, items: any[], separateGroups: 'S' | 'N'
     setCell(1, 'A', 'Pedido Nº:', FONT_BOLD);
     setCell(1, 'B', order.ped_pedido, FONT_BOLD, 'left').alignment = { horizontal: 'left' };
 
-    setCell(1, 'D', 'Ped.Cliente:', FONT_NORMAL, 'right');
-    setCell(1, 'E', order.ped_cliind || '', FONT_BOLD, 'right');
+    setCell(1, 'D', 'OC do Cliente:', FONT_NORMAL, 'right');
+    setCell(1, 'E', order.ped_oc || order.ped_pedcli || '', FONT_BOLD, 'right');
 
     setCell(1, 'G', 'Data:', FONT_NORMAL, 'right');
     setCell(1, 'H', formatDate(order.ped_data), FONT_BOLD, 'left');
@@ -174,18 +174,19 @@ async function buildWorkbook(order: any, items: any[], separateGroups: 'S' | 'N'
     let currentRowIdx = 9;
 
     // Group items logic: Hierarchical by Discount + Product Group
+    // Calcula o discKey a partir dos campos ite_des1..ite_des10 (igual ao PDF)
+    const getItemDiscountKey = (item: any): string => {
+        const discs: string[] = [];
+        for (let i = 1; i <= 10; i++) {
+            const val = parseFloat(item[`ite_des${i}`]);
+            if (val > 0) discs.push(`${val.toFixed(2)}%`);
+        }
+        return discs.length > 0 ? discs.join(' + ') : 'Preço de Tabela';
+    };
+
     const groups: Record<string, any[]> = {};
     (items || []).forEach(item => {
-        let discKey = 'Preço de Tabela';
-        if (item.ite_descontos && item.ite_descontos.trim() !== '') {
-            const descStr = item.ite_descontos.trim();
-            if (/[0-9]/.test(descStr)) {
-                discKey = `DESCONTO DE ${descStr}`;
-            } else if (descStr !== 'Sem desconto') {
-                discKey = descStr;
-            }
-        }
-        
+        const discKey = getItemDiscountKey(item);
         const groupName = separateGroups === 'S' ? (item.gru_nome || 'GERAL') : 'GERAL';
         const key = `${discKey}|GRP|${groupName}`;
 
@@ -198,14 +199,16 @@ async function buildWorkbook(order: any, items: any[], separateGroups: 'S' | 'N'
         
         // Group Header Line
         const groupRowCell = worksheet.getCell(`A${currentRowIdx}`);
-        let headerText = `DESCONTOS: ${discountLabel}`;
+        let headerText = discountLabel === 'Preço de Tabela'
+            ? 'Preço de Tabela'
+            : `DESCONTOS: ${discountLabel}`;
         if (groupName !== 'GERAL') {
-             headerText += `  |  GRUPO: ${groupName.toUpperCase()}`;
+            headerText += `  |  GRUPO: ${groupName.toUpperCase()}`;
         }
         
         groupRowCell.value = headerText;
-        groupRowCell.font = { name: 'Arial', size: 8, bold: true, color: { argb: 'FF1E40AF' } }; // Blue bold font
-        groupRowCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } } as any; // Very light background
+        groupRowCell.font = { name: 'Arial', size: 8, bold: true, color: { argb: 'FF155724' } }; // Verde escuro igual ao PDF
+        groupRowCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD4EDDA' } } as any; // Verde claro igual ao PDF
         groupRowCell.alignment = { horizontal: 'left', vertical: 'middle' };
 
         worksheet.mergeCells(`A${currentRowIdx}:M${currentRowIdx}`);

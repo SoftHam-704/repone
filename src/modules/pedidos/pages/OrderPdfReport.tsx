@@ -1108,7 +1108,7 @@ const ClientSection = ({ order, hideTitle = false, noBorder = false, modelNum = 
                 </View>
                 {/* Comprador e E-Mail */}
                 <View style={styles.gridRow}>
-                    <View style={{ flex: 0.5 }}><Text style={styles.label}>Comprador:</Text><Text style={styles.value}>{order.ped_comprador || ''}</Text></View>
+                    <View style={{ flex: 0.5 }}><Text style={styles.label}>Comprador:</Text><Text style={styles.value}>{order.ped_comprador_display || order.ped_comprador || ''}</Text></View>
                     <View style={{ flex: 1 }}><Text style={styles.label}>E-Mail:</Text><Text style={{ ...styles.value, textTransform: 'lowercase' }}>{order.ped_emailcomp || order.cli_email || ''}</Text></View>
                 </View>
                 {/* E-Mail NFe e Cx. Postal */}
@@ -1145,7 +1145,7 @@ const CommercialSection = ({ order }) => (
                 <View style={{ flex: 0.5 }}><Text style={styles.label}>Frete:</Text><Text style={styles.value}>{order.ped_tipofrete === 'C' ? 'CIF' : order.ped_tipofrete === 'F' ? 'FOB' : order.ped_tipofrete || ''}</Text></View>
             </View>
             <View style={styles.gridRow}>
-                <View style={{ flex: 1 }}><Text style={styles.label}>Comprador:</Text><Text style={styles.value}>{order.ped_comprador || ''}</Text></View>
+                <View style={{ flex: 1 }}><Text style={styles.label}>Comprador:</Text><Text style={styles.value}>{order.ped_comprador_display || order.ped_comprador || ''}</Text></View>
                 <View style={{ flex: 1.5 }}><Text style={styles.label}>E-Mail:</Text><Text style={{ ...styles.value, textTransform: 'lowercase' }}>{order.ped_emailcomp || ''}</Text></View>
             </View>
             <View style={styles.gridRow}>
@@ -2637,8 +2637,8 @@ const OrderPdfReport = ({ order, items, companyData, model = '1', separateGroups
                             </View>
                             <View style={{ flexDirection: 'row', gap: 10 }}>
                                 <View style={{ flex: 1 }}><Text style={styles.label}>Fone: </Text><Text style={styles.value}>({order.cli_ddd || ''}) {order.cli_fone}</Text></View>
-                                <View style={{ flex: 0.8 }}><Text style={styles.label}>Comprador: </Text><Text style={styles.value}>{order.ped_comprador}</Text></View>
-                                <View style={{ flex: 1.5 }}><Text style={styles.label}>E-mail: </Text><Text style={{ ...styles.value, textTransform: 'lowercase' }}>{order.cli_email}</Text></View>
+                                <View style={{ flex: 0.8 }}><Text style={styles.label}>Comprador: </Text><Text style={styles.value}>{order.ped_comprador_display || order.ped_comprador}</Text></View>
+                                <View style={{ flex: 1.5 }}><Text style={styles.label}>E-mail: </Text><Text style={{ ...styles.value, textTransform: 'lowercase' }}>{order.ped_emailcomp || order.cli_email}</Text></View>
                             </View>
                             <View style={{ flexDirection: 'row', gap: 10 }}>
                                 <View style={{ flex: 1 }}><Text style={styles.label}>E-Mail NFe: </Text><Text style={{ ...styles.value, textTransform: 'lowercase' }}>{order.cli_emailnfe}</Text></View>
@@ -2666,7 +2666,7 @@ const OrderPdfReport = ({ order, items, companyData, model = '1', separateGroups
                             <View style={{ flexDirection: 'row' }}>
                                 <View style={{ flex: 1, flexDirection: 'row' }}>
                                     <Text style={{ ...styles.label, width: 80 }}>Comprador: </Text>
-                                    <Text style={styles.value}>{order.ped_comprador || ''}</Text>
+                                    <Text style={styles.value}>{order.ped_comprador_display || order.ped_comprador || ''}</Text>
                                 </View>
                                 <View style={{ flex: 1, flexDirection: 'row' }}>
                                     <Text style={styles.label}>E-mail: </Text>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Store, ChevronDown, ChevronRight } from 'lucide-react';
+import { Store, ChevronDown, ChevronRight, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 
@@ -190,6 +191,22 @@ export default function GrupoLojas({ dataInicio, dataFim }: Props) {
   const grandVal = rows.reduce((s, r) => s + r.total, 0);
   const grandQtd = rows.reduce((s, r) => s + r.quant, 0);
 
+  function exportExcel() {
+    const data = rows.map(r => ({
+      'Grupo': r.grupo,
+      'Cliente': r.cliente,
+      'Pedido': r.pedido,
+      'Data': r.data ? new Date(r.data).toLocaleDateString('pt-BR') : '',
+      'Qtd Peças': r.quant,
+      'Valor': r.total,
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [{ wch: 30 }, { wch: 40 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Grupo de Lojas');
+    XLSX.writeFile(wb, `grupo-lojas.xlsx`);
+  }
+
   return (
     <div style={{ padding: '20px 24px', background: G.bg, minHeight: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -237,9 +254,20 @@ export default function GrupoLojas({ dataInicio, dataFim }: Props) {
         </div>
       )}
 
-      {/* Totalizador geral */}
+      {/* Totalizador geral + Export */}
       {!loading && grupos.length > 0 && (
         <div style={{ display: 'flex', gap: 12 }}>
+          <button
+            onClick={exportExcel}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+              background: '#1D6F42', color: '#fff', border: 'none', cursor: 'pointer',
+              alignSelf: 'flex-start',
+            }}
+          >
+            <Download size={13} /> Excel
+          </button>
           {[
             { label: 'Grupos de Lojas', val: String(grupos.length) },
             { label: 'Total de Pedidos', val: rows.length.toLocaleString('pt-BR') },

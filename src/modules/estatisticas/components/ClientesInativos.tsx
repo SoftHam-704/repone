@@ -133,11 +133,14 @@ export default function ClientesInativos(_: Props) {
         ];
       });
 
+      const safeSheet = (name: string) =>
+        name.replace(/[:\\/?\*\[\]]/g, '').substring(0, 31).trim() || 'Aba';
+
       if (forCodigo) {
         // Indústria específica — uma aba
         const ws = XLSX.utils.aoa_to_sheet([cols, ...buildRows(rows)]);
         const indNome = industrias.find(i => String(i.codigo) === forCodigo)?.nome || 'Indústria';
-        XLSX.utils.book_append_sheet(wb, ws, indNome.substring(0, 31));
+        XLSX.utils.book_append_sheet(wb, ws, safeSheet(indNome));
       } else {
         // Todas indústrias — uma aba por indústria
         for (const ind of industrias) {
@@ -148,7 +151,7 @@ export default function ClientesInativos(_: Props) {
           const data: Row[] = r.data.data || [];
           if (data.length === 0) continue;
           const ws = XLSX.utils.aoa_to_sheet([cols, ...buildRows(data)]);
-          XLSX.utils.book_append_sheet(wb, ws, ind.nome.substring(0, 31));
+          XLSX.utils.book_append_sheet(wb, ws, safeSheet(ind.nome));
         }
         // Aba consolidada
         const wsAll = XLSX.utils.aoa_to_sheet([cols, ...buildRows(rows)]);

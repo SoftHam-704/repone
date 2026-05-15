@@ -56,7 +56,7 @@ export async function listOrdersHandler(req: Request, res: Response): Promise<vo
       LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo
       LEFT JOIN fornecedores f ON p.ped_industria = f.for_codigo
       LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo
-      WHERE 1=1 ${filterClause}
+      WHERE 1=1 AND p.ped_situacao <> 'E' ${filterClause}
     `;
 
     let idx = params.length + 1;
@@ -93,10 +93,12 @@ export async function getOrderHandler(req: Request, res: Response): Promise<void
     const db = req.db!;
     const userId = getUserId(req);
 
-    // Suporte a ID composto: pedido:industria
+    // Suporte a industria via query param (preferido) ou via legado :industria no id
     let finalPedido = id;
     let finalIndustria: number | null = null;
-    if (id.includes(':')) {
+    if (req.query.industria) {
+      finalIndustria = parseInt(String(req.query.industria));
+    } else if (id.includes(':')) {
       const parts = id.split(':');
       finalPedido = parts[0];
       finalIndustria = parseInt(parts[1]);
@@ -118,7 +120,10 @@ export async function getOrderHandler(req: Request, res: Response): Promise<void
       WHERE TRIM(p.ped_pedido) = TRIM($1) ${filterClause}
     `;
 
-    if (finalIndustria) { orderQuery += ` AND p.ped_industria = $2`; params.push(finalIndustria); }
+    if (finalIndustria) {
+      params.push(finalIndustria);
+      orderQuery += ` AND p.ped_industria = $${params.length}`;
+    }
 
     const orderResult = await db.query(orderQuery, params);
 
@@ -127,6 +132,8 @@ export async function getOrderHandler(req: Request, res: Response): Promise<void
       return;
     }
 
+    const itemsParams: any[] = [finalPedido];
+    if (finalIndustria) itemsParams.push(finalIndustria);
     const itemsResult = await db.query(`
       SELECT ip.*,
              ip.ite_nomeprod AS ite_descricao,
@@ -138,7 +145,7 @@ export async function getOrderHandler(req: Request, res: Response): Promise<void
       WHERE TRIM(ip.ite_pedido) = TRIM($1)
         ${finalIndustria ? 'AND ip.ite_industria = $2' : ''}
       ORDER BY ip.ite_seq
-    `, params);
+    `, itemsParams);
 
     res.json({ ...orderResult.rows[0], items: itemsResult.rows });
   } catch (error: any) {
@@ -187,7 +194,7 @@ export async function createOrderHandler(req: Request, res: Response): Promise<v
       data.ped_situacao || 'P',
       data.ped_cliente, data.ped_transp || 0, data.ped_vendedor,
       data.ped_condpag || '', data.ped_comprador || '',
-      data.ped_tipofrete || 'C', data.ped_tabela, data.ped_industria, data.ped_cliind || '',
+      String(data.ped_tipofrete || 'C').trim().substring(0, 1) || 'C', String(data.ped_tabela || '').substring(0, 60), data.ped_industria, data.ped_cliind || '',
       data.ped_pri || 0, data.ped_seg || 0, data.ped_ter || 0, data.ped_qua || 0,
       data.ped_qui || 0, data.ped_sex || 0, data.ped_set || 0, data.ped_oit || 0, data.ped_nov || 0,
       data.ped_totbruto || 0, data.ped_totliq || 0, data.ped_totalipi || 0, data.ped_obs || '',
@@ -430,7 +437,11 @@ export async function orderStatsHandler(req: Request, res: Response): Promise<vo
       params.push(parseInt(String(industria)));
     }
     if (cliente) { conditions.push(`p.ped_cliente = $${idx++}`); params.push(parseInt(String(cliente))); }
-    if (situacao && situacao !== 'Z') { conditions.push(`p.ped_situacao = $${idx++}`); params.push(situacao); }
+    // Quando há filtro de situação específico, aplica ele; caso contrário exclui apenas excluídos
+    const baseSitFilter = (situacao && situacao !== 'Z')
+      ? `p.ped_situacao = $${idx++}` : `p.ped_situacao NOT IN ('E')`;
+    if (situacao && situacao !== 'Z') params.push(situacao);
+
     if (dataInicio) { conditions.push(`p.ped_data >= $${idx++}`); params.push(dataInicio); }
     if (dataFim) { conditions.push(`p.ped_data <= $${idx++}`); params.push(dataFim); }
 
@@ -446,7 +457,7 @@ export async function orderStatsHandler(req: Request, res: Response): Promise<vo
         COUNT(DISTINCT p.ped_industria)         AS total_industrias
       FROM pedidos p
       LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-      WHERE p.ped_situacao IN ('P','F') ${where}
+      WHERE ${baseSitFilter} ${where}
     `, params);
 
     res.json({ success: true, data: result.rows[0] });
@@ -515,12 +526,18 @@ export async function printDataHandler(req: Request, res: Response): Promise<voi
         c.cli_cxpostal, c.cli_suframa,
         f.for_nome, f.for_nomered, f.for_fone, f.for_cidade, f.for_uf, f.for_email,
         f.for_logotipo, f.for_locimagem,
-        i.cli_emailcomprador,
+        i.cli_comprador       AS ind_comprador,
+        i.cli_emailcomprador  AS ind_emailcomprador,
         v.ven_nome, v.ven_fone1 AS ven_fone,
         t.tra_nome, t.tra_endereco, t.tra_bairro, t.tra_cidade, t.tra_uf, t.tra_cep,
         t.tra_cgc, t.tra_inscricao, t.tra_email, t.tra_fone,
         i.cli_obsparticular,
-        (SELECT ani_email FROM cli_aniv ca WHERE ca.ani_cliente = p.ped_cliente AND ca.ani_nome = p.ped_comprador LIMIT 1) AS ped_emailcomp
+        -- Prioriza comprador específico da indústria (cli_ind); fallback para cli_aniv
+        COALESCE(i.cli_comprador, p.ped_comprador) AS ped_comprador_display,
+        COALESCE(
+          i.cli_emailcomprador,
+          (SELECT ani_email FROM cli_aniv ca WHERE ca.ani_cliente = p.ped_cliente AND ca.ani_nome = p.ped_comprador LIMIT 1)
+        ) AS ped_emailcomp
       FROM pedidos p
       LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo
       LEFT JOIN fornecedores f ON p.ped_industria = f.for_codigo

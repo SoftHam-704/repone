@@ -14,6 +14,8 @@ import {
   insightDetailHandler,
   mobileSummaryHandler,
   mobileClientHandler,
+  irisPortfolioAnalysisHandler,
+  irisEventosHandler,
 } from './dashboard.controller';
 
 const router = Router();
@@ -32,6 +34,8 @@ router.get('/metas-industrias',       metasIndustriasHandler);
 router.get('/sales-performance',      salesPerformanceHandler);
 router.get('/insight-detail',         insightDetailHandler);
 router.get('/mobile-summary',         mobileSummaryHandler);
-router.get('/mobile-client/:id',      mobileClientHandler);
+router.get('/mobile-client/:id',             mobileClientHandler);
+router.get('/iris-portfolio-analysis',       irisPortfolioAnalysisHandler);
+router.get('/iris-eventos',                  irisEventosHandler);
 
 export default router;

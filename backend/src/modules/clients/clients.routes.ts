@@ -22,6 +22,7 @@ import {
   listAreasHandler,
   upsertAreasHandler,
   vincularRegioesHandler,
+  generatePortalTokenHandler,
 } from './clients.controller';
 
 const router = Router();
@@ -58,5 +59,8 @@ router.put('/:id/prospeccao',  upsertProspeccaoHandler);
 // ── atua_cli — áreas de atuação (opt-in) ─────────────────────────────────────
 router.get('/:id/areas',  listAreasHandler);
 router.put('/:id/areas',  upsertAreasHandler);
+
+// ── portal_clientes — token de acesso do lojista ─────────────────────────────
+router.post('/:id/portal-token', generatePortalTokenHandler);
 
 export default router;

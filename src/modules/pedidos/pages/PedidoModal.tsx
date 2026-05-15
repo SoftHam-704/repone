@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ClipboardCheck,
   User, Truck, UserCheck, Settings2, BarChart3,
   Loader2, Save, Send, Plus, Star,
-  Wand2, Table2, FileCode, FileText,
+  Wand2, Table2, FileCode, FileText, RefreshCw,
 } from 'lucide-react';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
@@ -577,7 +577,8 @@ function ClientCombobox({
 
 // ─── Principal section ────────────────────────────────────────────────────────
 function PrincipalSection({
-  order, mode, formData, onChangeField, onPriceTableItemsChange, orderItems, transportadoras,
+  order, mode, formData, onChangeField, onPriceTableItemsChange, orderItems, transportadoras, onReaplicarPolitica,
+  allowDuplicateOverride, setAllowDuplicateOverride, userParams,
 }: {
   order: OrderFull;
   mode: PedidoModalMode;
@@ -586,6 +587,10 @@ function PrincipalSection({
   onPriceTableItemsChange?: (items: any[]) => void;
   orderItems?: any[];
   transportadoras: { value: number; label: string }[];
+  onReaplicarPolitica?: () => void;
+  allowDuplicateOverride: boolean | null;
+  setAllowDuplicateOverride: (v: boolean) => void;
+  userParams: { usaDecimais: boolean; qtdDecimais: number; itemDuplicado: boolean; qtdEnter: number; fmtPesquisa: string; mostraCodigoOri: boolean } | null;
 }) {
   const isView = mode === 'view';
   const fd = formData; // alias
@@ -596,7 +601,6 @@ function PrincipalSection({
   const [priceTables, setPriceTables] = useState<{ nome_tabela: string }[]>([]);
   const [compradorModal, setCompradorModal]     = useState(false);
   const [tornarPadraoModal, setTornarPadraoModal] = useState(false);
-  const indDefaults = useRef<Partial<Record<string, number>>>({});
   const [modalSaving, setModalSaving] = useState(false);
 
   const [compForm, setCompForm] = useState({
@@ -670,58 +674,6 @@ function PrincipalSection({
   // IDs derivados — declarados antes dos useEffects que dependem deles
   const industriaId = fd.ped_industria ?? order.ped_industria;
   const clienteId   = fd.ped_cliente   ?? (mode === 'new' ? undefined : order.ped_cliente);
-
-  // Passo 1 — descontos padrão da indústria ao selecionar/trocar indústria (modo new)
-  useEffect(() => {
-    if (mode !== 'new' || !industriaId) return;
-    api.get(`/suppliers/${industriaId}`)
-      .then(r => {
-        if (!r.data.success) return;
-        const s = r.data.data;
-        const normPct = (v: any) => { const n = parseFloat(v) || 0; return n > 100 ? parseFloat((n / 100).toFixed(2)) : n; };
-        const defaults = {
-          ped_pri: normPct(s.for_des1), ped_seg: normPct(s.for_des2),
-          ped_ter: normPct(s.for_des3), ped_qua: normPct(s.for_des4),
-          ped_qui: normPct(s.for_des5), ped_sex: normPct(s.for_des6),
-          ped_set: normPct(s.for_des7), ped_oit: normPct(s.for_des8),
-          ped_nov: normPct(s.for_des9),
-        };
-        indDefaults.current = defaults;
-        Object.entries(defaults).forEach(([k, v]) => onChangeField(k as any, v));
-        if (s.for_tipofrete) onChangeField('ped_tipofrete', s.for_tipofrete);
-      })
-      .catch(() => {});
-  }, [industriaId, mode]);
-
-  // Passo 2 — condições comerciais do cli_ind sobrescrevem; fallback = defaults da indústria (fd já tem os valores do passo 1)
-  useEffect(() => {
-    if (mode !== 'new' || !clienteId || !industriaId) return;
-    api.get(`/clients/${clienteId}/industries`)
-      .then(r => {
-        const list: any[] = r.data.data || [];
-        const match = list.find(i => Number(i.cli_forcodigo) === Number(industriaId));
-        if (!match) return;
-        // Descontos: usa cli_ind quando > 0, fallback = padrão da indústria (indDefaults.current evita herdar override de cliente anterior)
-        const normC = (v: any, fallback: number) => { const n = parseFloat(v) || 0; return n > 0 ? (n > 100 ? parseFloat((n / 100).toFixed(2)) : n) : fallback; };
-        const d = indDefaults.current;
-        onChangeField('ped_pri', normC(match.cli_desc1, d.ped_pri ?? 0));
-        onChangeField('ped_seg', normC(match.cli_desc2, d.ped_seg ?? 0));
-        onChangeField('ped_ter', normC(match.cli_desc3, d.ped_ter ?? 0));
-        onChangeField('ped_qua', normC(match.cli_desc4, d.ped_qua ?? 0));
-        onChangeField('ped_qui', normC(match.cli_desc5, d.ped_qui ?? 0));
-        onChangeField('ped_sex', normC(match.cli_desc6, d.ped_sex ?? 0));
-        onChangeField('ped_set', normC(match.cli_desc7, d.ped_set ?? 0));
-        onChangeField('ped_oit', normC(match.cli_desc8, d.ped_oit ?? 0));
-        onChangeField('ped_nov', normC(match.cli_desc9, d.ped_nov ?? 0));
-        // Condições comerciais
-        if (match.cli_prazopg)        onChangeField('ped_condpag',   match.cli_prazopg);
-        if (match.cli_tabela)         onChangeField('ped_tabela',    match.cli_tabela);
-        if (match.cli_frete)          onChangeField('ped_tipofrete', match.cli_frete);
-        if (match.cli_comprador)      onChangeField('ped_comprador', match.cli_comprador);
-        if (match.cli_transportadora) onChangeField('ped_transp',    parseInt(match.cli_transportadora));
-      })
-      .catch(() => {});
-  }, [clienteId, industriaId, mode]);
 
   // Carregar lista de tabelas disponíveis para a indústria
   useEffect(() => {
@@ -980,6 +932,20 @@ function PrincipalSection({
                   style={einp}
                   selectedLabel={(fd as any).cli_nomred || order.cli_nomred || order.cli_nome}
                 />
+                {onReaplicarPolitica && (
+                  <button
+                    onClick={onReaplicarPolitica}
+                    title="Reaplicar política de descontos do cliente em todos os itens"
+                    style={{
+                      marginTop: 6, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      padding: '5px 0', borderRadius: 8, border: `1px solid ${'#2563EB'}44`,
+                      background: '#2563EB12', color: '#2563EB',
+                      fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                    }}
+                  >
+                    <RefreshCw size={11} /> Reaplicar Política
+                  </button>
+                )}
               </div>
               <div style={{ padding: '6px 0' }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: G.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, display: 'block', marginBottom: 3 }}>
@@ -1067,6 +1033,43 @@ function PrincipalSection({
                 style={{ ...einp, resize: 'none', flex: 1, fontFamily: 'inherit', lineHeight: 1.5 }}
                 placeholder="Observações do pedido..."
               />
+              {/* Toggle permitir itens duplicados */}
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer',
+                marginTop: 10, padding: '8px 10px', borderRadius: 8,
+                background: (allowDuplicateOverride ?? (userParams?.itemDuplicado ?? false))
+                  ? '#FEF9C322' : `${G.border}`,
+                border: `1px solid ${(allowDuplicateOverride ?? (userParams?.itemDuplicado ?? false)) ? G.mustard + '99' : G.border}`,
+                transition: 'all 0.15s',
+              }}>
+                <div style={{
+                  width: 32, height: 18, borderRadius: 9, position: 'relative', flexShrink: 0,
+                  background: (allowDuplicateOverride ?? (userParams?.itemDuplicado ?? false)) ? G.mustard : '#CBD5E1',
+                  transition: 'background 0.2s',
+                }}>
+                  <div style={{
+                    position: 'absolute', top: 2, borderRadius: '50%',
+                    width: 14, height: 14, background: '#fff',
+                    left: (allowDuplicateOverride ?? (userParams?.itemDuplicado ?? false)) ? 16 : 2,
+                    transition: 'left 0.2s',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }} />
+                  <input
+                    type="checkbox"
+                    checked={allowDuplicateOverride ?? (userParams?.itemDuplicado ?? false)}
+                    onChange={e => setAllowDuplicateOverride(e.target.checked)}
+                    style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', cursor: 'pointer', margin: 0 }}
+                  />
+                </div>
+                <div>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: G.textSec, display: 'block', lineHeight: 1.2 }}>
+                    Permitir itens repetidos
+                  </span>
+                  <span style={{ fontSize: 10, color: G.textMuted }}>
+                    Permite lançar o mesmo produto mais de uma vez
+                  </span>
+                </div>
+              </label>
             </div>
           )}
         </div>
@@ -1085,7 +1088,7 @@ function PrincipalSection({
               <ReadField label="Pagamento" value={fd.ped_condpag ?? order.ped_condpag} />
               <ReadField label="Contato" value={fd.ped_comprador ?? order.ped_comprador} />
               <div style={{ display: 'flex', gap: 8 }}>
-                <div style={{ flex: 1 }}><ReadField label="Ped. Cliente" value={order.ped_pedcli} mono /></div>
+                <div style={{ flex: 1 }}><ReadField label="Ped. Cliente / OC" value={order.ped_pedcli} mono /></div>
                 <div style={{ flex: 1 }}><ReadField label="Ped. Ind." value={order.ped_pedindustria} mono /></div>
               </div>
             </>
@@ -1119,7 +1122,7 @@ function PrincipalSection({
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <div style={{ flex: 1 }}>
-                  <EditField label="Ped. Cliente" value={(fd.ped_pedcli ?? order.ped_pedcli ?? '') as string} onChange={v => onChangeField('ped_pedcli', v)} />
+                  <EditField label="Ped. Cliente / OC" value={(fd.ped_pedcli ?? order.ped_pedcli ?? '') as string} onChange={v => onChangeField('ped_pedcli', v)} />
                 </div>
                 <div style={{ flex: 1 }}>
                   <EditField label="Ped. Ind." value={(fd.ped_pedindustria ?? order.ped_pedindustria ?? '') as string} onChange={v => onChangeField('ped_pedindustria', v)} />
@@ -1218,6 +1221,7 @@ function PrincipalSection({
               Tornar Padrão
             </button>
           )}
+
         </div>
       </div>
 
@@ -1630,9 +1634,13 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
   const [isSaving, setIsSaving]           = useState(false);
   const [saveError, setSaveError]         = useState<string | null>(null);
   const [userParams, setUserParams]       = useState<{ usaDecimais: boolean; qtdDecimais: number; itemDuplicado: boolean; qtdEnter: number; fmtPesquisa: string; mostraCodigoOri: boolean } | null>(null);
+  const [allowDuplicateOverride, setAllowDuplicateOverride] = useState<boolean | null>(null);
   const [priceTableItems, setPriceTableItems] = useState<any[]>([]);
   const [orderItems,      setOrderItems]      = useState<any[]>([]);
   const [transportadoras, setTransportadoras] = useState<{ value: number; label: string }[]>([]);
+  const [clientDiscounts,  setClientDiscounts]  = useState<any[]>([]);
+  const [clientIndustries, setClientIndustries] = useState<any[]>([]);
+  const [tableGroupDiscs,  setTableGroupDiscs]  = useState<any[]>([]);
   const isView = mode === 'view';
   const isPersisted = mode !== 'new' || pedidoSalvo;
 
@@ -1647,6 +1655,118 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
   const onChangeField = (field: keyof OrderFull, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
+
+  // Passo 1 — defaults da indústria (só modo new). Fica aqui para não re-executar ao trocar aba.
+  const newIndId = mode === 'new' ? (formData.ped_industria ?? fullOrder?.ped_industria) : null;
+  const newCliId = mode === 'new' ? (formData.ped_cliente   ?? fullOrder?.ped_cliente)   : null;
+  const indDefaultsRef = useRef<Partial<Record<string, number>>>({});
+
+  useEffect(() => {
+    if (!newIndId) return;
+    api.get(`/suppliers/${newIndId}`)
+      .then(r => {
+        if (!r.data.success) return;
+        const s = r.data.data;
+        const normPct = (v: any) => { const n = parseFloat(v) || 0; return n > 100 ? parseFloat((n / 100).toFixed(2)) : n; };
+        const defaults = {
+          ped_pri: normPct(s.for_des1), ped_seg: normPct(s.for_des2),
+          ped_ter: normPct(s.for_des3), ped_qua: normPct(s.for_des4),
+          ped_qui: normPct(s.for_des5), ped_sex: normPct(s.for_des6),
+          ped_set: normPct(s.for_des7), ped_oit: normPct(s.for_des8),
+          ped_nov: normPct(s.for_des9),
+        };
+        indDefaultsRef.current = defaults;
+        Object.entries(defaults).forEach(([k, v]) => onChangeField(k as any, v));
+        if (s.for_tipofrete) onChangeField('ped_tipofrete', String(s.for_tipofrete).trim().substring(0, 1) || 'C');
+      })
+      .catch(() => {});
+  }, [newIndId]);
+
+  // Passo 2 — condições comerciais do cli_ind sobrescrevem defaults da indústria
+  useEffect(() => {
+    if (!newCliId || !newIndId) return;
+    api.get(`/clients/${newCliId}/industries`)
+      .then(r => {
+        const list: any[] = r.data.data || [];
+        const match = list.find(i => Number(i.cli_forcodigo) === Number(newIndId));
+        if (!match) return;
+        const normC = (v: any, fallback: number) => { const n = parseFloat(v) || 0; return n > 0 ? (n > 100 ? parseFloat((n / 100).toFixed(2)) : n) : fallback; };
+        const d = indDefaultsRef.current;
+        onChangeField('ped_pri', normC(match.cli_desc1, d.ped_pri ?? 0));
+        onChangeField('ped_seg', normC(match.cli_desc2, d.ped_seg ?? 0));
+        onChangeField('ped_ter', normC(match.cli_desc3, d.ped_ter ?? 0));
+        onChangeField('ped_qua', normC(match.cli_desc4, d.ped_qua ?? 0));
+        onChangeField('ped_qui', normC(match.cli_desc5, d.ped_qui ?? 0));
+        onChangeField('ped_sex', normC(match.cli_desc6, d.ped_sex ?? 0));
+        onChangeField('ped_set', normC(match.cli_desc7, d.ped_set ?? 0));
+        onChangeField('ped_oit', normC(match.cli_desc8, d.ped_oit ?? 0));
+        onChangeField('ped_nov', normC(match.cli_desc9, d.ped_nov ?? 0));
+        if (match.cli_prazopg)        onChangeField('ped_condpag',   match.cli_prazopg);
+        if (match.cli_tabela)         onChangeField('ped_tabela',    match.cli_tabela);
+        if (match.cli_frete)          onChangeField('ped_tipofrete', String(match.cli_frete).trim().substring(0, 1) || 'C');
+        if (match.cli_comprador)      onChangeField('ped_comprador', match.cli_comprador);
+        if (match.cli_transportadora) onChangeField('ped_transp',    parseInt(match.cli_transportadora));
+      })
+      .catch(() => {});
+  }, [newCliId, newIndId]);
+
+  // Carrega descontos e política da indústria do cliente sempre que o cliente mudar
+  const clienteIdAtual = (formData.ped_cliente ?? fullOrder?.ped_cliente) || 0;
+  useEffect(() => {
+    if (!clienteIdAtual) { setClientDiscounts([]); setClientIndustries([]); return; }
+    api.get(`/clients/${clienteIdAtual}/discounts`).then(r => r.data.success && setClientDiscounts(r.data.data || [])).catch(() => {});
+    api.get(`/clients/${clienteIdAtual}/industries`).then(r => r.data.success && setClientIndustries(r.data.data || [])).catch(() => {});
+  }, [clienteIdAtual]);
+
+  useEffect(() => {
+    api.get('/grupo-desc').then(r => r.data.success && setTableGroupDiscs(r.data.data || [])).catch(() => {});
+  }, []);
+
+  // Reaplica política de descontos do cliente em todos os itens do pedido
+  function reaplicarPolitica() {
+    if (!fullOrder) return;
+    const ord = { ...fullOrder, ...formData };
+    const normV = (v: any) => { const n = parseFloat(v) || 0; return n > 100 ? parseFloat((n / 100).toFixed(2)) : n; };
+
+    const indPolicy = clientIndustries.find(i => Number(i.cli_forcodigo) === Number(ord.ped_industria));
+    const descs: number[] = indPolicy
+      ? ['cli_desc1','cli_desc2','cli_desc3','cli_desc4','cli_desc5','cli_desc6','cli_desc7','cli_desc8','cli_desc9'].map(k => normV(indPolicy[k]))
+      : [ord.ped_pri,ord.ped_seg,ord.ped_ter,ord.ped_qua,ord.ped_qui,ord.ped_sex,ord.ped_set,ord.ped_oit,ord.ped_nov].map(normV);
+
+    if (!indPolicy && !clientIndustries.length) {
+      toast.error('Política do cliente não carregada. Aguarde e tente novamente.');
+      return;
+    }
+
+    const catalogMap = new Map(priceTableItems.map((p: any) => [String(p.pro_codigo).trim().toUpperCase(), p]));
+
+    let updated = 0;
+
+    setOrderItems(prev => prev.map((item: any) => {
+      const [d1,d2,d3,d4,d5,d6,d7,d8,d9] = descs;
+      const catalogItem = catalogMap.get(String(item.ite_produto).trim().toUpperCase());
+      const d10 = parseFloat(catalogItem?.desconto_add) || 0;
+
+      let liq = item.ite_puni;
+      [d1,d2,d3,d4,d5,d6,d7,d8,d9].forEach((d: number) => { liq = liq * (1 - d / 100); });
+      liq = liq * (1 - d10 / 100);
+      const totliquido = Math.round((liq  * item.ite_quant) * 100) / 100;
+      const totbruto   = Math.round((item.ite_puni * item.ite_quant) * 100) / 100;
+      const valcomipi  = Math.round((totliquido * (1 + (item.ite_ipi || 0) / 100)) * 100) / 100;
+      const valcomst   = Math.round((valcomipi  * (1 + (item.ite_st  || 0) / 100)) * 100) / 100;
+
+      updated++;
+      return {
+        ...item,
+        ite_des1: d1, ite_des2: d2, ite_des3: d3, ite_des4: d4, ite_des5: d5,
+        ite_des6: d6, ite_des7: d7, ite_des8: d8, ite_des9: d9, ite_des10: d10,
+        ite_puniliq: liq, ite_totbruto: totbruto, ite_totliquido: totliquido,
+        ite_valcomipi: valcomipi, ite_valcomst: valcomst,
+      };
+    }));
+
+    toast.success(`Política reaplicada em ${updated} item(s).`);
+  }
 
   // Load full order (with items) when modal opens
   useEffect(() => {
@@ -1887,7 +2007,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
     }
 
     switch (activeSection) {
-      case 'principal':   return <PrincipalSection order={fullOrder} mode={mode} formData={formData} onChangeField={onChangeField} onPriceTableItemsChange={setPriceTableItems} orderItems={orderItems} transportadoras={transportadoras} />;
+      case 'principal':   return <PrincipalSection order={fullOrder} mode={mode} formData={formData} onChangeField={onChangeField} onPriceTableItemsChange={setPriceTableItems} orderItems={orderItems} transportadoras={transportadoras} onReaplicarPolitica={mode === 'edit' ? reaplicarPolitica : undefined} allowDuplicateOverride={allowDuplicateOverride} setAllowDuplicateOverride={setAllowDuplicateOverride} userParams={userParams} />;
       case 'itens':       return (
         <ItemsSection
           order={fullOrder as any}
@@ -1896,10 +2016,11 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
           usaMenorPreco={!!fullOrder.for_usa_menor_preco}
           priceTableItems={priceTableItems}
           userParams={userParams ? {
-            usaDecimais: userParams.usaDecimais,
-            qtdDecimais: userParams.qtdDecimais,
-            qtdEnter:    userParams.qtdEnter,
-            fmtPesquisa: userParams.fmtPesquisa,
+            usaDecimais:   userParams.usaDecimais,
+            qtdDecimais:   userParams.qtdDecimais,
+            qtdEnter:      userParams.qtdEnter,
+            fmtPesquisa:   userParams.fmtPesquisa,
+            itemDuplicado: allowDuplicateOverride ?? userParams.itemDuplicado,
           } : null}
           orderItems={orderItems}
           setOrderItems={setOrderItems}
@@ -2143,7 +2264,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
               <div style={{ position: 'relative' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <h2 style={{ fontSize: 17, fontWeight: 900, color: G.text, margin: 0 }}>
-                    {isView ? 'Visualizar Pedido' : 'Editar Pedido'}
+                    {isView ? 'Visualizar Pedido' : mode === 'new' ? 'Novo Pedido' : 'Editar Pedido'}
                   </h2>
                   {order && (
                     <span style={{
@@ -2297,7 +2418,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
         orderItems={orderItems} setOrderItems={setOrderItems}
         onClose={() => setShowMagic(false)}
         onDone={() => requireSaved(() => { setPendingGroupDisc(true); setActiveSection('conferencia'); })}
-        allowDuplicate={userParams?.itemDuplicado ?? true}
+        allowDuplicate={allowDuplicateOverride ?? (userParams?.itemDuplicado ?? true)}
         usaMenorPreco={!!fullOrder.for_usa_menor_preco}
       />
     )}

@@ -6,7 +6,7 @@ import {
   Calendar, Hash, Package, Loader2,
   ChevronRight, Factory, LayoutGrid, RefreshCw,
   TrendingUp, ShoppingCart, Globe,
-  MessageCircle, Mail, Link2, Check, SendHorizontal,
+  MessageCircle, Mail, SendHorizontal,
   History, Sparkles, ClipboardCheck, HelpCircle, X, CheckCircle2,
 } from 'lucide-react';
 import { AppSidebar } from '@/shared/components/layout/AppSidebar';
@@ -59,6 +59,7 @@ interface Order {
   for_nomered: string;
   ven_nome: string;
   ped_oc?: string | null;
+  ped_pedcli?: string | null;
   ped_consolidado_id?: number | null;
   ped_total_quant?: number;
   ped_total_items?: number;
@@ -191,8 +192,10 @@ function statusLabel(s: string) {
     case 'Q': return 'FILA';
     case 'G': return 'GARANTIA';
     case 'B': return 'BONIFICAÇÃO';
+    case 'N': return 'NOTIFICAÇÃO';
     case 'L': return 'FATURADO';
-    case 'E': case 'X': return 'CANCELADO';
+    case 'E': case 'X': return 'EXCLUÍDO';
+    case 'J': return 'VIA PORTAL';
     default: return s;
   }
 }
@@ -207,7 +210,10 @@ function statusColor(s: string): { bg: string; color: string; border: string } {
     case 'L':  return { bg: '#16A34A18', color: G.success,   border: '#16A34A33' };
     case 'Q':  return { bg: '#D9760018', color: '#D97600',   border: '#D9760033' };
     case 'G':  return { bg: '#7C3AED18', color: '#7C3AED',   border: '#7C3AED33' };
-    case 'B':  return { bg: '#7C3AED18', color: '#7C3AED',   border: '#7C3AED33' };
+    case 'B':  return { bg: '#E7661D18', color: '#E7661D',   border: '#E7661D33' };
+    case 'N':  return { bg: '#FFC10718', color: '#B45309',   border: '#FFC10733' };
+    case 'E': case 'X': return { bg: '#8B451318', color: '#8B4513', border: '#8B451333' };
+    case 'J':           return { bg: '#FEE2E2',   color: '#B91C1C', border: '#FCA5A5' };
     default:   return { bg: '#C0392B18', color: G.danger,    border: '#C0392B33' };
   }
 }
@@ -379,19 +385,14 @@ const OrderCard = memo(function OrderCard({
             <span style={{ fontSize: 13, fontWeight: 800, color: G.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {order.cli_nomred || order.cli_nome}
             </span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: G.textMuted, fontFamily: 'monospace', flexShrink: 0 }}>
+              #{order.ped_cliente}
+            </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 900, color: G.textSec, fontFamily: 'monospace', letterSpacing: -0.5 }}>
               #{order.ped_pedido}
             </span>
-            {order.ped_oc && (
-              <>
-                <span style={{ width: 3, height: 3, borderRadius: '50%', background: G.border, display: 'inline-block' }} />
-                <span style={{ fontSize: 11, fontWeight: 700, color: G.textMuted, opacity: 0.8 }}>
-                  OC {order.ped_oc}
-                </span>
-              </>
-            )}
             <span style={{ width: 3, height: 3, borderRadius: '50%', background: G.border, display: 'inline-block' }} />
             <span style={{ fontSize: 11, color: G.textMuted }}>
               {fmtDate(order.ped_data)}
@@ -409,6 +410,20 @@ const OrderCard = memo(function OrderCard({
               </>
             )}
           </div>
+          {(order.ped_oc || order.ped_pedcli) && (
+            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{
+                fontSize: 9, fontWeight: 900, letterSpacing: 0.8, textTransform: 'uppercase',
+                color: G.muted, lineHeight: 1,
+              }}>OC</span>
+              <span style={{
+                fontSize: 13, fontWeight: 900, fontFamily: 'monospace',
+                color: G.text, letterSpacing: 0.5, lineHeight: 1,
+              }}>
+                {order.ped_oc || order.ped_pedcli}
+              </span>
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -498,7 +513,6 @@ function OrderDetailPanel({
   }
 
   const [shareOpen, setShareOpen] = useState(false);
-  const [copied, setCopied]       = useState(false);
   const shareRef                  = useRef<HTMLDivElement>(null);
 
   // Fecha popover ao clicar fora
@@ -654,7 +668,7 @@ function OrderDetailPanel({
             <InfoRow icon={Globe} label="Canal" value={order.ped_tabela || 'Padrão'} />
           </div>
           <div style={bentoCard}>
-            <InfoRow icon={Hash} label="OC do Cliente" value={order.ped_oc || '—'} mono />
+            <InfoRow icon={Hash} label="OC do Cliente" value={order.ped_oc || order.ped_pedcli || '—'} mono />
           </div>
 
           {/* Action buttons — full width, coloridos */}
@@ -739,35 +753,6 @@ function OrderDetailPanel({
                           </div>
                         </button>
 
-                        {/* Copiar link */}
-                        <button
-                          onClick={() => {
-                            const url = `${window.location.origin}/print/order/${order.ped_pedido}?model=1&sortBy=digitacao&industria=${order.ped_industria}`;
-                            navigator.clipboard.writeText(url);
-                            setCopied(true);
-                            setTimeout(() => { setCopied(false); setShareOpen(false); }, 1500);
-                          }}
-                          style={{
-                            width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-                            padding: '9px 12px', borderRadius: 8, border: 'none',
-                            background: 'transparent', cursor: 'pointer', textAlign: 'left',
-                          }}
-                          onMouseEnter={e => (e.currentTarget.style.background = '#FAF5FF')}
-                          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                        >
-                          <div style={{ width: 28, height: 28, borderRadius: 8, background: '#F3E8FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {copied
-                              ? <Check size={14} style={{ color: '#16A34A' }} />
-                              : <Link2 size={14} style={{ color: '#7C3AED' }} />
-                            }
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 12, fontWeight: 800, color: copied ? '#16A34A' : '#6D28D9' }}>
-                              {copied ? 'Link copiado!' : 'Copiar Link'}
-                            </div>
-                            <div style={{ fontSize: 10, color: '#C4B5FD' }}>URL de pré-visualização</div>
-                          </div>
-                        </button>
                       </div>
                     )}
                   </div>
@@ -810,7 +795,7 @@ function OrderDetailPanel({
                           {fmtDate(o.ped_data)}
                         </span>
                         <span style={{ fontSize: 11, fontWeight: 700, color: G.text, fontFamily: 'monospace', textAlign: 'right' }}>
-                          {o.ped_totliq.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {(o.ped_totliq || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                         <span style={{
                           fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
@@ -1148,7 +1133,7 @@ export default function PedidosPage() {
     if (channel === 'whatsapp') {
       const token = localStorage.getItem('sm_token') || '';
       const model = localStorage.getItem('printModel') || '1';
-      const printUrl = `${window.location.origin}/print/order/${order.ped_pedido}?model=${model}&sortBy=digitacao&industria=${order.ped_industria}&token=${token}`;
+      const printUrl = `${window.location.origin}/print/order/${order.ped_pedido}?model=${model}&sortBy=digitacao&industria=${order.ped_industria}&separateGroups=${separaLinhas}&token=${token}`;
       const msgText =
         `Olá! Segue o pedido *${order.ped_pedido}*.\n\n` +
         `Cliente: *${order.cli_nomred || order.cli_nome}*\n` +
@@ -1262,10 +1247,10 @@ export default function PedidosPage() {
         const statsRes = await api.get('/orders/stats', { params });
         const s = statsRes.data.data || {};
         setStats({
-          revenue: s.total_faturamento || 0,
-          quantity: s.total_quantidade || 0,
-          pdvs: s.total_clientes || 0,
-          averageTicket: s.ticket_medio || 0,
+          revenue: parseFloat(String(s.total_faturamento)) || 0,
+          quantity: Number(s.total_quantidade) || 0,
+          pdvs: Number(s.total_clientes) || 0,
+          averageTicket: parseFloat(String(s.ticket_medio)) || 0,
           orders: list.filter(o => o.ped_situacao === 'P').length,
           quotes: list.filter(o => o.ped_situacao === 'C').length,
         });
@@ -1350,12 +1335,12 @@ export default function PedidosPage() {
     : null;
 
   const statItems = [
-    { label: 'Faturamento',  value: fmt(stats.revenue),                          icon: TrendingUp  },
-    { label: 'Quantidade',   value: stats.quantity.toLocaleString('pt-BR'),       icon: Package     },
-    { label: 'PDVs',         value: String(stats.pdvs),                           icon: ShoppingCart},
-    { label: 'Ticket Médio', value: fmt(stats.averageTicket),                     icon: TrendingUp  },
-    { label: 'Pedidos',      value: String(stats.orders),                         icon: Package     },
-    { label: 'Cotações',     value: String(stats.quotes),                         icon: Package     },
+    { label: 'Faturamento',  value: fmt(stats.revenue)                          },
+    { label: 'Quantidade',   value: stats.quantity.toLocaleString('pt-BR')      },
+    { label: 'PDVs',         value: stats.pdvs.toLocaleString('pt-BR')          },
+    { label: 'Ticket Médio', value: fmt(stats.averageTicket)                    },
+    { label: 'Pedidos',      value: stats.orders.toLocaleString('pt-BR')        },
+    { label: 'Cotações',     value: stats.quotes.toLocaleString('pt-BR')        },
   ];
 
   return (
@@ -1496,10 +1481,15 @@ export default function PedidosPage() {
                 }}
               >
                 <option value="Z">Todos</option>
-                <option value="P">Pedidos</option>
+                <option value="P">Pedido</option>
                 <option value="Q">Fila de Consolidação</option>
-                <option value="C">Cotações</option>
-                <option value="F">Faturados</option>
+                <option value="C">Cotação pendente</option>
+                <option value="A">Cotação confirmada</option>
+                <option value="F">Faturado</option>
+                <option value="G">Garantia</option>
+                <option value="B">Bonificação</option>
+                <option value="N">Notificação</option>
+                <option value="E">Excluído</option>
               </select>
 
               {/* Sort */}
@@ -1777,7 +1767,7 @@ export default function PedidosPage() {
         onWhatsApp={(model, sorting) => {
           if (!selectedOrder) return;
           const token = localStorage.getItem('sm_token') || '';
-          const printUrl = `${window.location.origin}/print/order/${selectedOrder.ped_pedido}?model=${model}&sortBy=${sorting}&industria=${selectedOrder.ped_industria}&token=${token}`;
+          const printUrl = `${window.location.origin}/print/order/${selectedOrder.ped_pedido}?model=${model}&sortBy=${sorting}&industria=${selectedOrder.ped_industria}&separateGroups=${separaLinhas}&token=${token}`;
           const msgText =
             `Olá! Segue o pedido *${selectedOrder.ped_pedido}*.\n\n` +
             `Cliente: *${selectedOrder.cli_nomred || selectedOrder.cli_nome}*\n` +
@@ -1793,6 +1783,7 @@ export default function PedidosPage() {
         isOpen={emailDialogOpen}
         onClose={() => setEmailDialogOpen(false)}
         orderData={orderToEmailData}
+        separateGroups={separaLinhas}
       />
 
       {/* ── Context Menu ── */}

@@ -396,125 +396,157 @@ export async function parafluImportHandler(req: Request, res: Response): Promise
         );
         if (tabRes.rows.length > 0) defaultTable = tabRes.rows[0].itab_tabela;
 
-        const client = await (req.db as any).connect();
+        // ── Bulk pre-load — evita N queries dentro da transação ─────────────────
+
+        // 1. Todos os CNPJs únicos → clientes em 1 query
+        const allCnpjs = [...new Set(nfeList.map(n => n.cnpj).filter(Boolean)
+            .map((c: string) => c.replace(/\D/g, '').padStart(14, '0')))];
+        const clientMap = new Map<string, { cli_codigo: number; cli_vendedor: number | null }>();
+        if (allCnpjs.length > 0) {
+            const cliRows = await db.query(
+                `SELECT cli_codigo, cli_vendedor,
+                        REPLACE(REPLACE(REPLACE(cli_cnpj,'.',''),'/',''),'-','') AS cnpj_clean
+                 FROM clientes
+                 WHERE REPLACE(REPLACE(REPLACE(cli_cnpj,'.',''),'/',''),'-','') = ANY($1::text[])`,
+                [allCnpjs]
+            );
+            for (const r of cliRows.rows) clientMap.set(r.cnpj_clean, { cli_codigo: r.cli_codigo, cli_vendedor: r.cli_vendedor });
+        }
+
+        // 2. Todos os documentos NFe → pedidos existentes em 1 query
+        const allDocs    = nfeList.map(n => n.documento.trim());
+        const allDocTrunc = nfeList.map(n => n.documento.replace(/\s+/g, '').substring(0, 10));
+        const existMap   = new Map<string, string>(); // documento → ped_pedido existente
+        if (allDocs.length > 0) {
+            const exRows = await db.query(
+                `SELECT ped_pedido, TRIM(ped_pedindustria) AS pind, TRIM(ped_pedido) AS ppid
+                 FROM pedidos
+                 WHERE ped_industria = $1
+                   AND (TRIM(ped_pedindustria) = ANY($2::text[]) OR TRIM(ped_pedido) = ANY($3::text[]))`,
+                [parafluId, allDocs, allDocTrunc]
+            );
+            for (const r of exRows.rows) {
+                existMap.set(r.pind, r.ped_pedido);
+                existMap.set(r.ppid, r.ped_pedido);
+            }
+        }
+
+        // 3. Todos os códigos de produto únicos → cad_prod em 1 query
+        const allCodes = [...new Set(nfeList.flatMap(n => n.items.map((i: any) => i.codigo)))];
+        const prodMap  = new Map<string, number>(); // codigo → pro_id
+        if (allCodes.length > 0) {
+            const prodRows = await db.query(
+                `SELECT pro_id, pro_codprod, pro_codigonormalizado, pro_codigooriginal
+                 FROM cad_prod
+                 WHERE pro_industria = $1
+                   AND (pro_codprod = ANY($2::text[]) OR pro_codigonormalizado = ANY($2::text[]) OR pro_codigooriginal = ANY($2::text[]))`,
+                [parafluId, allCodes]
+            );
+            for (const r of prodRows.rows) {
+                if (r.pro_codprod)           prodMap.set(r.pro_codprod,           r.pro_id);
+                if (r.pro_codigonormalizado) prodMap.set(r.pro_codigonormalizado, r.pro_id);
+                if (r.pro_codigooriginal)    prodMap.set(r.pro_codigooriginal,    r.pro_id);
+            }
+        }
+        console.log(`🗂️ [PARAFLU] Bulk pre-load: ${clientMap.size} clientes, ${existMap.size/2} existentes, ${prodMap.size} produtos`);
+
+        // ── Próximo número de pedido ─────────────────────────────────────────────
+        let nextNum: number;
+        try {
+            const seqRes = await db.query("SELECT nextval('gen_pedidos_id') AS n");
+            nextNum = Number(seqRes.rows[0].n);
+        } catch {
+            try {
+                const seqRes = await db.query("SELECT nextval('pedidos_ped_numero_seq') AS n");
+                nextNum = Number(seqRes.rows[0].n);
+            } catch {
+                const seqRes = await db.query("SELECT COALESCE(MAX(ped_numero),0)+1 AS n FROM pedidos");
+                nextNum = Number(seqRes.rows[0].n);
+            }
+        }
+
         let inserted = 0, updated = 0;
         const errors: any[] = [];
 
-        try {
-            await client.query('BEGIN');
+        // ── Processar em lotes de 30 NFes — cada lote é uma transação independente
+        // Evita transações longas que bloqueiam conexões e sobrecarregam o WAL
+        const CHUNK_SIZE = 30;
+        for (let chunkStart = 0; chunkStart < nfeList.length; chunkStart += CHUNK_SIZE) {
+            const chunk = nfeList.slice(chunkStart, chunkStart + CHUNK_SIZE);
+            console.log(`📦 [PARAFLU] Lote ${Math.floor(chunkStart / CHUNK_SIZE) + 1}/${Math.ceil(nfeList.length / CHUNK_SIZE)} (${chunk.length} NFes)`);
 
-            for (const nfe of nfeList) {
-                const savepointName = `nfe_${nfe.documento.replace(/\D/g, '') || Date.now()}`;
-                await client.query(`SAVEPOINT ${savepointName}`);
-                try {
-                    let cliCodigo = 0;
-                    let cliVendedor: number | null = null;
-                    if (nfe.cnpj) {
-                        const cliRes = await client.query(
-                            "SELECT cli_codigo, cli_vendedor FROM clientes WHERE REPLACE(REPLACE(REPLACE(cli_cnpj, '.', ''), '/', ''), '-', '') = $1 LIMIT 1",
-                            [nfe.cnpj.replace(/\D/g, '').padStart(14, '0')]
-                        );
-                        if (cliRes.rows.length > 0) {
-                            cliCodigo = cliRes.rows[0].cli_codigo;
-                            cliVendedor = cliRes.rows[0].cli_vendedor;
+            await req.db.transaction(async (client) => {
+                for (const nfe of chunk) {
+                    const savepointName = `nfe_${nfe.documento.replace(/\D/g, '') || Date.now()}`;
+                    await client.query(`SAVEPOINT ${savepointName}`);
+                    try {
+                        const cnpjClean   = nfe.cnpj ? nfe.cnpj.replace(/\D/g, '').padStart(14, '0') : '';
+                        const cliRow      = clientMap.get(cnpjClean);
+                        const cliCodigo   = cliRow?.cli_codigo  ?? 0;
+                        const cliVendedor = cliRow?.cli_vendedor ?? null;
+
+                        let pedData = new Date();
+                        if (nfe.periodo) {
+                            const parts = nfe.periodo.split('-');
+                            if (parts.length === 2) pedData = new Date(2000 + parseInt(parts[0]), parseInt(parts[1]) - 1, 1);
                         }
-                    }
 
-                    let pedData = new Date();
-                    if (nfe.periodo) {
-                        const parts = nfe.periodo.split('-');
-                        if (parts.length === 2) {
-                            pedData = new Date(2000 + parseInt(parts[0]), parseInt(parts[1]) - 1, 1);
-                        }
-                    }
+                        const pedPedidoStr   = nfe.documento.replace(/\s+/g, '').substring(0, 10);
+                        const existingPedido = existMap.get(nfe.documento.trim()) ?? existMap.get(pedPedidoStr);
 
-                    const pedPedidoStr = nfe.documento.replace(/\s+/g, '').substring(0, 10);
-                    const existsRes = await client.query(
-                        "SELECT ped_pedido, ped_numero FROM pedidos WHERE (TRIM(ped_pedindustria) = TRIM($1) OR TRIM(ped_pedido) = TRIM($3)) AND ped_industria = $2 LIMIT 1",
-                        [nfe.documento, parafluId, pedPedidoStr]
-                    );
-
-                    if (existsRes.rows.length > 0) {
-                        const pedPedido = existsRes.rows[0].ped_pedido;
-                        await client.query(
-                            `UPDATE pedidos SET ped_totbruto=$1, ped_totliq=$2, ped_situacao='F',
-                             ped_cliente = CASE WHEN $3 > 0 THEN $3 ELSE ped_cliente END,
-                             ped_numpedcli = CASE WHEN $4 != '' THEN $4 ELSE ped_numpedcli END,
-                             ped_tabela = CASE WHEN COALESCE(ped_tabela,'') = '' THEN $5 ELSE ped_tabela END,
-                             ped_vendedor = CASE WHEN $6 > 0 THEN $6 ELSE ped_vendedor END
-                             WHERE TRIM(ped_pedido) = TRIM($7)`,
-                            [nfe.totalFat, nfe.totalFat, cliCodigo, nfe.pedidoCompra || '', defaultTable, cliVendedor || 0, pedPedido]
-                        );
-                        await client.query("DELETE FROM itens_ped WHERE TRIM(ite_pedido) = TRIM($1)", [pedPedido]);
-                        for (let i = 0; i < nfe.items.length; i++) {
-                            const item = nfe.items[i];
-                            const prodRes = await client.query(
-                                "SELECT pro_id FROM cad_prod WHERE (pro_codprod = $1 OR pro_codigonormalizado = $1 OR pro_codigooriginal = $1) AND pro_industria = $2 LIMIT 1",
-                                [item.codigo, parafluId]
-                            );
-                            if (prodRes.rows.length === 0) throw new Error(`Produto ${item.codigo} não encontrado no cadastro para a indústria Paraflu.`);
-                            const proId = prodRes.rows[0].pro_id;
+                        if (existingPedido) {
                             await client.query(
-                                `INSERT INTO itens_ped (ite_pedido,ite_seq,ite_industria,ite_produto,ite_nomeprod,ite_quant,ite_puni,ite_totbruto,ite_puniliq,ite_totliquido,ite_idproduto)
-                                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-                                [pedPedido, i + 1, parafluId, item.codigo, item.descricao, item.quantidade, item.precoUnitario, item.valor, item.precoUnitario, item.valor, proId]
+                                `UPDATE pedidos SET ped_totbruto=$1, ped_totliq=$2, ped_situacao='F',
+                                 ped_cliente   = CASE WHEN $3 > 0   THEN $3 ELSE ped_cliente  END,
+                                 ped_numpedcli = CASE WHEN $4 != '' THEN $4 ELSE ped_numpedcli END,
+                                 ped_tabela    = CASE WHEN COALESCE(ped_tabela,'') = '' THEN $5 ELSE ped_tabela END,
+                                 ped_vendedor  = CASE WHEN $6 > 0   THEN $6 ELSE ped_vendedor END
+                                 WHERE TRIM(ped_pedido) = TRIM($7)`,
+                                [nfe.totalFat, nfe.totalFat, cliCodigo, nfe.pedidoCompra || '', defaultTable, cliVendedor ?? 0, existingPedido]
                             );
-                        }
-                        updated++;
-                        console.log(`🔄 [PARAFLU] UPDATE: ${nfe.documento} → ${pedPedido} (${nfe.items.length} itens)`);
-                    } else {
-                        let seqResult: any;
-                        try { seqResult = await client.query("SELECT nextval('gen_pedidos_id') as next_num"); }
-                        catch (_) {
-                            await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-                            await client.query(`SAVEPOINT ${savepointName}`);
-                            try { seqResult = await client.query("SELECT nextval('pedidos_ped_numero_seq') as next_num"); }
-                            catch (_2) {
-                                await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-                                await client.query(`SAVEPOINT ${savepointName}`);
-                                seqResult = await client.query("SELECT COALESCE(MAX(ped_numero), 0) + 1 as next_num FROM pedidos");
+                            await client.query("DELETE FROM itens_ped WHERE TRIM(ite_pedido) = TRIM($1)", [existingPedido]);
+                            for (let i = 0; i < nfe.items.length; i++) {
+                                const item  = nfe.items[i];
+                                const proId = prodMap.get(item.codigo);
+                                if (!proId) throw new Error(`Produto ${item.codigo} não encontrado no cadastro para a indústria Paraflu.`);
+                                await client.query(
+                                    `INSERT INTO itens_ped (ite_pedido,ite_seq,ite_industria,ite_produto,ite_nomeprod,ite_quant,ite_puni,ite_totbruto,ite_puniliq,ite_totliquido,ite_idproduto)
+                                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+                                    [existingPedido, i + 1, parafluId, item.codigo, item.descricao, item.quantidade, item.precoUnitario, item.valor, item.precoUnitario, item.valor, proId]
+                                );
                             }
-                        }
-                        const pedNumero = seqResult.rows[0].next_num;
-                        const pedPedido = nfe.documento.replace(/\s+/g, '').substring(0, 10);
-
-                        await client.query(
-                            `INSERT INTO pedidos (ped_data,ped_situacao,ped_numero,ped_pedido,ped_cliente,ped_industria,ped_totbruto,ped_totliq,ped_pedindustria,ped_numpedcli,ped_obs,ped_tabela,ped_transp,ped_vendedor)
-                             VALUES ($1,'F',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-                            [pedData, pedNumero, pedPedido, cliCodigo, parafluId, nfe.totalFat, nfe.totalFat, nfe.documento, nfe.pedidoCompra || '', 'Importado via Portal Paraflu', defaultTable, 0, cliVendedor || 0]
-                        );
-                        for (let i = 0; i < nfe.items.length; i++) {
-                            const item = nfe.items[i];
-                            const prodRes = await client.query(
-                                "SELECT pro_id FROM cad_prod WHERE (pro_codprod = $1 OR pro_codigonormalizado = $1 OR pro_codigooriginal = $1) AND pro_industria = $2 LIMIT 1",
-                                [item.codigo, parafluId]
-                            );
-                            if (prodRes.rows.length === 0) throw new Error(`Produto ${item.codigo} não encontrado no cadastro para a indústria Paraflu.`);
-                            const proId = prodRes.rows[0].pro_id;
+                            updated++;
+                            console.log(`🔄 [PARAFLU] UPDATE: ${nfe.documento} → ${existingPedido} (${nfe.items.length} itens)`);
+                        } else {
+                            const pedNumero = nextNum++;
+                            const pedPedido = pedPedidoStr;
                             await client.query(
-                                `INSERT INTO itens_ped (ite_pedido,ite_seq,ite_industria,ite_produto,ite_nomeprod,ite_quant,ite_puni,ite_totbruto,ite_puniliq,ite_totliquido,ite_idproduto)
-                                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-                                [pedPedido, i + 1, parafluId, item.codigo, item.descricao, item.quantidade, item.precoUnitario, item.valor, item.precoUnitario, item.valor, proId]
+                                `INSERT INTO pedidos (ped_data,ped_situacao,ped_numero,ped_pedido,ped_cliente,ped_industria,ped_totbruto,ped_totliq,ped_pedindustria,ped_numpedcli,ped_obs,ped_tabela,ped_transp,ped_vendedor)
+                                 VALUES ($1,'F',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+                                [pedData, pedNumero, pedPedido, cliCodigo, parafluId, nfe.totalFat, nfe.totalFat, nfe.documento, nfe.pedidoCompra || '', 'Importado via Portal Paraflu', defaultTable, 0, cliVendedor ?? 0]
                             );
+                            for (let i = 0; i < nfe.items.length; i++) {
+                                const item  = nfe.items[i];
+                                const proId = prodMap.get(item.codigo);
+                                if (!proId) throw new Error(`Produto ${item.codigo} não encontrado no cadastro para a indústria Paraflu.`);
+                                await client.query(
+                                    `INSERT INTO itens_ped (ite_pedido,ite_seq,ite_industria,ite_produto,ite_nomeprod,ite_quant,ite_puni,ite_totbruto,ite_puniliq,ite_totliquido,ite_idproduto)
+                                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+                                    [pedPedido, i + 1, parafluId, item.codigo, item.descricao, item.quantidade, item.precoUnitario, item.valor, item.precoUnitario, item.valor, proId]
+                                );
+                            }
+                            inserted++;
+                            console.log(`✅ [PARAFLU] INSERT: ${nfe.documento} → ${pedPedido} (${nfe.items.length} itens, cliente ${cliCodigo})`);
                         }
-                        inserted++;
-                        console.log(`✅ [PARAFLU] INSERT: ${nfe.documento} → ${pedPedido} (${nfe.items.length} itens, cliente ${cliCodigo})`);
+
+                        await client.query(`RELEASE SAVEPOINT ${savepointName}`);
+                    } catch (nfeErr: any) {
+                        console.error(`❌ [PARAFLU] Erro no NFe ${nfe.documento}:`, nfeErr.message);
+                        errors.push({ nfe: nfe.documento, error: nfeErr.message });
+                        try { await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`); } catch (_) {}
                     }
-
-                    await client.query(`RELEASE SAVEPOINT ${savepointName}`);
-                } catch (nfeErr: any) {
-                    console.error(`❌ [PARAFLU] Erro no NFe ${nfe.documento}:`, nfeErr.message);
-                    errors.push({ nfe: nfe.documento, error: nfeErr.message });
-                    try { await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`); } catch (_) {}
                 }
-            }
-
-            await client.query('COMMIT');
-        } catch (txErr) {
-            await client.query('ROLLBACK');
-            throw txErr;
-        } finally {
-            client.release();
+            });
         }
 
         try { fs.unlinkSync(filePath); } catch (_) { }

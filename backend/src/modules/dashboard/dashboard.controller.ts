@@ -711,18 +711,75 @@ export async function mobileSummaryHandler(req: Request, res: Response): Promise
     const totalSales = parseFloat(statsRow.total_sales ?? '0');
     const progress   = monthlyGoal > 0 ? Math.round((totalSales / monthlyGoal) * 1000) / 10 : 0;
 
+    // ── 5. Metas por indústria ────────────────────────────────────────────────
+    let industriasMeta: any[] = [];
+    try {
+      const hasFilter  = allowedIndustries?.length;
+      const indWhere   = hasFilter ? `AND f.for_codigo = ANY($3)` : '';
+      const qparams    = hasFilter ? [ano, mes, allowedIndustries] : [ano, mes];
+
+      const r = await db.query(`
+        WITH vendido AS (
+          SELECT p.ped_industria,
+                 COALESCE(SUM(i.ite_totliquido), 0) AS vendido
+          FROM pedidos p
+          LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+          WHERE EXTRACT(YEAR  FROM p.ped_data) = $1
+            AND EXTRACT(MONTH FROM p.ped_data) = $2
+            AND p.ped_situacao IN ('P', 'F')
+          GROUP BY p.ped_industria
+        )
+        SELECT
+          f.for_codigo,
+          TRIM(f.for_nomered) AS for_nomered,
+          COALESCE(v.vendido, 0)::NUMERIC AS vendido,
+          CASE $2::int
+            WHEN 1  THEN COALESCE(m.met_jan, 0)
+            WHEN 2  THEN COALESCE(m.met_fev, 0)
+            WHEN 3  THEN COALESCE(m.met_mar, 0)
+            WHEN 4  THEN COALESCE(m.met_abr, 0)
+            WHEN 5  THEN COALESCE(m.met_mai, 0)
+            WHEN 6  THEN COALESCE(m.met_jun, 0)
+            WHEN 7  THEN COALESCE(m.met_jul, 0)
+            WHEN 8  THEN COALESCE(m.met_ago, 0)
+            WHEN 9  THEN COALESCE(m.met_set, 0)
+            WHEN 10 THEN COALESCE(m.met_out, 0)
+            WHEN 11 THEN COALESCE(m.met_nov, 0)
+            WHEN 12 THEN COALESCE(m.met_dez, 0)
+            ELSE 0
+          END::NUMERIC AS meta
+        FROM fornecedores f
+        LEFT JOIN vendido   v ON v.ped_industria = f.for_codigo
+        LEFT JOIN ind_metas m ON m.met_industria  = f.for_codigo AND m.met_ano = $1
+        WHERE f.for_tipo2 = 'A'
+          AND (v.vendido > 0 OR m.met_industria IS NOT NULL)
+          ${indWhere}
+        ORDER BY COALESCE(v.vendido, 0) DESC, TRIM(f.for_nomered) ASC
+      `, qparams);
+
+      industriasMeta = r.rows.map((row: any) => {
+        const vendido = parseFloat(row.vendido);
+        const meta    = parseFloat(row.meta);
+        const pct     = meta > 0 ? Math.round((vendido / meta) * 1000) / 10 : 0;
+        return { for_codigo: Number(row.for_codigo), for_nomered: row.for_nomered, vendido, meta, pct };
+      });
+    } catch (e: any) {
+      console.error('❌ [mobile-summary/industrias-meta]', e.message);
+    }
+
     res.json({
       success: true,
       data: {
-        total_sales:    totalSales,
-        monthly_goal:   monthlyGoal,
+        total_sales:     totalSales,
+        monthly_goal:    monthlyGoal,
         progress,
-        ticket_medio:   parseFloat(statsRow.ticket_medio   ?? '0'),
-        total_orders:   statsRow.total_orders    ?? 0,
-        active_clients: statsRow.active_clients  ?? 0,
-        churn_count:    churnCount,
-        recent_orders:  recentOrders,
-        insights:       [],
+        ticket_medio:    parseFloat(statsRow.ticket_medio   ?? '0'),
+        total_orders:    statsRow.total_orders    ?? 0,
+        active_clients:  statsRow.active_clients  ?? 0,
+        churn_count:     churnCount,
+        recent_orders:   recentOrders,
+        insights:        [],
+        industrias_meta: industriasMeta,
       },
     });
   } catch (error: any) {
@@ -819,6 +876,364 @@ export async function mobileClientHandler(req: Request, res: Response): Promise<
     res.json({ success: true, data: { resumo, pedidos, industrias } });
   } catch (error: any) {
     console.error('❌ [DASHBOARD/mobile-client]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── IRIS Portfolio Analysis — helpers ────────────────────────────────────────
+
+interface PortfolioRow {
+  nome: string; contribuicao: number; tendencia: number | null;
+  clientes: number; total_12m: number; pedidos: number; zona: string;
+}
+
+function scoreIndustria(contribuicao: number, tendencia: number | null, clientes: number): number {
+  // Contribuição sobre total do tenant: 40 pts
+  const sc = contribuicao >= 5 ? 40 : contribuicao >= 2 ? 22 : contribuicao >= 0.5 ? 8 : 0;
+  // Tendência 90d vs 90d anteriores: 30 pts
+  const st = tendencia == null ? 15
+    : tendencia >=  10 ? 30
+    : tendencia >=  -5 ? 15
+    : tendencia >= -25 ?  5
+    : 0;
+  // Profundidade de clientes ativos: 30 pts
+  const scl = clientes >= 10 ? 30 : clientes >= 5 ? 20 : clientes >= 3 ? 10 : clientes >= 1 ? 4 : 0;
+  return sc + st + scl;
+}
+
+function gerarNarrativaPortfolio(d: PortfolioRow): string {
+  const fmtK = (v: number) =>
+    v >= 1_000_000 ? `R$ ${(v / 1_000_000).toFixed(1).replace('.', ',')} M`
+    : v >= 1_000   ? `R$ ${(v / 1_000).toFixed(0)} mil`
+    : `R$ ${v.toFixed(0)}`;
+
+  if (d.zona === 'MANTER') {
+    const tendStr = d.tendencia == null ? ''
+      : d.tendencia >= 10  ? `, crescendo ${d.tendencia}% nos últimos 90 dias`
+      : d.tendencia >= -5  ? `, estável`
+      : ` (atenção: queda de ${Math.abs(d.tendencia)}%)`;
+    return `${d.nome} é uma das âncoras da carteira: ${d.contribuicao.toFixed(1)}% da receita (${fmtK(d.total_12m)} nos últimos 12 meses)${tendStr}, com ${d.clientes} cliente${d.clientes !== 1 ? 's' : ''} ativo${d.clientes !== 1 ? 's' : ''}. Mantenha o foco.`;
+  }
+
+  if (d.zona === 'MONITORAR') {
+    const tendStr = d.tendencia == null
+      ? 'Dados insuficientes para avaliar tendência.'
+      : d.tendencia >= 0
+        ? `Tendência positiva de ${d.tendencia}% — pode evoluir.`
+        : `Queda de ${Math.abs(d.tendencia)}% nos últimos 90 dias — requer atenção.`;
+    return `${d.nome} representa ${d.contribuicao.toFixed(1)}% da receita com ${d.clientes} cliente${d.clientes !== 1 ? 's' : ''} ativo${d.clientes !== 1 ? 's' : ''}. ${tendStr} Avalie nos próximos 60 dias antes de tomar uma decisão.`;
+  }
+
+  // REVISAR
+  const motivos: string[] = [];
+  if (d.contribuicao < 2)                           motivos.push(`${d.contribuicao.toFixed(1)}% da receita total`);
+  if (d.clientes <= 2)                               motivos.push(`${d.clientes === 0 ? 'nenhum cliente ativo' : d.clientes === 1 ? '1 cliente ativo' : '2 clientes ativos'}`);
+  if (d.tendencia != null && d.tendencia < -25)      motivos.push(`queda de ${Math.abs(d.tendencia)}% em 90 dias`);
+  if (d.pedidos < 6)                                 motivos.push(`${d.pedidos} pedido${d.pedidos !== 1 ? 's' : ''} no ano`);
+  if (d.total_12m === 0)                             motivos.push('sem faturamento nos últimos 12 meses');
+  const motivoStr = motivos.length ? motivos.join(', ') : 'desempenho abaixo do esperado';
+  return `${d.nome} apresenta baixa viabilidade: ${motivoStr}. Considere renegociar condições ou encerrar esta representação — a energia investida pode render mais em indústrias com maior retorno.`;
+}
+
+// ─── GET /api/dashboard/iris-portfolio-analysis ───────────────────────────────
+export async function irisPortfolioAnalysisHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db     = req.db!;
+    const userId = getUserId(req);
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+
+    const hasFilter = allowedIndustries?.length;
+    const indWhere  = hasFilter ? `AND p.ped_industria = ANY($1)` : '';
+    const qparams   = hasFilter ? [allowedIndustries] : [];
+
+    const r = await db.query(`
+      WITH industria_stats AS (
+        SELECT
+          p.ped_industria,
+          COUNT(DISTINCT p.ped_pedido)::int    AS pedidos_12m,
+          COUNT(DISTINCT p.ped_cliente)::int   AS clientes_ativos,
+          SUM(i.ite_totliquido)                AS total_12m,
+          SUM(CASE WHEN p.ped_data >= CURRENT_DATE - INTERVAL '90 days'
+                   THEN i.ite_totliquido ELSE 0 END)  AS ult_90d,
+          SUM(CASE WHEN p.ped_data >= CURRENT_DATE - INTERVAL '180 days'
+                    AND p.ped_data  <  CURRENT_DATE - INTERVAL '90 days'
+                   THEN i.ite_totliquido ELSE 0 END)  AS ant_90d
+        FROM pedidos p
+        INNER JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+        WHERE p.ped_situacao IN ('P', 'F')
+          AND p.ped_data >= CURRENT_DATE - INTERVAL '12 months'
+          ${indWhere}
+        GROUP BY p.ped_industria
+      ),
+      grand_total AS (SELECT COALESCE(SUM(total_12m), 0) AS total FROM industria_stats)
+      SELECT
+        f.for_codigo,
+        TRIM(f.for_nomered)                                               AS for_nomered,
+        ROUND(s.total_12m::NUMERIC, 2)                                    AS total_12m,
+        s.pedidos_12m,
+        s.clientes_ativos,
+        CASE WHEN g.total > 0
+             THEN ROUND((s.total_12m / g.total * 100)::NUMERIC, 2)
+             ELSE 0 END                                                   AS contribuicao_pct,
+        ROUND(s.ult_90d::NUMERIC, 2)                                      AS ult_90d,
+        ROUND(s.ant_90d::NUMERIC, 2)                                      AS ant_90d,
+        CASE WHEN s.ant_90d > 0
+             THEN ROUND(((s.ult_90d - s.ant_90d) / s.ant_90d * 100)::NUMERIC, 1)
+             ELSE NULL END                                                AS tendencia_pct
+      FROM industria_stats s
+      CROSS JOIN grand_total g
+      INNER JOIN fornecedores f ON f.for_codigo = s.ped_industria AND f.for_tipo2 = 'A'
+      ORDER BY s.total_12m DESC
+    `, qparams);
+
+    const resultado = r.rows.map((row: any) => {
+      const contribuicao = parseFloat(row.contribuicao_pct);
+      const tendencia    = row.tendencia_pct != null ? parseFloat(row.tendencia_pct) : null;
+      const clientes     = parseInt(row.clientes_ativos);
+      const total_12m    = parseFloat(row.total_12m);
+      const pedidos      = parseInt(row.pedidos_12m);
+      const score        = scoreIndustria(contribuicao, tendencia, clientes);
+      const zona         = score >= 60 ? 'MANTER' : score >= 30 ? 'MONITORAR' : 'REVISAR';
+      const narrative    = gerarNarrativaPortfolio({ nome: row.for_nomered, contribuicao, tendencia, clientes, total_12m, pedidos, zona });
+
+      return {
+        for_codigo:       Number(row.for_codigo),
+        for_nomered:      row.for_nomered,
+        total_12m,
+        pedidos_12m:      pedidos,
+        clientes_ativos:  clientes,
+        contribuicao_pct: contribuicao,
+        ult_90d:          parseFloat(row.ult_90d),
+        ant_90d:          parseFloat(row.ant_90d),
+        tendencia_pct:    tendencia,
+        score,
+        zona,
+        narrative,
+      };
+    });
+
+    res.json({ success: true, data: resultado });
+  } catch (error: any) {
+    console.error('❌ [IRIS/portfolio-analysis]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── GET /api/dashboard/iris-eventos ─────────────────────────────────────────
+// Agrega eventos das últimas 24h para o painel IRIS Terminal.
+// Fontes: WhatsApp (mensagens de lead), pedidos IRIS, alertas de churn.
+export async function irisEventosHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db     = req.db!;
+    const userId = getUserId(req);
+    const sellerId = await getLinkedSellerId(db, userId);
+
+    const eventos: any[] = [];
+
+    // ── 1. WhatsApp — mensagens recentes de leads (últimas 24h) ──────────────
+    try {
+      const wppRes = await db.query(`
+        SELECT
+          'wpp_' || m.id            AS id,
+          'wpp'                     AS tipo,
+          COALESCE(c.nome, c.telefone, 'Desconhecido') AS origem_nome,
+          c.telefone                AS origem_fone,
+          LEFT(m.conteudo, 120)     AS preview,
+          m.created_at              AS ts,
+          conv.id                   AS ref_id
+        FROM wpp_mensagem m
+        JOIN wpp_conversa conv ON conv.id = m.conversa_id
+        JOIN wpp_contato   c   ON c.id   = m.contato_id
+        WHERE m.remetente = 'lead'
+          AND m.created_at > NOW() - INTERVAL '24 hours'
+        ORDER BY m.created_at DESC
+        LIMIT 20
+      `);
+      for (const r of wppRes.rows) {
+        eventos.push({
+          id:       r.id,
+          tipo:     'wpp',
+          tag:      '[WHATS]',
+          mensagem: `Nova mensagem — ${r.origem_nome}: "${r.preview}"`,
+          ts:       r.ts,
+          payload: {
+            titulo:  r.origem_nome,
+            detalhe: r.preview,
+            fone:    r.origem_fone,
+            acao:    'Abrir conversa',
+            rota:    'wpp',
+            ref_id:  r.ref_id,
+          },
+        });
+      }
+    } catch (_) { /* tabela pode não existir em todos os tenants */ }
+
+    // ── 2. IRIS — cotações processadas (últimas 24h) ─────────────────────────
+    try {
+      const irisRes = await db.query(`
+        SELECT
+          'iris_' || p.ped_pedido   AS id,
+          p.ped_pedido,
+          COALESCE(cl.cli_nomred, CAST(p.ped_cliente AS TEXT)) AS cliente_nome,
+          p.ped_iris_enviado_em     AS ts,
+          p.ped_totliq
+        FROM pedidos p
+        LEFT JOIN clientes cl ON cl.cli_codigo = p.ped_cliente
+        WHERE p.ped_iris_autoriza = true
+          AND p.ped_iris_enviado_em > NOW() - INTERVAL '24 hours'
+          ${sellerId ? 'AND p.ped_vendedor = $1' : ''}
+        ORDER BY p.ped_iris_enviado_em DESC
+        LIMIT 10
+      `, sellerId ? [sellerId] : []);
+
+      for (const r of irisRes.rows) {
+        eventos.push({
+          id:       r.id,
+          tipo:     'iris',
+          tag:      '[IRIS]',
+          mensagem: `Cotação ${r.ped_pedido} enviada — ${r.cliente_nome}`,
+          ts:       r.ts,
+          payload: {
+            titulo:  `Pedido ${r.ped_pedido}`,
+            detalhe: `${r.cliente_nome} — cotação processada e enviada pela IRIS.`,
+            acao:    'Ver pedido',
+            rota:    'pedido',
+            ref_id:  r.ped_pedido,
+          },
+        });
+      }
+    } catch (_) {}
+
+    // ── 3. Portal — rascunhos criados nas últimas 24h (ped_situacao = 'J') ───
+    try {
+      const portalRes = await db.query(`
+        SELECT
+          'portal_' || p.ped_pedido AS id,
+          p.ped_pedido,
+          COALESCE(cl.cli_nomred, CAST(p.ped_cliente AS TEXT)) AS cliente_nome,
+          f.for_nomered             AS industria_nome,
+          p.ped_data::text          AS ts_raw,
+          NOW()                     AS ts
+        FROM pedidos p
+        LEFT JOIN clientes  cl ON cl.cli_codigo  = p.ped_cliente
+        LEFT JOIN fornecedores f ON f.for_codigo = p.ped_industria
+        WHERE p.ped_situacao = 'J'
+          AND p.ped_data >= CURRENT_DATE - 1
+          ${sellerId ? 'AND p.ped_vendedor = $1' : ''}
+        ORDER BY p.ped_numero DESC
+        LIMIT 10
+      `, sellerId ? [sellerId] : []);
+
+      for (const r of portalRes.rows) {
+        eventos.push({
+          id:       r.id,
+          tipo:     'portal',
+          tag:      '[PORTAL]',
+          mensagem: `Nova cotação do lojista — ${r.cliente_nome} (${r.industria_nome ?? 'ind.'})`,
+          ts:       r.ts,
+          payload: {
+            titulo:  r.cliente_nome,
+            detalhe: `Cotação ${r.ped_pedido} aguarda sua revisão.`,
+            acao:    'Ver rascunho',
+            rota:    'pedido',
+            ref_id:  r.ped_pedido,
+          },
+        });
+      }
+    } catch (_) {}
+
+    // ── 4. Email — leads capturados nas últimas 24h ──────────────────────────
+    try {
+      const emailRes = await db.query(`
+        SELECT
+          'email_' || el.id                        AS id,
+          COALESCE(NULLIF(el.de_nome,''), el.de)   AS origem_nome,
+          el.de                                    AS origem_email,
+          el.assunto                               AS preview,
+          el.tipo,
+          el.resumo_ia,
+          el.created_at                            AS ts,
+          el.id                                    AS ref_id
+        FROM email_lead el
+        WHERE el.tipo != 'outro'
+          AND el.created_at > NOW() - INTERVAL '24 hours'
+          AND el.usuario_id = $1
+        ORDER BY el.created_at DESC
+        LIMIT 10
+      `, [userId]);
+
+      const tipoLabel: Record<string, string> = {
+        cotacao:    'Nova cotação por email',
+        pedido:     'Pedido por email',
+        lead:       'Interesse comercial por email',
+        suporte:    'Suporte por email',
+        reclamacao: 'Reclamação por email',
+      };
+
+      for (const r of emailRes.rows) {
+        eventos.push({
+          id:       r.id,
+          tipo:     'email',
+          tag:      '[EMAIL]',
+          mensagem: `${tipoLabel[r.tipo] || 'Email'} — ${r.origem_nome}: "${r.preview}"`,
+          ts:       r.ts,
+          payload: {
+            titulo:  r.origem_nome,
+            detalhe: r.resumo_ia || r.preview,
+            email:   r.origem_email,
+            acao:    'Abrir email',
+            rota:    'email-central',
+            ref_id:  r.ref_id,
+          },
+        });
+      }
+    } catch (_) { /* email_lead pode não existir em alguns tenants */ }
+
+    // ── 5. Alertas — clientes sem compra há 45+ dias (top 5) ────────────────
+    try {
+      const alertaRes = await db.query(`
+        SELECT
+          'alerta_' || c.cli_codigo AS id,
+          c.cli_nomred,
+          c.cli_codigo,
+          MAX(p.ped_data) AS ultima_compra,
+          CURRENT_DATE - MAX(p.ped_data) AS dias
+        FROM clientes c
+        JOIN pedidos p ON p.ped_cliente = c.cli_codigo
+          AND p.ped_situacao IN ('P','F')
+        WHERE c.cli_tipopes = 'A'
+          AND c.cli_atuacao != 'P'
+          ${sellerId ? 'AND c.cli_vendedor = $1' : ''}
+        GROUP BY c.cli_codigo, c.cli_nomred
+        HAVING CURRENT_DATE - MAX(p.ped_data) BETWEEN 45 AND 120
+        ORDER BY dias DESC
+        LIMIT 5
+      `, sellerId ? [sellerId] : []);
+
+      for (const r of alertaRes.rows) {
+        eventos.push({
+          id:       r.id,
+          tipo:     'alerta',
+          tag:      '[ALERTA]',
+          mensagem: `${r.cli_nomred} — sem compras há ${r.dias} dias.`,
+          ts:       new Date(Date.now() - Math.random() * 3600000).toISOString(),
+          payload: {
+            titulo:  r.cli_nomred,
+            detalhe: `Última compra: ${new Date(r.ultima_compra).toLocaleDateString('pt-BR')}. ${r.dias} dias sem pedido.`,
+            acao:    'Ver cliente',
+            rota:    'cliente',
+            ref_id:  r.cli_codigo,
+          },
+        });
+      }
+    } catch (_) {}
+
+    // ── Ordena por ts desc ───────────────────────────────────────────────────
+    eventos.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
+
+    res.json({ success: true, data: eventos.slice(0, 50) });
+  } catch (error: any) {
+    console.error('❌ [IRIS/eventos]', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 }

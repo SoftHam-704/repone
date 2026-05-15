@@ -55,7 +55,7 @@ export async function getCatalogHandler(req: Request, res: Response): Promise<vo
         pro_id, pro_codprod, pro_nome, pro_ncm, pro_peso,
         pro_embalagem, pro_grupo, pro_aplicacao, pro_codbarras,
         pro_status, pro_linhaleve, pro_linhapesada, pro_linhaagricola,
-        pro_linhautilitarios, pro_motocicletas, pro_offroad,
+        pro_linhautilitarios, pro_motocicletas, pro_offroad, pro_linhaamarela,
         pro_origem, pro_codigonormalizado, pro_conversao, pro_ciclo
       FROM cad_prod
       WHERE pro_industria = $1 ${filterClause}
@@ -119,10 +119,11 @@ export async function getPricesForOrderHandler(req: Request, res: Response): Pro
 
     let effectiveTabela = tabela;
     const descontos: number[] = new Array(11).fill(0);
+    let isDistribuidor = false;
 
     if (cliente > 0) {
       const cliRes = await db.query(
-        `SELECT cli_tabela,
+        `SELECT cli_tabela, cli_canal,
                 cli_desc1, cli_desc2, cli_desc3, cli_desc4, cli_desc5,
                 cli_desc6, cli_desc7, cli_desc8, cli_desc9, cli_desc10, cli_desc11
          FROM cli_ind WHERE cli_codigo = $1 AND cli_forcodigo = $2 LIMIT 1`,
@@ -136,16 +137,22 @@ export async function getPricesForOrderHandler(req: Request, res: Response): Pro
         for (let i = 1; i <= 11; i++) {
           descontos[i - 1] = parseFloat(row[`cli_desc${i}`] || '0') || 0;
         }
+        isDistribuidor = String(row.cli_canal || 'varejo') === 'distribuidor';
       }
     }
 
     const result = await db.query(
-      `SELECT p.pro_codprod, COALESCE(t.itab_precobruto, 0) AS preco_bruto
+      `SELECT p.pro_codprod,
+              COALESCE(t.itab_precobruto,    0) AS preco_bruto,
+              COALESCE(t.itab_precopromo,    0) AS preco_promo,
+              COALESCE(t.itab_precoespecial, 0) AS preco_especial
        FROM cad_tabelaspre t
        JOIN cad_prod p ON p.pro_id = t.itab_idprod
        WHERE t.itab_idindustria = $1
          AND TRIM(t.itab_tabela) = TRIM($2)
-         AND COALESCE(t.itab_precobruto, 0) > 0`,
+         AND (COALESCE(t.itab_precobruto, 0) > 0
+              OR COALESCE(t.itab_precopromo, 0) > 0
+              OR COALESCE(t.itab_precoespecial, 0) > 0)`,
       [industria, effectiveTabela]
     );
 
@@ -153,7 +160,16 @@ export async function getPricesForOrderHandler(req: Request, res: Response): Pro
     const tabelaExclusiva = effectiveTabela !== tabela;
 
     const data = result.rows.map((row: any) => {
-      let preco = parseFloat(row.preco_bruto) || 0;
+      let precoBase: number;
+      if (isDistribuidor) {
+        const promo    = parseFloat(row.preco_promo)    || 0;
+        const especial = parseFloat(row.preco_especial) || 0;
+        const bruto    = parseFloat(row.preco_bruto)    || 0;
+        precoBase = promo > 0 ? promo : (especial > 0 ? especial : bruto);
+      } else {
+        precoBase = parseFloat(row.preco_bruto) || 0;
+      }
+      let preco = precoBase;
       for (const d of descontos) {
         if (d > 0) preco = preco * (1 - d / 100);
       }

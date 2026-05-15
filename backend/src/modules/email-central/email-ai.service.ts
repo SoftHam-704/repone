@@ -93,6 +93,49 @@ async function callAI(assunto: string, corpo: string): Promise<string> {
   throw new Error('Nenhum provedor de IA disponível');
 }
 
+// ─── Fallback por keywords — roda sem IA quando ambos provedores falham ──────
+function keywordClassify(assunto: string, corpo: string): ClassificacaoEmail {
+  const text = `${assunto} ${corpo}`.toLowerCase();
+
+  if (/cota[çc][aã]o|orçamento|or[çc]amento|lista\s*de\s*pre[çc]o|tabela\s*de\s*pre[çc]o|pre[çc]o\s*de/.test(text)) {
+    return {
+      relevante: true, tipo: 'cotacao',
+      resumo: `[keyword] Solicitação de cotação: ${assunto}`,
+      dadosExtraidos: {}, tokensConsumidos: 0,
+    };
+  }
+  if (/\bpedido\b|solicito\s*compra|ordem\s*de\s*compra|purchase\s*order/.test(text)) {
+    return {
+      relevante: true, tipo: 'pedido',
+      resumo: `[keyword] Pedido de compra: ${assunto}`,
+      dadosExtraidos: {}, tokensConsumidos: 0,
+    };
+  }
+  if (/reclamac[aã]o|reclamo|produto\s*com\s*defeito|entrega\s*errada|troca|devolu[çc][aã]o/.test(text)) {
+    return {
+      relevante: true, tipo: 'reclamacao',
+      resumo: `[keyword] Reclamação: ${assunto}`,
+      dadosExtraidos: {}, tokensConsumidos: 0,
+    };
+  }
+  if (/suporte|assist[eê]ncia|d[úu]vida|como\s*(usar|funciona|acessar)/.test(text)) {
+    return {
+      relevante: true, tipo: 'suporte',
+      resumo: `[keyword] Suporte: ${assunto}`,
+      dadosExtraidos: {}, tokensConsumidos: 0,
+    };
+  }
+  if (/interesse|quero\s*conhecer|representante|distribui[çc][aã]o|parceria|fornec/.test(text)) {
+    return {
+      relevante: true, tipo: 'lead',
+      resumo: `[keyword] Interesse comercial: ${assunto}`,
+      dadosExtraidos: {}, tokensConsumidos: 0,
+    };
+  }
+  // Sem keyword comercial reconhecível — não captura como lead
+  return { relevante: false, tipo: 'outro', resumo: '', dadosExtraidos: {}, tokensConsumidos: 0 };
+}
+
 // ─── Classificação principal ──────────────────────────────────────────────────
 export async function classificarEmail(params: {
   assunto:  string;
@@ -103,12 +146,10 @@ export async function classificarEmail(params: {
   const { assunto, corpo, de, deNome } = params;
 
   // Heurísticas rápidas — descarte sem chamar IA
-  const lower = `${assunto} ${corpo}`.toLowerCase();
   const spamPatterns = [
     /unsubscribe|cancelar inscri/i,
     /noreply|no-reply|mailer-daemon/i,
     /você ganhou|parabéns.*prêmio|clique aqui para resgatar/i,
-    /^\s*$/,
   ];
   if (spamPatterns.some(p => p.test(de) || p.test(assunto))) {
     return {
@@ -123,6 +164,12 @@ export async function classificarEmail(params: {
     const result = JSON.parse(clean);
 
     if (!result.relevante) {
+      // Antes de descartar: se keywords comerciais batem forte, captura mesmo assim
+      const kw = keywordClassify(assunto, corpo);
+      if (kw.relevante && kw.tipo !== 'outro') {
+        console.log(`[EMAIL-AI] IA→irrelevante mas keyword override (${kw.tipo}): "${assunto.substring(0, 40)}"`);
+        return kw;
+      }
       return { relevante: false, tipo: 'outro', resumo: '', dadosExtraidos: {}, tokensConsumidos: 0 };
     }
 
@@ -131,16 +178,11 @@ export async function classificarEmail(params: {
       tipo:             result.tipo             || 'outro',
       resumo:           result.resumo           || '',
       dadosExtraidos:   result.dados_extraidos  || {},
-      tokensConsumidos: 0, // sem contagem por enquanto (Gemini não retorna)
-    };
-  } catch {
-    // Fail-open: em caso de erro classifica como lead genérico
-    return {
-      relevante:        true,
-      tipo:             'outro',
-      resumo:           `Email de ${deNome || de}: ${assunto}`,
-      dadosExtraidos:   {},
       tokensConsumidos: 0,
     };
+  } catch (aiErr: any) {
+    // IA indisponível — usa fallback por keywords
+    console.warn('[EMAIL-AI] Falha na IA, usando fallback por keywords:', aiErr?.message);
+    return keywordClassify(assunto, corpo);
   }
 }

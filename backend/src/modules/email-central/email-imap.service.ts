@@ -18,16 +18,34 @@ export async function getImapConfigPublic(db: TenantDB, userId: number): Promise
 }
 
 async function getImapConfig(db: TenantDB, userId: number): Promise<ImapConfig | null> {
-  const r = await db.query(
-    `SELECT par_emailserver, par_email, par_emailuser, par_emailpassword,
-            par_imap_server, par_imap_porta, par_imap_ssl, par_email_central_ativo
-     FROM parametros WHERE par_usuario = $1 LIMIT 1`,
-    [userId]
-  );
+  let r: any;
+  try {
+    r = await db.query(
+      `SELECT par_emailserver, par_email, par_emailuser, par_emailpassword,
+              par_imap_server, par_imap_porta, par_imap_ssl, par_email_central_ativo
+       FROM parametros WHERE par_usuario = $1 LIMIT 1`,
+      [userId]
+    );
+  } catch {
+    // Colunas par_imap_porta / par_imap_ssl podem não existir em schemas antigos
+    try {
+      r = await db.query(
+        `SELECT par_emailserver, par_email, par_emailuser, par_emailpassword,
+                par_imap_server, par_email_central_ativo,
+                993   AS par_imap_porta,
+                true  AS par_imap_ssl
+         FROM parametros WHERE par_usuario = $1 LIMIT 1`,
+        [userId]
+      );
+    } catch {
+      return null;
+    }
+  }
+
   if (!r.rows.length) return null;
   const p = r.rows[0];
   if (!p.par_email_central_ativo) return null;
-  
+
   // Se não tiver imap server específico, tenta usar o smtp server
   const host = (p.par_imap_server || p.par_emailserver || '').trim();
   if (!host || !p.par_emailpassword) return null;
@@ -123,6 +141,7 @@ export async function syncEmailsDoTenant(db: TenantDB, userId: number): Promise<
         // Filtro de regras — sem custo, antes de chamar IA
         const filtro = filtrarEmailRelevancia(de, assunto, corpo);
         if (!filtro.passou) {
+          console.log(`[EMAIL-SYNC] Filtrado: "${assunto.substring(0,40)}" | motivo: ${filtro.motivo}`);
           processados++;
           continue;
         }
@@ -130,11 +149,15 @@ export async function syncEmailsDoTenant(db: TenantDB, userId: number): Promise<
         // Classificação IRIS (relevância + extração)
         const classificacao = await classificarEmail({ assunto, corpo, de, deNome });
 
-        // Ignora irrelevantes silenciosamente
+        // Ignora irrelevantes
         if (!classificacao.relevante) {
+          console.log(`[EMAIL-SYNC] IA: irrelevante | "${assunto.substring(0,40)}" | de: ${de}`);
           processados++;
           continue;
         }
+
+        console.log(`[EMAIL-SYNC] IA: relevante | tipo: ${classificacao.tipo} | "${assunto.substring(0,40)}"`);
+
 
         // Cross-reference com clientes
         const clienteId = await resolverCliente(db, de);

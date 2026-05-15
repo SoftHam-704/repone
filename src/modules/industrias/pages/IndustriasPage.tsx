@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Pencil, Trash2, Plus, X, Save, Loader2, UserPlus, Users, ShoppingCart, FileText, Target, Bot } from 'lucide-react';
+import { Pencil, Trash2, Plus, X, Save, Loader2, UserPlus, Users, ShoppingCart, FileText, Target, Bot, Search } from 'lucide-react';
 import {
   CadastroShell, CadastroTable, Th, Td, TrHover,
   StatusBadge, G, inp, label,
 } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
+import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Industria {
@@ -125,14 +126,20 @@ export default function IndustriasPage() {
   };
 
   const save = async () => {
-    if (!editing.for_nome || !editing.for_nomered) return;
+    if (!editing.for_nome)    { toast.error('Razão Social é obrigatória.'); return; }
+    if (!editing.for_nomered) { toast.error('Nome Reduzido é obrigatório.'); return; }
     setSaving(true);
     try {
       if (editing.for_codigo) await api.put(`/suppliers/${editing.for_codigo}`, editing);
       else                    await api.post('/suppliers', editing);
+      toast.success(editing.for_codigo ? 'Indústria atualizada.' : 'Indústria criada.');
       setModalOpen(false);
       load();
-    } finally { setSaving(false); }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Erro ao salvar indústria.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const inactivate = async (id: number, e: React.MouseEvent) => {
@@ -353,11 +360,50 @@ function IndustriaModal({ data, set, saving, onClose, onSave }: {
 
 // ─── Tab: Principal ───────────────────────────────────────────────────────────
 function PrincipalTab({ data, set }: { data: Partial<Industria>; set: (f: keyof Industria, v: any) => void }) {
+  const [loadingCNPJ, setLoadingCNPJ] = useState(false);
+  const cnpjRef = useRef(false);
+
+  const lookupCNPJ = async () => {
+    if (cnpjRef.current) return;
+    const raw = (data.for_cgc || '').replace(/\D/g, '');
+    if (raw.length !== 14) return;
+    cnpjRef.current = true;
+    setLoadingCNPJ(true);
+    try {
+      const res = await api.get(`/aux/cnpj/${raw}`);
+      if (!res.data.success) throw new Error(res.data.message || 'CNPJ não encontrado');
+      const d = res.data.data;
+      const fmt = (v?: string) => { const c = (v || '').replace(/\D/g, ''); return c.length === 14 ? `${c.slice(0,2)}.${c.slice(2,5)}.${c.slice(5,8)}/${c.slice(8,12)}-${c.slice(12)}` : v || ''; };
+      const fmtCep = (v?: string) => { const c = (v || '').replace(/\D/g, ''); return c.length === 8 ? `${c.slice(0,5)}-${c.slice(5)}` : v || ''; };
+      if (d.cnpj)              set('for_cgc',      fmt(d.cnpj));
+      if (d.razao_social)      set('for_nome',     d.razao_social);
+      if (!data.for_nomered)   set('for_nomered',  (d.nome_fantasia || d.razao_social || '').substring(0, 15));
+      if (d.logradouro)        set('for_endereco', d.logradouro);
+      if (d.bairro)            set('for_bairro',   d.bairro);
+      if (d.municipio)         set('for_cidade',   d.municipio);
+      if (d.uf)                set('for_uf',       d.uf);
+      if (d.cep)               set('for_cep',      fmtCep(d.cep));
+      if (d.email)             set('for_email',    d.email);
+    } catch (e: any) {
+      alert(e.message || 'CNPJ não encontrado na Receita Federal.');
+    } finally {
+      setLoadingCNPJ(false);
+      cnpjRef.current = false;
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, paddingBottom: 20 }}>
       <Section title="Identificação e Status">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 180px', gap: 12 }}>
-          <F label="CNPJ"><input style={inp} value={data.for_cgc || ''} onChange={e => set('for_cgc', e.target.value)} placeholder="00.000.000/0000-00" /></F>
+          <F label="CNPJ">
+            <div style={{ position: 'relative' }}>
+              <input style={inp} value={data.for_cgc || ''} onChange={e => set('for_cgc', e.target.value)} placeholder="00.000.000/0000-00" />
+              <button onClick={lookupCNPJ} disabled={loadingCNPJ} title="Consultar Receita Federal" style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', padding: 2, cursor: 'pointer', color: G.textMuted, display: 'flex', alignItems: 'center' }}>
+                {loadingCNPJ ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
+              </button>
+            </div>
+          </F>
           <F label="Inscrição Estadual"><input style={inp} value={data.for_inscricao || ''} onChange={e => set('for_inscricao', e.target.value)} /></F>
           <F label="Situação">
             <select style={{ ...inp, appearance: 'none' }} value={data.for_tipo2 || 'A'} onChange={e => set('for_tipo2', e.target.value)}>
@@ -368,7 +414,7 @@ function PrincipalTab({ data, set }: { data: Partial<Industria>; set: (f: keyof 
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: 12 }}>
           <F label="Razão Social Completa *"><input style={inp} value={data.for_nome || ''} onChange={e => set('for_nome', e.target.value)} placeholder="Razão Social" /></F>
-          <F label="Nome Reduzido *"><input style={{ ...inp, fontWeight: 800, color: '#754437' }} value={data.for_nomered || ''} onChange={e => set('for_nomered', e.target.value)} placeholder="Nome Reduzido" /></F>
+          <F label={`NOME REDUZIDO * (${(data.for_nomered || '').length}/15)`}><input style={{ ...inp, fontWeight: 800, color: '#754437' }} maxLength={15} value={data.for_nomered || ''} onChange={e => set('for_nomered', e.target.value)} placeholder="Máx. 15 caracteres" /></F>
         </div>
       </Section>
 
