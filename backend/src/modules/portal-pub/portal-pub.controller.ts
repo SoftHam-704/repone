@@ -653,7 +653,7 @@ export async function portalInsightsHandler(req: Request, res: Response): Promis
     const ultimoPedR = await client.query(
       `SELECT ped_pedido, ped_data FROM pedidos
        WHERE ped_cliente = $1 AND ped_industria = $2 AND ped_situacao IN ('P','F')
-       ORDER BY ped_numero DESC LIMIT 1`,
+       ORDER BY ped_data DESC, ped_numero DESC LIMIT 1`,
       [cliCodigo, indId]
     );
 
