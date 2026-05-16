@@ -692,6 +692,64 @@ export async function portalInsightsHandler(req: Request, res: Response): Promis
   }
 }
 
+// GET /api/portal-pub/produtos?t=<uuid>&s=<schema>&industria=<id>&q=&categoria=&limit=20&offset=0
+export async function portalProdutosHandler(req: Request, res: Response): Promise<void> {
+  const { t, s, industria, q = '', categoria = '', limit = '20', offset = '0' } = req.query as Record<string, string>;
+  if (!t || !s || !industria || !validSchema(s)) {
+    res.status(400).json({ success: false, message: 'Parâmetros inválidos.' });
+    return;
+  }
+
+  let client: any;
+  try {
+    client = await getTenantDb(s);
+    const cliCodigo = await assertToken(client, t);
+    if (!cliCodigo) { res.status(403).json({ success: false, message: 'Acesso negado.' }); return; }
+
+    const indId = parseInt(industria);
+    const lim   = Math.min(parseInt(limit) || 20, 50);
+    const off   = parseInt(offset) || 0;
+
+    const totalR = await client.query(
+      `SELECT COUNT(*)::int AS total FROM cad_prod
+       WHERE pro_industria = $1 AND pro_status IS NOT FALSE
+         AND ($2 = '' OR pro_codprod ILIKE '%' || $2 || '%' OR pro_nome ILIKE '%' || $2 || '%')
+         AND ($3 = '' OR pro_grupo = $3)`,
+      [indId, q, categoria]
+    );
+
+    const produtosR = await client.query(
+      `SELECT pro_codprod AS codigo, pro_nome AS nome, pro_grupo AS categoria
+       FROM cad_prod
+       WHERE pro_industria = $1 AND pro_status IS NOT FALSE
+         AND ($2 = '' OR pro_codprod ILIKE '%' || $2 || '%' OR pro_nome ILIKE '%' || $2 || '%')
+         AND ($3 = '' OR pro_grupo = $3)
+       ORDER BY pro_codprod
+       LIMIT $4 OFFSET $5`,
+      [indId, q, categoria, lim, off]
+    );
+
+    const categoriasR = await client.query(
+      `SELECT DISTINCT pro_grupo AS categoria FROM cad_prod
+       WHERE pro_industria = $1 AND pro_status IS NOT FALSE AND pro_grupo IS NOT NULL
+       ORDER BY pro_grupo`,
+      [indId]
+    );
+
+    res.json({
+      success: true,
+      total: totalR.rows[0].total,
+      produtos: produtosR.rows,
+      categorias: categoriasR.rows.map((r: any) => r.categoria),
+    });
+  } catch (error: any) {
+    console.error('❌ [PORTAL-PUB] produtos error:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  } finally {
+    if (client) client.release();
+  }
+}
+
 // POST /api/portal-pub/cotacao/:pedNumero/confirmar  body: { t, s }
 // Lojista aprova → 'J' vira 'C' para o representante processar
 export async function portalCotacaoConfirmHandler(req: Request, res: Response): Promise<void> {
