@@ -695,7 +695,8 @@ export async function portalInsightsHandler(req: Request, res: Response): Promis
 // GET /api/portal-pub/produtos?t=<uuid>&s=<schema>&industria=<id>&q=&categoria=&limit=20&offset=0
 export async function portalProdutosHandler(req: Request, res: Response): Promise<void> {
   const { t, s, industria, q = '', categoria = '', limit = '20', offset = '0' } = req.query as Record<string, string>;
-  if (!t || !s || !industria || !validSchema(s)) {
+  const indId = parseInt(industria);
+  if (!t || !s || !industria || !validSchema(s) || isNaN(indId)) {
     res.status(400).json({ success: false, message: 'Parâmetros inválidos.' });
     return;
   }
@@ -706,7 +707,6 @@ export async function portalProdutosHandler(req: Request, res: Response): Promis
     const cliCodigo = await assertToken(client, t);
     if (!cliCodigo) { res.status(403).json({ success: false, message: 'Acesso negado.' }); return; }
 
-    const indId = parseInt(industria);
     const lim   = Math.min(parseInt(limit) || 20, 50);
     const off   = parseInt(offset) || 0;
 
