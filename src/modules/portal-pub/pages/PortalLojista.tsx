@@ -239,6 +239,7 @@ export default function PortalLojista() {
 
   // Troca de indústria: reset tudo
   const handleIndustriaChange = (val: string) => {
+    insightsIndustriaRef.current = '0';
     setIndustria(val);
     setPage(1);
     setCotacaoId(null);
