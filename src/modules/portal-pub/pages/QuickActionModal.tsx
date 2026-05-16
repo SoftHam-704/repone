@@ -56,14 +56,18 @@ export default function QuickActionModal({
 
   // Catálogo: carga inicial
   useEffect(() => {
-    if (mode === 'catalogo') loadCatalog(0, '', '');
+    if (mode !== 'catalogo') return;
+    const controller = new AbortController();
+    loadCatalog(0, '', '', controller.signal);
+    return () => controller.abort();
   }, [mode]);
 
-  async function loadCatalog(off: number, q: string, cat: string) {
+  async function loadCatalog(off: number, q: string, cat: string, signal?: AbortSignal) {
     setLoadingMore(true);
     try {
       const qs = new URLSearchParams({ t: token, s: schema, industria, q, categoria: cat, limit: '20', offset: String(off) });
-      const r  = await fetch(`${BASE}/api/portal-pub/produtos?${qs}`);
+      const r  = await fetch(`${BASE}/api/portal-pub/produtos?${qs}`, { signal });
+      if (signal?.aborted) return;
       const d  = await r.json();
       if (!d.success) return;
       setCatTotal(d.total);
@@ -106,6 +110,13 @@ export default function QuickActionModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // Limpar timer de busca no unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    };
+  }, []);
 
   const selected = items.filter(i => i.selected);
 
@@ -189,8 +200,13 @@ export default function QuickActionModal({
               {mode === 'catalogo' ? 'Nenhum produto encontrado.' : 'Nenhum item disponível.'}
             </div>
           )}
+          {loadingMore && items.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '32px 0', color: G.muted, fontSize: 13 }}>
+              Buscando produtos...
+            </div>
+          )}
           {items.map((item, idx) => (
-            <div key={item.codigo + idx} style={{
+            <div key={item.codigo} style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '10px 0', borderBottom: `1px solid ${G.border}`,
             }}>
@@ -213,7 +229,7 @@ export default function QuickActionModal({
                 type="number"
                 min={1}
                 value={item.quantidade}
-                onChange={e => setQtd(idx, parseInt(e.target.value))}
+                onChange={e => setQtd(idx, parseInt(e.target.value, 10))}
                 style={{
                   width: 52, fontSize: 12, fontWeight: 700, padding: '4px 6px',
                   borderRadius: 6, border: `1px solid ${G.border}`,
