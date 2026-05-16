@@ -7,6 +7,19 @@ import { callAI } from '../../shared/utils/ai_providers';
 function getUserId(req: Request) { return req.user?.userId; }
 function pInt(v: any): number | null { const n = parseInt(v); return isNaN(n) ? null : n; }
 
+// ─── GET /api/orders/count-whatsapp ──────────────────────────────────────────
+export async function countWhatsappHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const r = await db.query(
+      `SELECT COUNT(*)::int AS count FROM pedidos WHERE ped_situacao = 'J'`
+    );
+    res.json({ success: true, count: r.rows[0].count });
+  } catch (error: any) {
+    res.json({ success: true, count: 0 });
+  }
+}
+
 // ─── GET /api/orders/next-number ──────────────────────────────────────────────
 export async function nextNumberHandler(req: Request, res: Response): Promise<void> {
   try {

@@ -195,7 +195,7 @@ function statusLabel(s: string) {
     case 'N': return 'NOTIFICAÇÃO';
     case 'L': return 'FATURADO';
     case 'E': case 'X': return 'EXCLUÍDO';
-    case 'J': return 'VIA PORTAL';
+    case 'J': return 'WHATSAPP';
     default: return s;
   }
 }
@@ -213,7 +213,7 @@ function statusColor(s: string): { bg: string; color: string; border: string } {
     case 'B':  return { bg: '#E7661D18', color: '#E7661D',   border: '#E7661D33' };
     case 'N':  return { bg: '#FFC10718', color: '#B45309',   border: '#FFC10733' };
     case 'E': case 'X': return { bg: '#8B451318', color: '#8B4513', border: '#8B451333' };
-    case 'J':           return { bg: '#FEE2E2',   color: '#B91C1C', border: '#FCA5A5' };
+    case 'J':           return { bg: '#DCFCE7',   color: '#15803D', border: '#86EFAC' };
     default:   return { bg: '#C0392B18', color: G.danger,    border: '#C0392B33' };
   }
 }
@@ -224,6 +224,7 @@ function leftBorder(s: string): string {
     case 'C':  return '#D97600';
     case 'F':  return G.success;
     case 'G': case 'B': return '#7C3AED';
+    case 'J':           return '#15803D';
     default:   return G.danger;
   }
 }
@@ -576,6 +577,25 @@ function OrderDetailPanel({
             </p>
           </div>
         </div>
+
+        {/* ── Banner WhatsApp draft ── */}
+        {order.ped_situacao === 'J' && (
+          <div style={{
+            display: 'flex', alignItems: 'flex-start', gap: 12,
+            background: '#DCFCE7', border: '1px solid #86EFAC', borderRadius: 12,
+            padding: '12px 16px', marginBottom: 16,
+          }}>
+            <MessageCircle size={18} style={{ color: '#15803D', flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#15803D' }}>
+                Rascunho recebido via WhatsApp
+              </p>
+              <p style={{ margin: '2px 0 0', fontSize: 11, color: '#166534', lineHeight: 1.5 }}>
+                Revise os itens (os marcados em amarelo não foram identificados), ajuste indústria e vendedor, e clique em Editar para confirmar.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* ── Bento grid ── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 180px', gap: 12 }}>
@@ -1645,6 +1665,18 @@ export default function PedidosPage() {
                     </button>
                   );
                 })}
+                <button
+                  onClick={() => setSituacao(situacao === 'J' ? 'Z' : 'J')}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    padding: '3px 10px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700,
+                    background: situacao === 'J' ? '#15803D' : 'transparent',
+                    color: situacao === 'J' ? '#fff' : '#15803D',
+                  }}
+                >
+                  <MessageCircle size={11} />
+                  WhatsApp
+                </button>
               </div>
             </div>
 

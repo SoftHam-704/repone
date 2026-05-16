@@ -27,7 +27,7 @@ export interface RespostaIA {
 }
 
 export interface FichaCliente {
-  cli_id:               number;
+  cli_codigo:           number;
   nome:                 string;
   cidade?:              string;
   uf?:                  string;

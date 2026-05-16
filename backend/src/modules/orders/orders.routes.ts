@@ -23,6 +23,7 @@ import {
   irisAnalisaHandler,
   irisPanelNarrativeHandler,
   createOrderFromPortalHandler,
+  countWhatsappHandler,
 } from './orders.controller';
 import {
   exportStahlHandler,
@@ -43,6 +44,7 @@ router.use(authMiddleware, tenantMiddleware);
 
 // Rotas específicas ANTES de /:id para evitar conflito
 router.get('/next-number',        nextNumberHandler);
+router.get('/count-whatsapp',     countWhatsappHandler);
 router.get('/stats',              orderStatsHandler);
 router.get('/smart-suggestions',  smartSuggestionsHandler);
 router.get('/expand-mix',          expandMixHandler);

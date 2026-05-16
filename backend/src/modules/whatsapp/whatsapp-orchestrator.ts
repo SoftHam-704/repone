@@ -4,6 +4,9 @@ import {
   processarMensagem, gerarResumo, avaliarQualificacao, avaliarRelevancia,
   DadosQualificacao, TenantConfig, FichaCliente,
 } from './whatsapp-ai.service';
+import {
+  detectarIntencaoPedido, resolverItensPedido, criarRascunhoWhatsApp,
+} from './whatsapp-pedido.service';
 
 // ─── Evolution API client ─────────────────────────────────────────────────────
 function evoClient() {
@@ -131,7 +134,7 @@ async function getFichaCliente(db: Pool, phone: string): Promise<FichaCliente | 
     const localPhone = digits.startsWith('55') ? digits.slice(2) : digits;
 
     const cliRes = await db.query(`
-      SELECT cli_id,
+      SELECT cli_codigo,
              COALESCE(NULLIF(TRIM(cli_nomred),''), TRIM(cli_nome)) AS nome,
              cli_cidade, cli_uf
       FROM clientes
@@ -143,8 +146,8 @@ async function getFichaCliente(db: Pool, phone: string): Promise<FichaCliente | 
     `, [localPhone]);
 
     if (!cliRes.rows.length) return null;
-    const cli   = cliRes.rows[0];
-    const cliId = cli.cli_id;
+    const cli       = cliRes.rows[0];
+    const cliCodigo = cli.cli_codigo;
 
     const [lastRes, countRes, topRes] = await Promise.all([
       db.query(`
@@ -154,13 +157,13 @@ async function getFichaCliente(db: Pool, phone: string): Promise<FichaCliente | 
         FROM pedidos
         WHERE ped_cliente = $1 AND ped_situacao IN ('P','F')
         ORDER BY ped_data DESC LIMIT 1
-      `, [cliId]),
+      `, [cliCodigo]),
       db.query(`
         SELECT COUNT(*)::int AS total
         FROM pedidos
         WHERE ped_cliente = $1 AND ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM ped_data) = EXTRACT(YEAR FROM NOW())
-      `, [cliId]),
+      `, [cliCodigo]),
       db.query(`
         SELECT TRIM(i.ite_produto) AS codigo,
                MAX(TRIM(i.ite_nomeprod)) AS nome,
@@ -173,12 +176,12 @@ async function getFichaCliente(db: Pool, phone: string): Promise<FichaCliente | 
         GROUP BY TRIM(i.ite_produto)
         ORDER BY qtd DESC
         LIMIT 5
-      `, [cliId]),
+      `, [cliCodigo]),
     ]);
 
     const last = lastRes.rows[0];
     return {
-      cli_id:              cliId,
+      cli_codigo:          cliCodigo,
       nome:                cli.nome,
       cidade:              cli.cli_cidade  || undefined,
       uf:                  cli.cli_uf      || undefined,
@@ -217,7 +220,8 @@ function decidirRota(conversa: any, contato: any, content: string): string {
 // ─── Rota IA ──────────────────────────────────────────────────────────────────
 async function rotaIA(
   db: Pool, conversa: any, contato: any,
-  msgId: number, instance: string
+  msgId: number, instance: string,
+  fichaClientePreloaded?: FichaCliente | null
 ) {
   // Mudar estado se nova
   if (conversa.estado === 'nova') {
@@ -226,7 +230,7 @@ async function rotaIA(
 
   const historico      = await getHistorico(db, conversa.id);
   const tenantConfig   = await getTenantConfig(db);
-  const fichaCliente   = await getFichaCliente(db, contato.telefone);
+  const fichaCliente   = fichaClientePreloaded ?? await getFichaCliente(db, contato.telefone);
   const tenantComFicha: TenantConfig = { ...tenantConfig, fichaCliente: fichaCliente ?? undefined };
 
   // Pré-popula dados de qualificação com a ficha (cliente já é conhecido)
@@ -312,6 +316,48 @@ async function processarOptout(db: Pool, contato: any, conversa: any, instance: 
   );
 }
 
+// ─── Rota Cliente Pedido ──────────────────────────────────────────────────────
+async function rotaClientePedido(
+  db: Pool, conversa: any, contato: any,
+  content: string, fichaCliente: FichaCliente, instance: string
+) {
+  const deteccao = await detectarIntencaoPedido(content);
+
+  if (!deteccao.eh_pedido) {
+    // Não é pedido — deixa a IRIS responder normalmente como atendimento
+    await rotaIA(db, conversa, contato, 0, instance, fichaCliente);
+    return;
+  }
+
+  console.log(`[WPP-ORCH] Cliente ${fichaCliente.nome} — pedido detectado: ${deteccao.itens.length} item(s)`);
+
+  const resolucao = await resolverItensPedido(db, deteccao.itens, fichaCliente.cli_codigo);
+  const numeroPedido = await criarRascunhoWhatsApp(db, fichaCliente.cli_codigo, resolucao, conversa.id);
+
+  const naoEnc = resolucao.nao_resolvidos.length;
+  const msg = naoEnc > 0
+    ? `Recebi seu pedido (${numeroPedido})! ${naoEnc} item(s) precisam de verificação. Nosso time confirma em breve.`
+    : `Recebi seu pedido (${numeroPedido})! Nosso time confirma em breve.`;
+
+  await sendText(instance, contato.telefone, msg);
+
+  // Registrar resposta enviada
+  await db.query(
+    `INSERT INTO wpp_mensagem
+       (conversa_id, contato_id, wpp_message_id, direcao, tipo, remetente,
+        conteudo, status, created_at)
+     VALUES ($1,$2,NULL,'outbound','texto','ia',$3,'enviada',NOW())`,
+    [conversa.id, contato.id, msg]
+  );
+
+  await db.query(
+    `UPDATE wpp_conversa SET ultima_msg_at=NOW(), updated_at=NOW() WHERE id=$1`,
+    [conversa.id]
+  );
+
+  console.log(`🛒 [WPP-ORCH] Pedido J criado: ${numeroPedido} | ${fichaCliente.nome} | ${resolucao.resolvidos.length} resolvidos, ${naoEnc} não encontrados`);
+}
+
 // ─── PONTO CENTRAL — processMessage ──────────────────────────────────────────
 export async function processMessage(db: Pool, payload: {
   phone:       string;
@@ -391,9 +437,16 @@ export async function processMessage(db: Pool, payload: {
     console.log(`[WPP-ORCH] Conversa #${conversa.id} | Rota: ${rota} | ${phone.slice(-4)}`);
 
     switch (rota) {
-      case 'ia_responde':
-        await rotaIA(db, conversa, contato, msgId, instance);
+      case 'ia_responde': {
+        // Verifica se é cliente cadastrado → rota de pedido
+        const fichaCliente = await getFichaCliente(db, phone);
+        if (fichaCliente) {
+          await rotaClientePedido(db, conversa, contato, content, fichaCliente, instance);
+        } else {
+          await rotaIA(db, conversa, contato, msgId, instance);
+        }
         break;
+      }
       case 'optout':
         await processarOptout(db, contato, conversa, instance);
         break;

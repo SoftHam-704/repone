@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '@/shared/stores/useAuthStore';
 import { useAlertasStore } from '@/shared/stores/useAlertasStore';
+import { api } from '@/shared/lib/api';
 
 // ─── Tokens ───────────────────────────────────────────────────────────────────
 const S = {
@@ -275,6 +276,7 @@ export function AppSidebar() {
   const [autoHide, setAutoHide] = useState(() => localStorage.getItem('sidebar-auto-hide') === 'true');
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebar-auto-hide') === 'true');
   const { count: alertCount, fetch: fetchAlertas } = useAlertasStore();
+  const [wppJCount, setWppJCount] = useState(0);
 
   useEffect(() => {
     localStorage.setItem('sidebar-auto-hide', String(autoHide));
@@ -286,6 +288,19 @@ export function AppSidebar() {
     fetchAlertas();
     const interval = setInterval(fetchAlertas, 5 * 60 * 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Busca contagem de pedidos WhatsApp pendentes a cada 2 minutos
+  useEffect(() => {
+    const fetchWpp = async () => {
+      try {
+        const r = await api.get('/orders/count-whatsapp');
+        setWppJCount(r.data?.count ?? 0);
+      } catch { /* silencioso */ }
+    };
+    fetchWpp();
+    const t = setInterval(fetchWpp, 2 * 60 * 1000);
+    return () => clearInterval(t);
   }, []);
   const [openGroup, setOpenGroup] = useState<string | null>(() => {
     for (const g of GROUPS) {
@@ -344,6 +359,17 @@ export function AppSidebar() {
                 {alertCount > 9 ? '9+' : alertCount}
               </span>
             )}
+            {item.path === '/pedidos' && wppJCount > 0 && (
+              <span style={{
+                minWidth: 18, height: 18, borderRadius: 999,
+                background: '#15803D', color: '#fff',
+                fontSize: 9, fontWeight: 900,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: '0 5px', flexShrink: 0,
+              }}>
+                {wppJCount > 9 ? '9+' : wppJCount}
+              </span>
+            )}
           </>
         )}
         {collapsed && item.path === '/bi' && alertCount > 0 && (
@@ -351,6 +377,13 @@ export function AppSidebar() {
             position: 'absolute', top: 4, right: 4,
             width: 8, height: 8, borderRadius: 999,
             background: '#E53E3E',
+          }} />
+        )}
+        {collapsed && item.path === '/pedidos' && wppJCount > 0 && (
+          <span style={{
+            position: 'absolute', top: 4, right: 4,
+            width: 8, height: 8, borderRadius: 999,
+            background: '#15803D',
           }} />
         )}
       </Link>
