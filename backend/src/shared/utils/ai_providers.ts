@@ -98,36 +98,34 @@ export async function callAIVision(params: {
   const { prompt, base64, mimeType, opts } = params;
   const isJson = opts?.responseFormat === 'json_object';
 
-  // Preferir Gemini para PDFs (suporte nativo melhor)
-  if (mimeType === 'application/pdf' && geminiKey) {
-    try {
-      const model = opts?.modelGemini || 'gemini-2.0-flash';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
-      const r = await axios.post(url, {
-        contents: [{
-          parts: [
-            { text: prompt + (isJson ? '\n\nRetorne APENAS o JSON solicitado.' : '') },
-            { inline_data: { mime_type: mimeType, data: base64 } },
-          ],
-        }],
-        generationConfig: {
-          temperature: opts?.temperature ?? 0,
-          maxOutputTokens: opts?.maxTokens ?? 8192,
-          responseMimeType: isJson ? 'application/json' : 'text/plain'
-        },
-      }, { timeout: 60000 });
+  // PDFs: somente Gemini (OpenAI não suporta PDF via image_url)
+  if (mimeType === 'application/pdf') {
+    if (!geminiKey) throw new Error('Gemini API key não configurada. PDFs requerem Gemini Vision.');
+    const model = opts?.modelGemini || 'gemini-2.0-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
+    const r = await axios.post(url, {
+      contents: [{
+        parts: [
+          { text: prompt + (isJson ? '\n\nRetorne APENAS o JSON solicitado.' : '') },
+          { inline_data: { mime_type: mimeType, data: base64 } },
+        ],
+      }],
+      generationConfig: {
+        temperature: opts?.temperature ?? 0,
+        maxOutputTokens: opts?.maxTokens ?? 8192,
+        responseMimeType: isJson ? 'application/json' : 'text/plain',
+      },
+    }, { timeout: 120000 });
 
-      const text = r.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-      if (text) return text;
-    } catch (e: any) {
-      console.warn('[AI-PROVIDER] Gemini Vision falhou:', e?.message);
-    }
+    const text = r.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (text) return text;
+    throw new Error('Gemini Vision não retornou conteúdo para o PDF.');
   }
 
-  // Fallback / Default para OpenAI Vision
+  // Imagens: OpenAI Vision primeiro, Gemini como fallback
   if (openai) {
     try {
-      const model = opts?.modelOpenAI || 'gpt-4o'; // gpt-4o é melhor para visão que o mini
+      const model = opts?.modelOpenAI || 'gpt-4o';
       const r = await openai.chat.completions.create({
         model,
         messages: [
@@ -143,16 +141,14 @@ export async function callAIVision(params: {
         max_tokens: opts?.maxTokens ?? 4096,
         response_format: isJson ? { type: 'json_object' as const } : undefined,
       });
-
       const text = r.choices[0]?.message?.content?.trim();
       if (text) return text;
     } catch (e: any) {
-      console.error('[AI-PROVIDER] OpenAI Vision falhou:', e?.message);
+      console.warn('[AI-PROVIDER] OpenAI Vision falhou:', e?.message);
     }
   }
 
-  // Se OpenAI falhou e ainda não tentamos Gemini (ex: imagem no OpenAI que deu erro)
-  if (mimeType !== 'application/pdf' && geminiKey) {
+  if (geminiKey) {
     try {
       const model = opts?.modelGemini || 'gemini-2.0-flash';
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
@@ -168,9 +164,12 @@ export async function callAIVision(params: {
           maxOutputTokens: opts?.maxTokens ?? 8192,
           responseMimeType: isJson ? 'application/json' : 'text/plain',
         },
-      });
-      return r.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    } catch {}
+      }, { timeout: 60000 });
+      const text = r.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (text) return text;
+    } catch (e: any) {
+      console.warn('[AI-PROVIDER] Gemini Vision (imagem) falhou:', e?.message);
+    }
   }
 
   throw new Error('Nenhum provedor de visão disponível.');

@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { callAI, callAIVision, AIMessage } from '../../shared/utils/ai_providers';
 import * as XLSX from 'xlsx';
 import mammoth from 'mammoth';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
 
 // ─── Extraction prompt ────────────────────────────────────────────────────────
 
@@ -159,8 +161,24 @@ export async function smartOrderUploadHandler(req: Request, res: Response): Prom
 
     // ── PDF ───────────────────────────────────────────────────────────────────
     else if (name.endsWith('.pdf')) {
-      const base64 = buf.toString('base64');
-      items = await extractItemsFromVision(base64, 'application/pdf', systemPrompt);
+      // First try text extraction (digital PDFs — faster, cheaper, no Vision tokens)
+      let textExtracted = false;
+      try {
+        const pdfData = await pdfParse(buf);
+        if (pdfData.text && pdfData.text.trim().length > 50) {
+          console.log(`[SMART-ORDER] PDF text extracted (${pdfData.text.length} chars) — using text mode`);
+          items = await extractItemsFromText(pdfData.text, systemPrompt);
+          textExtracted = true;
+        }
+      } catch (pdfErr: any) {
+        console.warn('[SMART-ORDER] pdf-parse falhou:', pdfErr.message);
+      }
+      // Fallback: scanned/image PDF → Vision (Gemini only — OpenAI não suporta PDF via image_url)
+      if (!textExtracted) {
+        console.log('[SMART-ORDER] PDF sem texto — usando Vision (Gemini)');
+        const base64 = buf.toString('base64');
+        items = await extractItemsFromVision(base64, 'application/pdf', systemPrompt);
+      }
     }
 
     // ── Image ─────────────────────────────────────────────────────────────────

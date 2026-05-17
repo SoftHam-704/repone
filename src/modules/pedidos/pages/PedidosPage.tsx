@@ -1646,7 +1646,7 @@ export default function PedidosPage() {
                   {filteredOrders.length} registros
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 4 }}>
                 {/* Filter tabs */}
                 {(['Todos', 'Pedidos', 'Cotações'] as const).map((t, i) => {
                   const vals = [null, 'P', 'C'];
@@ -1656,7 +1656,7 @@ export default function PedidosPage() {
                       key={t}
                       onClick={() => setSituacao(vals[i] === null ? 'Z' : vals[i]!)}
                       style={{
-                        padding: '3px 10px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700,
+                        padding: '3px 8px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700,
                         background: active ? G.text : 'transparent',
                         color: active ? '#fff' : G.textMuted,
                       }}
@@ -1669,7 +1669,7 @@ export default function PedidosPage() {
                   onClick={() => setSituacao(situacao === 'J' ? 'Z' : 'J')}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 4,
-                    padding: '3px 10px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700,
+                    padding: '3px 8px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700,
                     background: situacao === 'J' ? '#15803D' : 'transparent',
                     color: situacao === 'J' ? '#fff' : '#15803D',
                   }}
