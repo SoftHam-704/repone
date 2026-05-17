@@ -763,7 +763,14 @@ function PrincipalSection({
             ) : (
               <select
                 value={currentSituacao}
-                onChange={e => onChangeField('ped_situacao', e.target.value === 'CC' ? 'A' : e.target.value)}
+                onChange={e => {
+                  const newSit = e.target.value === 'CC' ? 'A' : e.target.value;
+                  onChangeField('ped_situacao', newSit);
+                  // Atualiza data para hoje ao converter cotação em pedido
+                  if (newSit === 'P' && ['C', 'A'].includes(rawSituacao)) {
+                    onChangeField('ped_data' as any, new Date().toISOString().split('T')[0]);
+                  }
+                }}
                 style={{ ...einp, cursor: 'pointer' }}
               >
                 <option value="P">Pedido</option>

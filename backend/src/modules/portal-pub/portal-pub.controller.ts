@@ -395,9 +395,11 @@ export async function portalCotacaoCreateHandler(req: Request, res: Response): P
        INSERT INTO pedidos
          (ped_numero, ped_pedido, ped_situacao, ped_cliente, ped_industria,
           ped_tabela, ped_condpag, ped_tipofrete, ped_comprador, ped_transp, ped_vendedor,
-          ped_obs, ped_data, ped_totbruto, ped_totliq)
+          ped_obs, ped_data, ped_totbruto, ped_totliq,
+          ped_pri, ped_seg, ped_ter, ped_qua, ped_qui, ped_sex, ped_set)
        SELECT n, 'PT' || LPAD(n::text, 6, '0'), 'J', $1, $2, $3, $4, $5, $6, $7, 0,
-              $8, CURRENT_DATE, $9, $10
+              $8, CURRENT_DATE, $9, $10,
+              $11, $12, $13, $14, $15, $16, $17
        FROM next
        RETURNING ped_numero, ped_pedido`,
       [
@@ -407,6 +409,7 @@ export async function portalCotacaoCreateHandler(req: Request, res: Response): P
         (pol.cli_comprador || '').slice(0, 30) || null,
         parseInt(pol.cli_transportadora) || 0,
         rawCodes.trim(), totBruto, totLiq,
+        ...[1,2,3,4,5,6,7].map((_, i) => descontos[i] || 0),
       ]
     );
 
