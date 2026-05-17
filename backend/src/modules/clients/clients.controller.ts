@@ -692,3 +692,39 @@ export async function generatePortalTokenHandler(req: Request, res: Response): P
   }
 }
 
+
+// ─── GET /api/clients/:id/historico ──────────────────────────────────────────
+export async function clienteHistoricoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const db = req.db!;
+
+    const [industrias, pedidos] = await Promise.all([
+      db.query(`
+        SELECT DISTINCT f.for_codigo, f.for_nomered, f.for_fantasia,
+               MAX(p.ped_data) AS ultima_compra
+        FROM pedidos p
+        JOIN fornecedores f ON f.for_codigo = p.ped_industria
+        WHERE p.ped_cliente = $1
+          AND p.ped_situacao IN ('P','F')
+        GROUP BY f.for_codigo, f.for_nomered, f.for_fantasia
+        ORDER BY ultima_compra DESC
+      `, [parseInt(String(id))]),
+      db.query(`
+        SELECT p.ped_pedido, p.ped_data, p.ped_totliq,
+               COALESCE(f.for_nomered, f.for_fantasia, '') AS for_nomered
+        FROM pedidos p
+        LEFT JOIN fornecedores f ON f.for_codigo = p.ped_industria
+        WHERE p.ped_cliente = $1
+          AND p.ped_situacao IN ('P','F')
+        ORDER BY p.ped_data DESC, p.ped_numero DESC
+        LIMIT 200
+      `, [parseInt(String(id))]),
+    ]);
+
+    res.json({ success: true, industrias: industrias.rows, pedidos: pedidos.rows });
+  } catch (error: any) {
+    console.error('❌ [CLIENTS] historico:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}

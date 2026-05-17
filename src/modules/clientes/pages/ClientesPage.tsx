@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Trash2, MapPin } from 'lucide-react';
+import { Trash2, MapPin, History, X, Package, ShoppingBag } from 'lucide-react';
 import {
   CadastroShell, CadastroTable, Th, Td, TrHover,
   StatusBadge, G,
@@ -36,6 +36,8 @@ export default function ClientesPage() {
   const [modalOpen, setModalOpen]   = useState(false);
   const [editingId, setEditingId]   = useState<string>('novo');
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [historicoId, setHistoricoId] = useState<number | null>(null);
+  const [historicoNome, setHistoricoNome] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -67,6 +69,12 @@ export default function ClientesPage() {
     } finally {
       setVinculando(false);
     }
+  };
+
+  const openHistorico = (id: number, nome: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setHistoricoId(id);
+    setHistoricoNome(nome);
   };
 
   const inactivate = async (id: number, e: React.MouseEvent) => {
@@ -161,6 +169,13 @@ export default function ClientesPage() {
                   <Td align="center"><StatusBadge active={row.cli_tipopes === 'A'} /></Td>
                   <Td align="center">
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                      <button
+                        title="Histórico do cliente"
+                        onClick={e => openHistorico(row.cli_codigo, row.cli_nomred, e)}
+                        style={{ ...actionBtn, color: G.mustard }}
+                      >
+                        <History size={13} />
+                      </button>
                       <button onClick={e => inactivate(row.cli_codigo, e)} style={{ ...actionBtn, color: G.danger }}>
                         <Trash2 size={13} />
                       </button>
@@ -172,6 +187,14 @@ export default function ClientesPage() {
           </tbody>
         </CadastroTable>
       </CadastroShell>
+
+      {historicoId !== null && (
+        <ClienteHistoricoModal
+          clienteId={historicoId}
+          clienteNome={historicoNome}
+          onClose={() => setHistoricoId(null)}
+        />
+      )}
 
       {/* Modal centralizado — mesmo padrão de IndustriasPage */}
       {modalOpen && (
@@ -213,3 +236,149 @@ const actionBtn: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   cursor: 'pointer', color: G.textSec,
 };
+
+// ─── ClienteHistoricoModal ────────────────────────────────────────────────────
+
+function fmtDate(v?: string) {
+  if (!v) return '—';
+  return new Date(v).toLocaleDateString('pt-BR');
+}
+
+function fmtMoeda(v?: number | string) {
+  const n = parseFloat(String(v ?? 0));
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+interface HistoricoData {
+  industrias: { for_codigo: number; for_nomered: string; for_fantasia: string; ultima_compra: string }[];
+  pedidos: { ped_pedido: string; ped_data: string; for_nomered: string; ped_totliq: number }[];
+}
+
+function ClienteHistoricoModal({ clienteId, clienteNome, onClose }: {
+  clienteId: number;
+  clienteNome: string;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<'industrias' | 'pedidos'>('industrias');
+  const [data, setData] = useState<HistoricoData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get(`/clients/${clienteId}/historico`)
+      .then(r => setData(r.data))
+      .catch(() => setData({ industrias: [], pedidos: [] }))
+      .finally(() => setLoading(false));
+  }, [clienteId]);
+
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: 6,
+    padding: '7px 18px', borderRadius: 8,
+    border: active ? `1.5px solid ${G.mustard}` : `1px solid ${G.border}`,
+    background: active ? `${G.mustard}22` : 'transparent',
+    color: active ? G.mustard : G.textSec,
+    fontWeight: 700, fontSize: 12, cursor: 'pointer',
+  });
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 200,
+        background: 'rgba(40,55,74,0.6)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 24,
+      }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <motion.div
+        initial={{ scale: 0.96, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        style={{
+          width: '100%', maxWidth: 700,
+          maxHeight: '85vh',
+          background: G.bg, borderRadius: 18,
+          overflow: 'hidden',
+          boxShadow: '0 24px 80px rgba(40,55,74,0.35)',
+          display: 'flex', flexDirection: 'column',
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px 14px', borderBottom: `1px solid ${G.border}` }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: G.text }}>Histórico</div>
+            <div style={{ fontSize: 11, color: G.textMuted, marginTop: 2 }}>{clienteNome}</div>
+          </div>
+          <button onClick={onClose} style={{ ...actionBtn, color: G.textSec }}>
+            <X size={14} />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: 8, padding: '14px 24px', borderBottom: `1px solid ${G.border}` }}>
+          <button style={tabStyle(tab === 'industrias')} onClick={() => setTab('industrias')}>
+            <Package size={12} />
+            Indústrias {data ? `(${data.industrias.length})` : ''}
+          </button>
+          <button style={tabStyle(tab === 'pedidos')} onClick={() => setTab('pedidos')}>
+            <ShoppingBag size={12} />
+            Pedidos {data ? `(${data.pedidos.length})` : ''}
+          </button>
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px 24px' }}>
+          {loading && (
+            <div style={{ textAlign: 'center', padding: 40, color: G.textMuted, fontSize: 13 }}>Carregando...</div>
+          )}
+
+          {!loading && tab === 'industrias' && (
+            data?.industrias.length === 0
+              ? <div style={{ textAlign: 'center', padding: 40, color: G.textMuted, fontSize: 13 }}>Nenhuma compra registrada.</div>
+              : <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `2px solid ${G.border}` }}>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', color: G.textMuted, fontWeight: 700, fontSize: 11 }}>Indústria</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', color: G.textMuted, fontWeight: 700, fontSize: 11 }}>Última Compra</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data?.industrias.map(ind => (
+                      <tr key={ind.for_codigo} style={{ borderBottom: `1px solid ${G.border}22` }}>
+                        <td style={{ padding: '10px 10px', color: G.text, fontWeight: 700 }}>{ind.for_nomered || ind.for_fantasia}</td>
+                        <td style={{ padding: '10px 10px', textAlign: 'right', color: G.textMuted }}>{fmtDate(ind.ultima_compra)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+          )}
+
+          {!loading && tab === 'pedidos' && (
+            data?.pedidos.length === 0
+              ? <div style={{ textAlign: 'center', padding: 40, color: G.textMuted, fontSize: 13 }}>Nenhum pedido registrado.</div>
+              : <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `2px solid ${G.border}` }}>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', color: G.textMuted, fontWeight: 700, fontSize: 11 }}>Pedido</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', color: G.textMuted, fontWeight: 700, fontSize: 11 }}>Data</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', color: G.textMuted, fontWeight: 700, fontSize: 11 }}>Indústria</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', color: G.textMuted, fontWeight: 700, fontSize: 11 }}>Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data?.pedidos.map((ped, i) => (
+                      <tr key={i} style={{ borderBottom: `1px solid ${G.border}22` }}>
+                        <td style={{ padding: '10px 10px', fontFamily: 'monospace', fontWeight: 700, color: G.text }}>{ped.ped_pedido}</td>
+                        <td style={{ padding: '10px 10px', color: G.textMuted }}>{fmtDate(ped.ped_data)}</td>
+                        <td style={{ padding: '10px 10px', color: G.textSec }}>{ped.for_nomered}</td>
+                        <td style={{ padding: '10px 10px', textAlign: 'right', color: G.text, fontWeight: 700 }}>{fmtMoeda(ped.ped_totliq)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}

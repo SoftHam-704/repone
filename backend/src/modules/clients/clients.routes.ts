@@ -23,6 +23,7 @@ import {
   upsertAreasHandler,
   vincularRegioesHandler,
   generatePortalTokenHandler,
+  clienteHistoricoHandler,
 } from './clients.controller';
 
 const router = Router();
@@ -62,5 +63,8 @@ router.put('/:id/areas',  upsertAreasHandler);
 
 // ── portal_clientes — token de acesso do lojista ─────────────────────────────
 router.post('/:id/portal-token', generatePortalTokenHandler);
+
+// ── historico — indústrias e pedidos do cliente ───────────────────────────────
+router.get('/:id/historico', clienteHistoricoHandler);
 
 export default router;
