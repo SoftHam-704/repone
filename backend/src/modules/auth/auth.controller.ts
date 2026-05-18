@@ -212,6 +212,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
         biEnabled: empresa.modulo_bi_ativo === true,
         whatsappEnabled: empresa.modulo_whatsapp_ativo === true,
         crmRepEnabled: empresa.modulo_crmrep_ativo === true,
+        portalLojistaEnabled: empresa.ios_enabled === 'S',
         iaPlanLevel: empresa.plano_ia_nivel,
       },
       tenantConfig: {

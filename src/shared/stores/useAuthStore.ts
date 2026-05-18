@@ -14,6 +14,7 @@ export interface User {
   biEnabled: boolean;
   whatsappEnabled: boolean;
   crmRepEnabled: boolean;
+  portalLojistaEnabled: boolean;
   iaPlanLevel: string;
 }
 

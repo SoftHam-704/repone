@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuthStore } from '@/shared/stores/useAuthStore';
 import {
   ArrowLeft, Save, Loader2, User,
   MapPin, AlertTriangle,
@@ -290,6 +291,7 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
   const [grupos, setGrupos]           = useState<{value:number;label:string}[]>([]);
   const [discModal, setDiscModal]     = useState<{open:boolean;editing:Partial<CliDescpro>}>({ open:false, editing:emptyDescpro });
   const [savingDisc, setSavingDisc]   = useState(false);
+  const portalLojistaEnabled = useAuthStore(s => s.user?.portalLojistaEnabled ?? false);
   const [portalModal, setPortalModal] = useState(false);
   const [portalToken, setPortalToken] = useState<string | null>(null);
   const [portalSchema, setPortalSchema] = useState<string | null>(null);
@@ -632,7 +634,7 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
             Cancelar
           </button>
 
-          {!isNew && (
+          {!isNew && portalLojistaEnabled && (
             <button
               onClick={openPortalModal}
               style={{
