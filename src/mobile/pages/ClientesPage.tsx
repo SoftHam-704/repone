@@ -134,7 +134,7 @@ export default function ClientesPage() {
     setCheckoutModal({ cli_codigo, nome });
   }
 
-  async function handleCheckoutConfirm(resultado: string, motivo: string | null, marketing: string | null) {
+  async function handleCheckoutConfirm(resultado: string | null, motivo: string | null, marketing: string | null) {
     if (!checkoutModal || !user?.codigo) return;
     const { cli_codigo } = checkoutModal;
     setLoadingCI(cli_codigo);

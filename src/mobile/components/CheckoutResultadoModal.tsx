@@ -27,7 +27,7 @@ type MarketingValue = 'dia_foco' | 'relacionamento' | 'sellout_cliente';
 
 interface Props {
   clienteNome: string;
-  onConfirm: (resultado: string, motivo: string | null, marketing: MarketingValue | null) => Promise<void>;
+  onConfirm: (resultado: string | null, motivo: string | null, marketing: MarketingValue | null) => Promise<void>;
   onCancel: () => void;
 }
 
@@ -45,7 +45,7 @@ export function CheckoutResultadoModal({ clienteNome, onConfirm, onCancel }: Pro
     if (!podeConfirmar) return;
     setLoading(true);
     await onConfirm(
-      selecionado ?? 'visita_marketing',
+      selecionado,
       selecionado === 'nao_positivou' ? motivo : null,
       marketing,
     );
@@ -75,6 +75,9 @@ export function CheckoutResultadoModal({ clienteNome, onConfirm, onCancel }: Pro
         {/* ── Como foi a visita ── */}
         <div style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,0.5)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 }}>
           Como foi a visita?
+          {marketing !== null && (
+            <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.3)', textTransform: 'none', fontSize: 10, marginLeft: 6 }}>— opcional</span>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>

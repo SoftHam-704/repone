@@ -1159,12 +1159,13 @@ export async function checkoutHandler(req: Request, res: Response): Promise<void
     res.status(400).json({ success: false, message: 'ven_codigo e cli_codigo são obrigatórios.' });
     return;
   }
-  if (!resultado) {
+  // resultado obrigatório apenas se não há ação de marketing
+  if (!resultado && !marketing_acao) {
     res.status(400).json({ success: false, message: 'resultado é obrigatório no checkout.' });
     return;
   }
   const resultadosValidos = ['positivou', 'nao_positivou', 'reagendou', 'ausente', 'fechado'];
-  if (!resultadosValidos.includes(resultado)) {
+  if (resultado && !resultadosValidos.includes(resultado)) {
     res.status(400).json({ success: false, message: `resultado deve ser: ${resultadosValidos.join(', ')}` });
     return;
   }
