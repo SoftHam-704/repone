@@ -142,15 +142,21 @@ async function resolveLinhasParaCotacao(
       itens.push({ seq, ite_produto: codigo, ite_nomeprod: `⚠ Não encontrado: ${codigo}`, ite_embuch: null, ite_quant: qty, ite_puni: 0, ite_puniliq: 0, ite_totliquido: 0, found: false });
       seq++; continue;
     }
+
+    // Ajuste de embalagem: arredonda para cima ao múltiplo mais próximo
+    const emb = parseInt(prod.pro_embalagem) || 0;
+    const qtyFinal = (emb > 1 && qty % emb !== 0) ? Math.ceil(qty / emb) * emb : qty;
+    const qty_original = qtyFinal !== qty ? qty : undefined;
+
     const price = priceMap.get(prod.pro_id);
     let puni    = price ? parseFloat(price.itab_precopromo || price.itab_precobruto || '0') : 0;
     let puniliq = puni;
     for (const d of descontos) puniliq = puniliq * (1 - d / 100);
     puniliq = Math.round(puniliq * 10000) / 10000;
-    const totItem = Math.round(puniliq * qty * 10000) / 10000;
-    totBruto += puni * qty;
+    const totItem = Math.round(puniliq * qtyFinal * 10000) / 10000;
+    totBruto += puni * qtyFinal;
     totLiq   += totItem;
-    itens.push({ seq, pro_id: prod.pro_id, ite_produto: prod.pro_codprod, ite_nomeprod: prod.pro_nome, ite_embuch: prod.pro_embalagem, ite_quant: qty, ite_puni: puni, ite_puniliq: puniliq, ite_totliquido: totItem, found: true });
+    itens.push({ seq, pro_id: prod.pro_id, ite_produto: prod.pro_codprod, ite_nomeprod: prod.pro_nome, ite_embuch: prod.pro_embalagem, ite_quant: qtyFinal, qty_original, ite_puni: puni, ite_puniliq: puniliq, ite_totliquido: totItem, found: true });
     seq++;
   }
 
@@ -486,11 +492,26 @@ export async function portalCotacaoStatusHandler(req: Request, res: Response): P
 
     const status = itensR.rows.length > 0 ? 'pronta' : 'pendente';
 
+    // Parseia ajustes de embalagem gravados pelo IRIS no ped_obs
+    let ajustesMap = new Map<string, number>();
+    const ajusteMatch = (pedido.ped_obs || '').match(/---iris_ajustes:(\[.*?\])(?:\n|$)/s);
+    if (ajusteMatch) {
+      try {
+        const ajustes: { codigo: string; original: number }[] = JSON.parse(ajusteMatch[1]);
+        for (const a of ajustes) ajustesMap.set(a.codigo, a.original);
+      } catch { /* ignora parse error */ }
+    }
+
+    const itensComAjuste = itensR.rows.map((it: any) => ({
+      ...it,
+      qty_original: ajustesMap.get(it.ite_produto),
+    }));
+
     res.json({
       success: true,
       status,
       pedido,
-      itens: itensR.rows,
+      itens: itensComAjuste,
     });
   } catch (error: any) {
     console.error('❌ [PORTAL-PUB] cotacao status error:', error.message);

@@ -56,6 +56,7 @@ interface ItensCotacao {
   ite_nomeprod: string;
   ite_embuch: string | null;
   ite_quant: number;
+  qty_original?: number;
   ite_puni: number;
   ite_puniliq: number;
   ite_totliquido: number;
@@ -724,6 +725,11 @@ export default function PortalLojista() {
                                   <div style={{ fontSize: 14, fontWeight: 900, color: nao ? G.red : G.text, fontFamily: MONO }}>{item.ite_produto}</div>
                                   <div style={{ fontSize: 12, color: G.muted, marginTop: 2 }}>{item.ite_nomeprod}</div>
                                   {item.ite_embuch && <div style={{ fontSize: 11, color: G.muted, marginTop: 2 }}>Emb: {item.ite_embuch}</div>}
+                                  {item.qty_original !== undefined && item.qty_original !== item.ite_quant && (
+                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, padding: '2px 8px', borderRadius: 20, background: '#FFF3CD', border: '1px solid #FFD000' }}>
+                                      <span style={{ fontSize: 10, fontWeight: 800, color: '#7A5F00' }}>📦 Ajustado: {item.qty_original} → {item.ite_quant} (emb. {item.ite_embuch})</span>
+                                    </div>
+                                  )}
                                 </div>
                                 {!nao && (
                                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
