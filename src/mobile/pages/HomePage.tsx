@@ -709,11 +709,14 @@ const ACTIONS = [
   { icon: Wrench,       label: 'Aftermarket', bg: '#0f766e', path: '/mobile/aftermarket' },
 ];
 
+// Promotor (não vende) não vê opções de venda. Filtra por path (estrutural, como a navbar)
+// em vez de label, para não quebrar silenciosamente se um label for renomeado.
+const HIDE_PROMOTOR_PATHS = ['/mobile/pedido', '/mobile/precos', '#', '/mobile/bi'];
+
 function QuickActions() {
   const navigate = useNavigate();
   const isPromotor = useAuthStore(s => s.user?.isPromotor);
-  const HIDE_PROMOTOR = ['Novo Pedido', 'Catálogo', 'Smart Mix', 'BI'];
-  const actions = isPromotor ? ACTIONS.filter(a => !HIDE_PROMOTOR.includes(a.label)) : ACTIONS;
+  const actions = isPromotor ? ACTIONS.filter(a => !HIDE_PROMOTOR_PATHS.includes(a.path)) : ACTIONS;
   return (
     <div style={{ padding: '20px 16px 0' }}>
       <h2 style={{ fontSize: 14, fontWeight: 900, color: 'var(--navy)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 }}>
