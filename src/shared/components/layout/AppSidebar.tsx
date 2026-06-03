@@ -91,6 +91,7 @@ const GROUPS: NavGroup[] = [
       { label: 'Campanhas',               path: '/vendas/campanhas',            icon: Zap,          minLevel: 2 },
       { label: 'Baixa via XML',           path: '/movimentacoes/baixa-xml',     icon: FileText,     minLevel: 2 },
       { label: 'SELL-OUT',                path: '/movimentacoes/sell-out',      icon: TrendingUp,   minLevel: 2 },
+      { label: 'Despesas de Viagem',      path: '/despesas',                    icon: Wallet,       minLevel: 2 },
       { label: 'Envio de Emails',         path: '/utilitarios/envio-emails',    icon: MessageSquare, minLevel: 2 },
     ],
   },

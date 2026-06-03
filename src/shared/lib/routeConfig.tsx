@@ -32,6 +32,7 @@ const CampanhasPage        = lazy(() => import('@/modules/campanhas/pages/Campan
 const RegioesPage          = lazy(() => import('@/modules/regioes/pages/RegioesPage'))
 const SetoresPage          = lazy(() => import('@/modules/setores/pages/SetoresPage'))
 const ItinerariosPage      = lazy(() => import('@/modules/itinerarios/pages/ItinerariosPage'))
+const DespesasPage         = lazy(() => import('@/modules/despesas/pages/DespesasPage'))
 const AreaAtuacaoPage      = lazy(() => import('@/modules/area-atuacao/pages/AreaAtuacaoPage'))
 const TransportadorasPage  = lazy(() => import('@/modules/transportadoras/pages/TransportadorasPage'))
 const ConfiguracoesPage    = lazy(() => import('@/modules/configuracoes/pages/ConfiguracoesPage'))
@@ -89,6 +90,7 @@ export const ROUTE_CONFIG: Record<string, RouteItem> = {
   '/cadastros/regioes': { id: 'regioes', label: 'Regiões', path: '/cadastros/regioes', icon: Map, element: <RegioesPage /> },
   '/cadastros/setores': { id: 'setores', label: 'Setores / Bairros', path: '/cadastros/setores', icon: MapPin, element: <SetoresPage /> },
   '/cadastros/itinerarios': { id: 'itinerarios', label: 'Itinerários de Visita', path: '/cadastros/itinerarios', icon: Route, element: <ItinerariosPage /> },
+  '/despesas': { id: 'despesas', label: 'Despesas de Viagem', path: '/despesas', icon: Wallet, element: <DespesasPage /> },
   '/cadastros/area-atuacao': { id: 'area-atuacao', label: 'Área de Atuação', path: '/cadastros/area-atuacao', icon: Map, element: <AreaAtuacaoPage /> },
   '/cadastros/transportadoras': { id: 'transportadoras', label: 'Transportadoras', path: '/cadastros/transportadoras', icon: Truck, element: <TransportadorasPage /> },
   '/pedidos': { id: 'pedidos', label: 'Pedidos de Venda', path: '/pedidos', icon: ShoppingCart, element: <PedidosPage /> },
