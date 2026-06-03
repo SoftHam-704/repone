@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { getLinkedSellerId } from '../../shared/permissions';
 
 // ─── GET /api/itinerarios ─────────────────────────────────────────────────────
 export async function listItinerariosHandler(req: Request, res: Response): Promise<void> {
@@ -17,8 +18,19 @@ export async function listItinerariosHandler(req: Request, res: Response): Promi
       LEFT JOIN regioes r ON r.reg_codigo = i.iti_regiao_id
       LEFT JOIN itinerario_paradas p ON p.itp_itinerario = i.iti_codigo
       WHERE 1=1`;
+
+    // Auto-escopo: operador só vê as próprias rotas. Master/Gerência (sellerId null) veem todas.
+    const sellerId = await getLinkedSellerId(db, req.user?.userId);
+    if (sellerId !== null) {
+      params.push(sellerId);
+      query += ` AND i.iti_vendedor_id = $${params.length}`;
+    } else if (vendedor) {
+      // Master/Gerência podem filtrar explicitamente (uso do web).
+      params.push(vendedor);
+      query += ` AND i.iti_vendedor_id = $${params.length}`;
+    }
+
     if (search) { params.push(`%${search}%`); query += ` AND i.iti_descricao ILIKE $${params.length}`; }
-    if (vendedor) { params.push(vendedor); query += ` AND i.iti_vendedor_id = $${params.length}`; }
     query += ` GROUP BY i.iti_codigo, v.ven_nome, r.reg_descricao ORDER BY i.iti_descricao`;
     const result = await db.query(query, params);
     res.json({ success: true, data: result.rows });
