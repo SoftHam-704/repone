@@ -10,7 +10,7 @@ import {
   ShoppingCart, ShoppingBag, Zap, TrendingUp,
   Wallet, PieChart, Settings, Wrench,
   MessageCircle, ClipboardCheck, ListChecks, Kanban, Activity,
-  BookOpen, Gamepad2, LogOut, ChevronRight, MessageSquare,
+  BookOpen, Gamepad2, LogOut, ChevronRight, MessageSquare, RefreshCw,
   Radar, Users2, CalendarCheck, Sparkles,
 } from 'lucide-react';
 import { useAuthStore } from '@/shared/stores/useAuthStore';
@@ -33,9 +33,16 @@ interface NavLeaf {
   label: string;
   path: string;
   icon: React.ElementType;
-  feature?: 'biEnabled' | 'whatsappEnabled' | 'crmRepEnabled';
+  feature?: 'biEnabled' | 'whatsappEnabled' | 'crmRepEnabled' | 'iaEnabled';
   masterOnly?: boolean;
+  minLevel?: number;     // Nível mínimo: 1=operador(todos), 2=gerência+, 3=master. Default 1.
+  comingSoon?: boolean;  // Mostra badge "EM BREVE" e desabilita navegação
+  betaSchemas?: string[];  // Visível apenas pra schemas listados (piloto interno)
+  badge?: string;          // Badge custom à direita do label (ex: 'BETA')
 }
+
+// Hierarquia de papéis (espelha backend/src/shared/roles.ts)
+const ROLE_LEVEL: Record<string, number> = { user: 1, manager: 2, admin: 3, superadmin: 4 };
 interface NavSubGroup {
   id: string;
   label: string;
@@ -53,7 +60,7 @@ interface NavGroup {
 // ─── Menus ────────────────────────────────────────────────────────────────────
 const TOP_ITEMS: NavLeaf[] = [
   { label: 'Dashboard',             path: '/dashboard', icon: LayoutDashboard },
-  { label: 'Business Intelligence', path: '/bi',        icon: BarChart2,    feature: 'biEnabled' },
+  { label: 'Business Intelligence', path: '/bi',        icon: BarChart2,    feature: 'biEnabled', minLevel: 2 },
   { label: 'Central Estatísticos',  path: '/estatisticas', icon: BarChart2 },
   { label: 'Minha Agenda',          path: '/agenda',    icon: CalendarDays },
   { label: 'Metas',                 path: '/metas',     icon: Target },
@@ -63,17 +70,17 @@ const GROUPS: NavGroup[] = [
   {
     id: 'cadastros', label: 'Cadastros', icon: Building2,
     items: [
-      { label: 'Indústrias',            path: '/industrias',                   icon: Building2 },
+      { label: 'Indústrias',            path: '/industrias',                   icon: Building2,   minLevel: 2 },
       { label: 'Clientes',              path: '/clientes',                     icon: Users },
-      { label: 'Vendedores',            path: '/vendedores',                   icon: Briefcase },
+      { label: 'Vendedores',            path: '/vendedores',                   icon: Briefcase,   minLevel: 2 },
       { label: 'Tabela de Preços',      path: '/produtos',                     icon: Package },
-      { label: 'Grupos de Produtos',    path: '/cadastros/grupos-produtos',    icon: Tags },
-      { label: 'Grupos Descontos',      path: '/cadastros/grupos-descontos',   icon: DollarSign },
-      { label: 'Regiões',               path: '/cadastros/regioes',            icon: Map },
-      { label: 'Setores / Bairros',     path: '/cadastros/setores',            icon: MapPin },
+      { label: 'Grupos de Produtos',    path: '/cadastros/grupos-produtos',    icon: Tags,        minLevel: 2 },
+      { label: 'Grupos Descontos',      path: '/cadastros/grupos-descontos',   icon: DollarSign,  minLevel: 2 },
+      { label: 'Regiões',               path: '/cadastros/regioes',            icon: Map,         minLevel: 2 },
+      { label: 'Setores / Bairros',     path: '/cadastros/setores',            icon: MapPin,      minLevel: 2 },
       { label: 'Itinerários de Visita', path: '/cadastros/itinerarios',        icon: Route },
-      { label: 'Área de Atuação',       path: '/cadastros/area-atuacao',       icon: Map },
-      { label: 'Transportadoras',       path: '/cadastros/transportadoras',    icon: Truck },
+      { label: 'Área de Atuação',       path: '/cadastros/area-atuacao',       icon: Map,         minLevel: 2 },
+      { label: 'Transportadoras',       path: '/cadastros/transportadoras',    icon: Truck,       minLevel: 2 },
     ],
   },
   {
@@ -81,24 +88,24 @@ const GROUPS: NavGroup[] = [
     items: [
       { label: 'Pedidos de Venda',        path: '/pedidos',                     icon: ShoppingCart },
       { label: 'Carrinho em Lote', path: '/movimentacoes/importador',    icon: ShoppingBag },
-      { label: 'Campanhas',               path: '/vendas/campanhas',            icon: Zap },
-      { label: 'Baixa via XML',           path: '/movimentacoes/baixa-xml',     icon: FileText },
-      { label: 'SELL-OUT',                path: '/movimentacoes/sell-out',      icon: TrendingUp },
-      { label: 'Envio de Emails',         path: '/utilitarios/envio-emails',    icon: MessageSquare },
+      { label: 'Campanhas',               path: '/vendas/campanhas',            icon: Zap,          minLevel: 2 },
+      { label: 'Baixa via XML',           path: '/movimentacoes/baixa-xml',     icon: FileText,     minLevel: 2 },
+      { label: 'SELL-OUT',                path: '/movimentacoes/sell-out',      icon: TrendingUp,   minLevel: 2 },
+      { label: 'Envio de Emails',         path: '/utilitarios/envio-emails',    icon: MessageSquare, minLevel: 2 },
     ],
   },
   {
     id: 'financeiro', label: 'Financeiro', icon: Wallet,
     items: [
-      { label: 'Dashboard Hub',    path: '/financeiro/dashboard',              icon: LayoutDashboard },
-      { label: 'Contas a Receber', path: '/financeiro/receber',                icon: DollarSign },
-      { label: 'Contas a Pagar',   path: '/financeiro/pagar',                  icon: DollarSign },
-      { label: 'Fluxo de Caixa',   path: '/financeiro/relatorios/fluxo-caixa', icon: TrendingUp },
-      { label: 'DRE Gerencial',    path: '/financeiro/relatorios/dre',         icon: PieChart },
-      { label: 'Plano de Contas',  path: '/financeiro/plano-contas',           icon: Settings },
-      { label: 'Centro de Custo',  path: '/financeiro/centro-custo',           icon: Building2 },
-      { label: 'Clientes Fin.',    path: '/financeiro/fin-clientes',           icon: Users },
-      { label: 'Fornecedores Fin.',path: '/financeiro/fin-fornecedores',       icon: Building2 },
+      { label: 'Dashboard Hub',    path: '/financeiro/dashboard',              icon: LayoutDashboard, minLevel: 2 },
+      { label: 'Contas a Receber', path: '/financeiro/receber',                icon: DollarSign,      minLevel: 2 },
+      { label: 'Contas a Pagar',   path: '/financeiro/pagar',                  icon: DollarSign,      minLevel: 2 },
+      { label: 'Fluxo de Caixa',   path: '/financeiro/relatorios/fluxo-caixa', icon: TrendingUp,      minLevel: 2 },
+      { label: 'DRE Gerencial',    path: '/financeiro/relatorios/dre',         icon: PieChart,        minLevel: 2 },
+      { label: 'Plano de Contas',  path: '/financeiro/plano-contas',           icon: Settings,        minLevel: 2 },
+      { label: 'Centro de Custo',  path: '/financeiro/centro-custo',           icon: Building2,       minLevel: 2 },
+      { label: 'Clientes Fin.',    path: '/financeiro/fin-clientes',           icon: Users,           minLevel: 2 },
+      { label: 'Fornecedores Fin.',path: '/financeiro/fin-fornecedores',       icon: Building2,       minLevel: 2 },
     ],
   },
   {
@@ -111,7 +118,7 @@ const GROUPS: NavGroup[] = [
       { label: 'Pipeline',          path: '/repcrm/pipeline',         icon: Kanban,         feature: 'crmRepEnabled' },
       { label: 'Visitas',           path: '/repcrm/visitas',          icon: CalendarDays },
       { label: 'Campo Ao Vivo',     path: '/repcrm/campo',            icon: MapPin },
-      { label: 'WhatsApp IA',       path: '/utilitarios/whatsapp-ia', icon: MessageCircle,  feature: 'whatsappEnabled' },
+      { label: 'Aftermarket',       path: '/repcrm/aftermarket',      icon: Wrench },
     ],
   },
   {
@@ -123,13 +130,14 @@ const GROUPS: NavGroup[] = [
   {
     id: 'utilitarios', label: 'Utilitários', icon: Wrench,
     items: [
-      { label: 'Catálogo Digital',  path: '/utilitarios/catalogo-produtos', icon: Package },
-      { label: 'Centro de Aprendizado', path: '/utilitarios/tutoriais',       icon: BookOpen },
-      { label: 'Usuários',          path: '/utilitarios/usuarios',           icon: Users,     masterOnly: true },
-      { label: 'Parâmetros',        path: '/utilitarios/parametros',         icon: Settings },
-      { label: 'Configurações',     path: '/utilitarios/configuracoes',      icon: Settings },
-      { label: 'IRIS — Config. IA', path: '/utilitarios/iris-config',        icon: Sparkles, masterOnly: true },
-      { label: '🎮 Tetris',          path: '/utilitarios/tetris',            icon: Gamepad2 },
+      { label: 'Catálogo Digital',      path: '/utilitarios/catalogo-produtos', icon: Package },
+      { label: 'Centro de Aprendizado', path: '/utilitarios/tutoriais',         icon: BookOpen },
+      { label: 'Vincular WhatsApp',     path: '/utilitarios/whatsapp-ia',       icon: MessageCircle, feature: 'whatsappEnabled', minLevel: 2 },
+      { label: 'Usuários',              path: '/utilitarios/usuarios',          icon: Users,         minLevel: 3 },
+      { label: 'Parâmetros',            path: '/utilitarios/parametros',        icon: Settings,      minLevel: 2 },
+      { label: 'Configurações',         path: '/utilitarios/configuracoes',     icon: Settings,      minLevel: 3 },
+      { label: 'Iris — Assistente Pessoal', path: '/utilitarios/iris-config',    icon: Sparkles,      minLevel: 3, feature: 'iaEnabled' },
+      { label: '🎮 Tetris',              path: '/utilitarios/tetris',           icon: Gamepad2 },
     ],
   },
 ];
@@ -169,35 +177,37 @@ function IrisSidebarBar({ collapsed }: { collapsed: boolean }) {
     <>
       <style>{IRIS_STYLES}</style>
       <div style={{
-        position: 'relative', overflow: 'hidden',
-        margin: collapsed ? '8px 6px' : '8px 8px',
+        position: 'relative', overflow: 'visible',
+        margin: collapsed ? '4px 6px' : '4px 8px',
         borderRadius: 10,
         background: 'rgba(255,210,0,0.05)',
         border: '1px solid rgba(255,210,0,0.15)',
-        height: collapsed ? 38 : 54,
+        height: collapsed ? 62 : 96,
         flexShrink: 0,
         display: 'flex', flexDirection: 'column',
         alignItems: collapsed ? 'center' : 'flex-start',
         justifyContent: 'center',
-        padding: collapsed ? 0 : '0 12px',
-        gap: 4,
+        padding: collapsed ? '6px 0' : '8px 10px',
+        gap: 6,
         transition: 'height 0.22s ease',
       }}>
-        {/* scanning glow */}
-        <div className="iris-sb-scan" style={{
-          position: 'absolute', top: 0, bottom: 0,
-          width: '40%', pointerEvents: 'none',
-          background: 'linear-gradient(90deg, transparent 0%, rgba(255,210,0,0.10) 35%, rgba(255,210,0,0.28) 50%, rgba(255,210,0,0.10) 65%, transparent 100%)',
-        }} />
+        {/* scanning glow — clipado dentro do border-radius */}
+        <div style={{ position: 'absolute', inset: 0, borderRadius: 10, overflow: 'hidden', pointerEvents: 'none' }}>
+          <div className="iris-sb-scan" style={{
+            position: 'absolute', top: 0, bottom: 0,
+            width: '40%',
+            background: 'linear-gradient(90deg, transparent 0%, rgba(255,210,0,0.10) 35%, rgba(255,210,0,0.28) 50%, rgba(255,210,0,0.10) 65%, transparent 100%)',
+          }} />
+        </div>
 
         {collapsed ? (
-          /* modo collapsed: só o olho */
-          <IrisAvatar size={28} animated />
+          /* modo collapsed: só o avatar */
+          <IrisAvatar size={34} animated />
         ) : (
           <>
-            {/* linha 1: olho + IRIS · ativa */}
+            {/* linha 1: avatar + IRIS · ativa */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
-              <IrisAvatar size={30} animated />
+              <IrisAvatar size={36} animated />
               <span style={{
                 fontSize: 9, fontWeight: 900, color: '#FFD200',
                 letterSpacing: 2, textTransform: 'uppercase',
@@ -277,6 +287,61 @@ export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebar-auto-hide') === 'true');
   const { count: alertCount, fetch: fetchAlertas } = useAlertasStore();
   const [wppJCount, setWppJCount] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Hard refresh NUCLEAR — equivalente ao "Application → Unregister SW +
+  // Clear storage" do DevTools. Ctrl+Shift+R não invalida o service worker
+  // (só faz bypass de cache HTTP), então em PWA o user fica com versão velha.
+  // Hamilton confirmou em 2026-05-27 que esse caminho é 100% efetivo.
+  //
+  // Faz, em ordem:
+  //   1. Desregistra TODOS os service workers (próximo load registra de novo)
+  //   2. Limpa TODOS os caches (Cache API)
+  //   3. Reload limpo
+  //
+  // Mantém localStorage/sessionStorage → user continua logado depois.
+  const handleHardRefresh = async () => {
+    if (refreshing) return;
+    if (!window.confirm('Atualizar para a versão mais recente do RepOne? A página vai recarregar.')) return;
+    setRefreshing(true);
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister().catch(() => false)));
+      }
+    } catch (e) {
+      console.warn('[REFRESH] unregister SW falhou:', e);
+    }
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k).catch(() => false)));
+      }
+    } catch (e) {
+      console.warn('[REFRESH] clear caches falhou:', e);
+    }
+    // IndexedDB: limpa tudo (PWA pode ter armazenado coisas)
+    try {
+      if ('indexedDB' in window && (indexedDB as any).databases) {
+        const dbs = await (indexedDB as any).databases();
+        await Promise.all(
+          dbs.filter((d: any) => d.name).map((d: any) => new Promise<void>(resolve => {
+            const req = indexedDB.deleteDatabase(d.name);
+            req.onsuccess = req.onerror = req.onblocked = () => resolve();
+          }))
+        );
+      }
+    } catch (e) {
+      console.warn('[REFRESH] clear indexedDB falhou:', e);
+    }
+    // SessionStorage limpo (efêmero, nada crítico)
+    try { sessionStorage.clear(); } catch {}
+    // NÃO limpa localStorage nem cookies — preserva JWT e mantém user logado.
+    // Reload com query-string nova pra evitar BFCache
+    const url = new URL(window.location.href);
+    url.searchParams.set('_r', String(Date.now()));
+    window.location.replace(url.toString());
+  };
 
   useEffect(() => {
     localStorage.setItem('sidebar-auto-hide', String(autoHide));
@@ -316,14 +381,28 @@ export function AppSidebar() {
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(path + '/');
   const isMasterRole = user?.role === 'admin' || user?.role === 'superadmin';
-  const canShow  = (f?: NavLeaf['feature'], masterOnly?: boolean) => {
-    if (masterOnly && !isMasterRole) return false;
-    return !f || user?.[f] !== false;
+  const userLevel = ROLE_LEVEL[user?.role || 'user'] ?? 1;
+  const tenantConfig = useAuthStore.getState().tenantConfig;
+  const currentSchema = tenantConfig?.schema || '';
+
+  // Checa só o gate de feature/plano (usado pela barra IRIS que não é NavLeaf).
+  const featureOk = (f?: NavLeaf['feature']) => {
+    if (!f) return true;
+    if (f === 'iaEnabled') return String(user?.iaPlanLevel || 'ATIVO').toUpperCase() !== 'NONE';
+    return user?.[f] !== false;
+  };
+
+  // Checa um item de menu completo: nível, masterOnly (legado), beta-schemas e feature.
+  const canShow = (item: NavLeaf): boolean => {
+    if ((item.minLevel ?? 1) > userLevel) return false;
+    if (item.masterOnly && !isMasterRole) return false;
+    if (item.betaSchemas && item.betaSchemas.length > 0 && !item.betaSchemas.includes(currentSchema)) return false;
+    return featureOk(item.feature);
   };
 
   // ─── Item leaf ──────────────────────────────────────────────────────────────
   const LeafItem = ({ item, indent = false }: { item: NavLeaf; indent?: boolean }) => {
-    if (!canShow(item.feature, item.masterOnly)) return null;
+    if (!canShow(item)) return null;
     const active = isActive(item.path);
     const Icon   = item.icon;
 
@@ -370,6 +449,36 @@ export function AppSidebar() {
                 {wppJCount > 9 ? '9+' : wppJCount}
               </span>
             )}
+            {item.comingSoon && (
+              <span style={{
+                fontSize: 8, fontWeight: 900,
+                letterSpacing: 0.8,
+                background: 'rgba(255,210,0,0.18)',
+                color: '#FFD200',
+                padding: '2px 6px',
+                borderRadius: 4,
+                border: '1px solid rgba(255,210,0,0.3)',
+                flexShrink: 0,
+                textTransform: 'uppercase',
+              }}>
+                Em breve
+              </span>
+            )}
+            {item.badge && !item.comingSoon && (
+              <span style={{
+                fontSize: 8, fontWeight: 900,
+                letterSpacing: 0.8,
+                background: 'rgba(22,163,74,0.18)',
+                color: '#16A34A',
+                padding: '2px 6px',
+                borderRadius: 4,
+                border: '1px solid rgba(22,163,74,0.3)',
+                flexShrink: 0,
+                textTransform: 'uppercase',
+              }}>
+                {item.badge}
+              </span>
+            )}
           </>
         )}
         {collapsed && item.path === '/bi' && alertCount > 0 && (
@@ -396,11 +505,11 @@ export function AppSidebar() {
   const GroupSection = ({ group }: { group: NavGroup }) => {
     const Icon     = group.icon;
     const isOpen   = openGroup === group.id;
-    const hasActive = (group.items?.some(i => isActive(i.path) && canShow(i.feature)) || 
-                       group.subgroups?.some(s => s.items.some(i => isActive(i.path) && canShow(i.feature))));
-    
-    const visibles = (group.items || []).filter(i => canShow(i.feature, i.masterOnly));
-    const hasVisibleSubgroups = group.subgroups?.some(s => s.items.some(i => canShow(i.feature)));
+    const hasActive = (group.items?.some(i => isActive(i.path) && canShow(i)) ||
+                       group.subgroups?.some(s => s.items.some(i => isActive(i.path) && canShow(i))));
+
+    const visibles = (group.items || []).filter(i => canShow(i));
+    const hasVisibleSubgroups = group.subgroups?.some(s => s.items.some(i => canShow(i)));
     
     if (!visibles.length && !hasVisibleSubgroups) return null;
 
@@ -513,7 +622,7 @@ export function AppSidebar() {
         {!collapsed ? (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-              <img src="/logo.png" alt="SalesMasters" style={{ width: 34, height: 34, borderRadius: 9, objectFit: 'cover', flexShrink: 0 }} />
+              <img src="/logo.webp" alt="SalesMasters" style={{ width: 34, height: 34, borderRadius: 9, objectFit: 'cover', flexShrink: 0 }} />
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 900, color: S.text, letterSpacing: -0.3, whiteSpace: 'nowrap' }}>
                   SalesMasters
@@ -538,7 +647,7 @@ export function AppSidebar() {
             </button>
           </>
         ) : (
-          <img src="/logo.png" alt="SalesMasters" style={{ width: 34, height: 34, borderRadius: 9, objectFit: 'cover' }} />
+          <img src="/logo.webp" alt="SalesMasters" style={{ width: 34, height: 34, borderRadius: 9, objectFit: 'cover' }} />
         )}
       </div>
 
@@ -550,7 +659,7 @@ export function AppSidebar() {
       }}>
         {/* Top items */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {TOP_ITEMS.map(item => canShow(item.feature) && <LeafItem key={item.path} item={item} />)}
+          {TOP_ITEMS.map(item => canShow(item) && <LeafItem key={item.path} item={item} />)}
         </div>
 
         {/* Divisor */}
@@ -562,15 +671,15 @@ export function AppSidebar() {
         </div>
       </div>
 
-      {/* ── IRIS Status Bar ─────────────────────────────────────────────── */}
-      <IrisSidebarBar collapsed={collapsed} />
+      {/* ── IRIS Status Bar — só com IA ligada ──────────────────────────── */}
+      {featureOk('iaEnabled') && <IrisSidebarBar collapsed={collapsed} />}
 
       {/* ── Footer: user + logout ────────────────────────────────────────── */}
       <div style={{ borderTop: `1px solid ${S.border}`, flexShrink: 0 }}>
         {!collapsed && (
           <label style={{
             display: 'flex', alignItems: 'center', gap: 8,
-            padding: '6px 14px', cursor: 'pointer',
+            padding: '4px 14px', cursor: 'pointer',
             borderBottom: `1px solid ${S.border}`,
           }}>
             <input
@@ -585,7 +694,7 @@ export function AppSidebar() {
           </label>
         )}
         {!collapsed && user?.empresa && (
-          <div style={{ padding: '8px 14px 4px' }}>
+          <div style={{ padding: '4px 14px 2px' }}>
             <div style={{ fontSize: 9, fontWeight: 700, color: S.muted, textTransform: 'uppercase', letterSpacing: 1 }}>
               Empresa
             </div>
@@ -596,7 +705,7 @@ export function AppSidebar() {
           </div>
         )}
         <div style={{
-          padding: collapsed ? '10px 0' : '8px 10px 12px',
+          padding: collapsed ? '8px 0' : '6px 10px 10px',
           display: 'flex', alignItems: 'center',
           justifyContent: collapsed ? 'center' : 'flex-start',
           gap: 9,
@@ -617,6 +726,18 @@ export function AppSidebar() {
                   {isMasterRole ? 'Administrador' : 'Representante'}
                 </div>
               </div>
+              <button onClick={handleHardRefresh} disabled={refreshing} title="Atualizar versão"
+                style={{
+                  width: 28, height: 28, borderRadius: 7, border: `1px solid ${S.border}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'transparent', cursor: refreshing ? 'wait' : 'pointer', flexShrink: 0,
+                  transition: 'background .15s',
+                  opacity: refreshing ? 0.6 : 1,
+                }}
+                onMouseEnter={e => { if (!refreshing) (e.currentTarget as HTMLElement).style.background = S.bgHover; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}>
+                <RefreshCw size={13} color={S.textSec} className={refreshing ? 'animate-spin' : ''} />
+              </button>
               <button onClick={logout} title="Sair"
                 style={{
                   width: 28, height: 28, borderRadius: 7, border: `1px solid ${S.border}`,
@@ -632,6 +753,9 @@ export function AppSidebar() {
           )}
         </div>
       </div>
+
+      {/* ── Bottom safe area ─────────────────────────────────────────────── */}
+      <div style={{ height: 28, flexShrink: 0 }} />
     </motion.aside>
   );
 }

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 const CentralEstatisticosPage = lazy(() => import('@/modules/estatisticas/pages/CentralEstatisticosPage'))
-const PortalHome      = lazy(() => import('@/modules/dashboard/pages/PortalHome'))
+const DashboardHome      = lazy(() => import('@/modules/dashboard/pages/HomeRouter'))
 const MetasPage       = lazy(() => import('@/modules/metas/pages/MetasPage'))
 const IndustriasPage  = lazy(() => import('@/modules/industrias/pages/IndustriasPage'))
 const ClientesPage    = lazy(() => import('@/modules/clientes/pages/ClientesPage'))
@@ -58,8 +58,10 @@ const PipelinePage             = lazy(() => import('@/modules/crm/pages/Pipeline
 const WhatsAppIAPage           = lazy(() => import('@/modules/crm/pages/WhatsAppIAPage'))
 const VisitasPage              = lazy(() => import('@/modules/crm/pages/VisitasPage'))
 const CampoAoVivoPage          = lazy(() => import('@/modules/crm/pages/CampoAoVivoPage'))
+const AftermarketPage          = lazy(() => import('@/modules/crm/pages/AftermarketPage'))
 const IrisVoicePage            = lazy(() => import('@/modules/nexus-ia/pages/IrisVoicePage'))
 const IrisConfigPage           = lazy(() => import('@/modules/iris/pages/IrisConfigPage'))
+const PergunteIrisPage         = lazy(() => import('@/modules/iris/pages/PergunteIrisPage'))
 const RelatoriosPage           = lazy(() => import('@/modules/relatorios/pages/RelatoriosPage'))
 const CentroAprendizadoPage    = lazy(() => import('@/modules/utilitarios/pages/CentroAprendizadoPage'))
 
@@ -72,7 +74,7 @@ export interface RouteItem {
 }
 
 export const ROUTE_CONFIG: Record<string, RouteItem> = {
-  '/dashboard': { id: 'dashboard', label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, element: <PortalHome /> },
+  '/dashboard': { id: 'dashboard', label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, element: <DashboardHome /> },
   '/bi': { id: 'bi', label: 'BI Intelligence', path: '/bi', icon: PieChart, element: null },
   '/estatisticas': { id: 'estatisticas', label: 'Central Estatísticos', path: '/estatisticas', icon: BarChart2, element: <CentralEstatisticosPage /> },
   '/relatorios': { id: 'relatorios', label: 'Relatórios', path: '/relatorios', icon: FileText, element: <RelatoriosPage /> },
@@ -121,9 +123,11 @@ export const ROUTE_CONFIG: Record<string, RouteItem> = {
   '/repcrm/pipeline':                  { id: 'crm-pipeline',      label: 'Pipeline Kanban',      path: '/repcrm/pipeline',                   icon: Kanban,          element: <PipelinePage /> },
   '/repcrm/visitas':                   { id: 'crm-visitas',        label: 'Visitas',              path: '/repcrm/visitas',                    icon: CalendarDays,    element: <VisitasPage /> },
   '/repcrm/campo':                     { id: 'crm-campo',          label: 'Campo Ao Vivo',        path: '/repcrm/campo',                      icon: MapPin,          element: <CampoAoVivoPage /> },
+  '/repcrm/aftermarket':               { id: 'crm-aftermarket',    label: 'Aftermarket',          path: '/repcrm/aftermarket',                icon: Wrench,          element: <AftermarketPage /> },
   '/utilitarios/whatsapp-ia':          { id: 'whatsapp-ia',       label: 'WhatsApp IA',          path: '/utilitarios/whatsapp-ia',           icon: MessageCircle,   element: <WhatsAppIAPage /> },
   '/nexus-ia':                         { id: 'nexus-ia',          label: 'Iris — Sua Assistente', path: '/nexus-ia',             icon: Sparkles,        element: <IrisVoicePage /> },
   '/utilitarios/iris-config':          { id: 'iris-config',       label: 'IRIS — Configuração',   path: '/utilitarios/iris-config', icon: Sparkles,      element: <IrisConfigPage /> },
+  '/utilitarios/pergunte-iris':        { id: 'pergunte-iris',     label: 'IRIS Dev',              path: '/utilitarios/pergunte-iris', icon: Sparkles,    element: <PergunteIrisPage /> },
   '/utilitarios/tutoriais':            { id: 'centro-aprendizado', label: 'Centro de Aprendizado', path: '/utilitarios/tutoriais',   icon: BookOpen,      element: <CentroAprendizadoPage /> },
 };
 
