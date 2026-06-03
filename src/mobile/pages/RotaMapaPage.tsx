@@ -30,7 +30,14 @@ export default function RotaMapaPage() {
       setError(false);
       try {
         const r = await api.get(`/itinerarios/${id}/paradas`);
-        setParadas(r.data?.data || []);
+        // pg NUMERIC chega como string → coage p/ número (senão o center vira NaN e o Leaflet quebra)
+        const data = (r.data?.data || []).map((p: any) => ({
+          ...p,
+          cli_latitude: p.cli_latitude != null ? Number(p.cli_latitude) : null,
+          cli_longitude: p.cli_longitude != null ? Number(p.cli_longitude) : null,
+          gps_real: p.gps_real === true || p.gps_real === 'true' || p.gps_real === 't',
+        }));
+        setParadas(data);
       } catch {
         setError(true);
       } finally {

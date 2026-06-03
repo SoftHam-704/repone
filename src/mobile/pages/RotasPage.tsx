@@ -17,15 +17,17 @@ export default function RotasPage() {
   const navigate = useNavigate();
   const [rows, setRows] = useState<Rota[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
+      setError(false);
       try {
         const r = await api.get('/itinerarios');
         setRows(r.data?.data || []);
       } catch {
-        /* silencioso */
+        setError(true);
       } finally {
         setLoading(false);
       }
@@ -49,6 +51,12 @@ export default function RotasPage() {
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
             <Loader2 size={26} style={{ color: 'var(--navy)', animation: 'spin 0.8s linear infinite' }} />
+          </div>
+        ) : error ? (
+          <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--navy-muted)', fontSize: 14 }}>
+            <RouteIcon size={36} style={{ opacity: 0.4, marginBottom: 12 }} />
+            <p style={{ fontWeight: 700, color: 'var(--navy)' }}>Não foi possível carregar as rotas</p>
+            <p style={{ fontSize: 13, marginTop: 4 }}>Verifique sua conexão e tente novamente.</p>
           </div>
         ) : rows.length === 0 ? (
           <div
