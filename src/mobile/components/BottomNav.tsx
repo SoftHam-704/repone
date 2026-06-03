@@ -1,4 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuthStore } from '@/shared/stores/useAuthStore';
 import { Home, Users, ShoppingCart, TrendingUp, BarChart2, Route } from 'lucide-react';
 
 const TABS = [
@@ -13,6 +14,10 @@ const TABS = [
 export function BottomNav() {
   const navigate  = useNavigate();
   const location  = useLocation();
+  const isPromotor = useAuthStore(s => s.user?.isPromotor);
+  const tabs = isPromotor
+    ? TABS.filter(t => t.path !== '/mobile/pedidos' && t.path !== '/mobile/bi')
+    : TABS;
 
   return (
     <nav style={{
@@ -22,7 +27,7 @@ export function BottomNav() {
       display: 'flex', height: 64, zIndex: 100,
       paddingBottom: 'env(safe-area-inset-bottom)',
     }}>
-      {TABS.map(tab => {
+      {tabs.map(tab => {
         const active = location.pathname.startsWith(tab.path);
         const Icon   = tab.icon;
         return (

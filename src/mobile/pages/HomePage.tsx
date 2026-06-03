@@ -711,13 +711,16 @@ const ACTIONS = [
 
 function QuickActions() {
   const navigate = useNavigate();
+  const isPromotor = useAuthStore(s => s.user?.isPromotor);
+  const HIDE_PROMOTOR = ['Novo Pedido', 'Catálogo', 'Smart Mix', 'BI'];
+  const actions = isPromotor ? ACTIONS.filter(a => !HIDE_PROMOTOR.includes(a.label)) : ACTIONS;
   return (
     <div style={{ padding: '20px 16px 0' }}>
       <h2 style={{ fontSize: 14, fontWeight: 900, color: 'var(--navy)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 }}>
         Acesso Rápido
       </h2>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-        {ACTIONS.map((a, i) => {
+        {actions.map((a, i) => {
           const Icon = a.icon;
           return (
             <motion.button key={a.label} initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
