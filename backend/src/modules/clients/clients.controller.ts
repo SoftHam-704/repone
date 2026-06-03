@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { getLinkedSellerId } from '../../shared/permissions';
+import { getScopeSellerId } from '../../shared/permissions';
 
 // ─── GET /api/clients ─────────────────────────────────────────────────────────
 export async function listClientsHandler(req: Request, res: Response): Promise<void> {
@@ -36,7 +36,8 @@ export async function listClientsHandler(req: Request, res: Response): Promise<v
     const params: any[] = [];
     let idx = 1;
 
-    const sellerId = await getLinkedSellerId(db, req.user?.userId);
+    // Escopo de carteira: respeita o toggle do tenant (damarep = todos atendem todos → sem filtro).
+    const sellerId = await getScopeSellerId(db, req.user?.userId);
     if (sellerId) {
       query += ` AND c.cli_vendedor = $${idx++}`;
       params.push(sellerId);
@@ -104,7 +105,7 @@ export async function getClientHandler(req: Request, res: Response): Promise<voi
         s.set_nome AS setor_nome,
         c.cli_obspedido, c.cli_suframa,
         c.cli_latitude, c.cli_longitude,
-        c.cli_tipopes, c.cli_redeloja,
+        c.cli_tipopes, c.cli_redeloja, c.cli_atuacao, c.cli_ignora_estat,
         c.cli_dtabertura, c.cli_datacad,
         c.cli_cepcob, c.cli_endcob, c.cli_baicob, c.cli_cidcob, c.cli_ufcob
       FROM clientes c
@@ -152,10 +153,10 @@ export async function createClientHandler(req: Request, res: Response): Promise<
         cli_latitude, cli_longitude,
         cli_tipopes, cli_redeloja, cli_dtabertura, cli_datacad,
         cli_cepcob, cli_endcob, cli_baicob, cli_cidcob, cli_ufcob, cli_fone3,
-        cli_atuacao
+        cli_atuacao, cli_ignora_estat
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37
+        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38
       ) RETURNING cli_codigo
     `, [
       data.cli_nome, data.cli_fantasia, data.cli_nomred, data.cli_cnpj || null, data.cli_inscricao,
@@ -173,6 +174,7 @@ export async function createClientHandler(req: Request, res: Response): Promise<
       data.cli_dtabertura || null, data.cli_datacad || new Date(),
       data.cli_cepcob, data.cli_endcob, data.cli_baicob, data.cli_cidcob, data.cli_ufcob, data.cli_fone3,
       data.cli_atuacao || null,
+      data.cli_ignora_estat === true,   // default FALSE: lojista nasce como comprador; REP marca só quem NÃO compra
     ]);
 
     res.json({ success: true, message: 'Cliente cadastrado com sucesso!', id: result.rows[0].cli_codigo });
@@ -211,8 +213,8 @@ export async function updateClientHandler(req: Request, res: Response): Promise<
         cli_latitude=$25, cli_longitude=$26,
         cli_tipopes=$27, cli_redeloja=$28, cli_dtabertura=$29,
         cli_cepcob=$30, cli_endcob=$31, cli_baicob=$32, cli_cidcob=$33, cli_ufcob=$34, cli_fone3=$35,
-        cli_atuacao=$36
-      WHERE cli_codigo=$37
+        cli_atuacao=$36, cli_ignora_estat=$37
+      WHERE cli_codigo=$38
     `, [
       data.cli_nome, data.cli_fantasia, data.cli_nomred, data.cli_cnpj, data.cli_inscricao,
       data.cli_endereco, data.cli_endnum || null, data.cli_complemento || null, data.cli_bairro, data.cli_cep,
@@ -228,6 +230,7 @@ export async function updateClientHandler(req: Request, res: Response): Promise<
       data.cli_tipopes, data.cli_redeloja, data.cli_dtabertura || null,
       data.cli_cepcob, data.cli_endcob, data.cli_baicob, data.cli_cidcob, data.cli_ufcob, data.cli_fone3,
       data.cli_atuacao || null,
+      data.cli_ignora_estat === true,
       id,
     ]);
 
@@ -605,7 +608,10 @@ export async function upsertProspeccaoHandler(req: Request, res: Response): Prom
 }
 
 // ─── GET /api/clients/:id/areas ──────────────────────────────────────────────
-// Retorna todas as áreas com flag selected (opt-in via atua_cli)
+// Áreas de atuação são CATÁLOGO FECHADO mantido pela SoftHam, vivendo em
+// `public.area_atu`. Cada tenant ainda tem cópia local de area_atu (legacy V1)
+// mas o sistema deixa de ler dela — sempre `public.area_atu` agora.
+// A relação cliente↔área permanece em `[tenant].atua_cli`.
 export async function listAreasHandler(req: Request, res: Response): Promise<void> {
   try {
     const cliId = parseInt(String(req.params.id));
@@ -618,7 +624,8 @@ export async function listAreasHandler(req: Request, res: Response): Promise<voi
           SELECT 1 FROM atua_cli ac
           WHERE ac.atu_idcli = $1 AND ac.atu_atuaid = a.atu_id
         ) AS selected
-      FROM area_atu a
+      FROM public.area_atu a
+      WHERE COALESCE(a.atu_sel, 'S') = 'S'
       ORDER BY a.atu_descricao
     `, [cliId]);
     res.json({ success: true, data: result.rows });
@@ -701,18 +708,18 @@ export async function clienteHistoricoHandler(req: Request, res: Response): Prom
 
     const [industrias, pedidos] = await Promise.all([
       db.query(`
-        SELECT DISTINCT f.for_codigo, f.for_nomered, f.for_fantasia,
+        SELECT f.for_codigo, COALESCE(f.for_nomered, f.for_nome) AS for_nomered,
                MAX(p.ped_data) AS ultima_compra
         FROM pedidos p
         JOIN fornecedores f ON f.for_codigo = p.ped_industria
         WHERE p.ped_cliente = $1
           AND p.ped_situacao IN ('P','F')
-        GROUP BY f.for_codigo, f.for_nomered, f.for_fantasia
+        GROUP BY f.for_codigo, f.for_nomered, f.for_nome
         ORDER BY ultima_compra DESC
       `, [parseInt(String(id))]),
       db.query(`
         SELECT p.ped_pedido, p.ped_data, p.ped_totliq,
-               COALESCE(f.for_nomered, f.for_fantasia, '') AS for_nomered
+               COALESCE(f.for_nomered, f.for_nome, '') AS for_nomered
         FROM pedidos p
         LEFT JOIN fornecedores f ON f.for_codigo = p.ped_industria
         WHERE p.ped_cliente = $1
