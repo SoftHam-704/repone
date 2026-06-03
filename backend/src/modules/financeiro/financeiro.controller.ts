@@ -562,6 +562,62 @@ export async function createContaReceberHandler(req: Request, res: Response): Pr
   } catch (e) { err(res, e, 'create conta-receber'); }
 }
 
+// PUT /contas-receber/:id — edição completa. Regenera as parcelas
+// a partir do novo valor_total + numero_parcelas. Se a conta tinha recebimentos,
+// estes são RESETADOS (parcelas recebidas somem). Frontend mostra aviso antes.
+export async function updateContaReceberHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { id } = req.params;
+    const { descricao, id_cliente, numero_documento, valor_total, data_emissao, data_vencimento,
+            observacoes, id_plano_contas, id_centro_custo,
+            numero_parcelas = 1, intervalo_dias = 30 } = req.body;
+    const nParcelas = Number(numero_parcelas) || 1;
+    const valorTotalNum = Number(valor_total) || 0;
+
+    const updated = await db.transaction(async client => {
+      const r = await client.query(`
+        UPDATE fin_contas_receber SET
+          descricao=$1, id_cliente=$2, numero_documento=$3, valor_total=$4,
+          data_emissao=$5, data_vencimento=$6, observacoes=$7,
+          id_plano_contas=$8, id_centro_custo=$9,
+          valor_recebido=0, status='ABERTO', data_recebimento=NULL
+        WHERE id=$10 RETURNING *
+      `, [descricao, id_cliente || null, numero_documento, valorTotalNum, data_emissao, data_vencimento,
+          observacoes, id_plano_contas || null, id_centro_custo || null, id]);
+      if (!r.rows.length) return null;
+
+      // Regenera parcelas: apaga todas (inclusive recebidas) e cria N novas
+      await client.query('DELETE FROM fin_parcelas_receber WHERE id_conta_receber = $1', [id]);
+
+      if (nParcelas > 1) {
+        const valorParcela = parseFloat((valorTotalNum / nParcelas).toFixed(2));
+        let soma = 0;
+        for (let i = 1; i <= nParcelas; i++) {
+          const isUltima = i === nParcelas;
+          const valor = isUltima ? valorTotalNum - soma : valorParcela;
+          const dt = new Date(data_vencimento);
+          dt.setDate(dt.getDate() + (i - 1) * Number(intervalo_dias));
+          await client.query(
+            `INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
+            [id, i, valor, dt.toISOString().split('T')[0]]
+          );
+          soma += valor;
+        }
+      } else {
+        await client.query(
+          `INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento) VALUES ($1,1,$2,$3)`,
+          [id, valorTotalNum, data_vencimento]
+        );
+      }
+      return r.rows[0];
+    });
+
+    if (!updated) { res.status(404).json({ success: false, message: 'Conta não encontrada' }); return; }
+    res.json({ success: true, message: `Conta atualizada com ${nParcelas} parcela(s)`, data: updated });
+  } catch (e) { err(res, e, 'update conta-receber'); }
+}
+
 export async function baixaContaReceberHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
