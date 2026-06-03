@@ -23,6 +23,8 @@ e **passagem de saldo de um mês para o outro**. Os lançamentos vêm de **duas 
 | Permissão | **Gerência + Master** (herda `requireLevel(LEVEL.GERENCIA)` do Financeiro) |
 | Plataforma | **Web só** (ferramenta de escritório, não de campo) |
 | Pagamento com/sem imposto + teto | Baixa do **Contas a Pagar** registra split `sem imposto`/`com imposto`; teto **mensal configurável por empresa** (default 0 = desligado); ao ultrapassar, **só avisa** (não trava) |
+| Dashboard dedicado | A página Livro Caixa **é** um dashboard exclusivo: filtro por **período de/até**, **KPIs do período** (Entradas · Saídas · Resultado · Saldo final), **card do teto de imposto** (acumulado × teto), botão de lançar e o grid |
+| Ordenação do grid | **Pela sequência (id)** — coluna "Seq". **Lançamento retroativo é bloqueado** (data ≥ última já lançada na conta), então sequence == ordem cronológica e o saldo corrido nunca desbate |
 
 ## Modelo de dados (2 tabelas novas, por tenant)
 
@@ -69,16 +71,17 @@ EXECUTE format('CREATE TABLE IF NOT EXISTS %I.livro_caixa_contas …') … END L
 
 Tudo derivado — nada gravado por mês:
 
-- **Saldo de uma conta numa data D** = `saldo_inicial + Σ(crédito) − Σ(débito)` de todos os
-  lançamentos com `data <= D`, ordenados por `(data, id)`.
-- **SALDO ANTERIOR de um mês** = saldo no último dia do mês anterior (= soma de tudo antes do 1º
-  dia do mês selecionado).
-- **Saldo por linha** (extrato): saldo acumulado até aquela linha, calculado no backend e devolvido
-  junto de cada lançamento (não recalcular no front).
-- **Saldo atual da conta** = saldo até hoje. Usado nos cards de resumo.
+- **Saldo de uma conta** = `saldo_inicial + Σ(crédito) − Σ(débito)` de todos os lançamentos da conta.
+- **SALDO ANTERIOR do período** = `saldo_inicial + Σ` de tudo com `data < de` (a data inicial do filtro).
+- **Saldo por linha** (extrato): acumulado até aquela linha **na ordem da sequência (id)**, calculado
+  no backend e devolvido junto de cada lançamento (não recalcular no front).
+- **Saldo atual da conta** = saldo de tudo. Usado nos cards de resumo.
 
-O cálculo do saldo anterior + corrido é feito no SQL da listagem (window function
-`SUM(...) OVER (ORDER BY data, id)`), com um SELECT separado para o saldo anterior ao período.
+O cálculo do saldo corrido é feito no SQL da listagem (window function
+`SUM(...) OVER (ORDER BY id ROWS UNBOUNDED PRECEDING)`), com um SELECT separado para o saldo
+anterior ao período. **Ordenação por `id` (sequence), não por data** — válido porque lançamento
+retroativo é bloqueado (`checkRetroativo`: a data de um novo lançamento não pode ser anterior à
+maior data já existente na conta, nem ao `data_saldo_inicial`), logo `id` e cronologia coincidem.
 
 ## Origem dos lançamentos
 
@@ -110,9 +113,16 @@ A baixa já existe e roda **por parcela**, dentro de `db.transaction`. Pontos ex
   `historico` = descrição da conta + documento.
 - `baixaContaReceberHandler` (`financeiro.controller.ts:681`) — análogo, `tipo='C'`, `origem='CR'`,
   herda da `fin_contas_receber`.
-- **Reabertura/estorno** (`fin_parcelas_*` → `status='ABERTO'`, `~financeiro.controller.ts:390/637`)
-  — DELETE do lançamento de caixa correspondente (`origem` + `id_parcela_origem`) dentro da mesma
-  transação, para nunca ficar órfão nem duplicar.
+- **Limpeza (não existe endpoint "reabrir baixa"):** o estorno acontece de forma indireta. Quando
+  uma parcela paga é destruída, seu lançamento de caixa precisa sumir junto. Pontos:
+  - `updateContaPagarHandler` (`financeiro.controller.ts:397`) — ao editar a conta, ela faz
+    `DELETE FROM fin_parcelas_pagar WHERE id_conta_pagar=$1` (apaga até as pagas) e regenera. Antes
+    desse delete, remover os lançamentos de caixa das parcelas dessa conta
+    (`DELETE FROM livro_caixa_lancamentos WHERE origem='CP' AND id_parcela_origem IN (SELECT id FROM fin_parcelas_pagar WHERE id_conta_pagar=$1)`).
+  - `deleteContaPagarHandler` — idem, antes de excluir a conta/parcelas.
+  - Análogo para `receber` (`origem='CR'`).
+  - `id_parcela_origem` é INTEGER **sem FK** (evita bloquear deletes em produção viva); a limpeza é
+    explícita no handler, no estilo da casa.
 
 **Novos campos na requisição de baixa:**
 - `id_conta_caixa` (em qual caixa o dinheiro entrou/saiu) — **obrigatório** para a baixa concluir;
@@ -172,7 +182,8 @@ Endpoints:
 | POST | `/contas` | cria conta (com saldo inicial) |
 | PUT | `/contas/:id` | edita conta |
 | DELETE | `/contas/:id` | inativa (ou exclui se sem lançamento) |
-| GET | `/lancamentos?conta_id=&mes=&ano=` | extrato do período: saldo anterior + lançamentos com saldo corrido |
+| GET | `/lancamentos?conta_id=&de=&ate=` | extrato do período: saldo anterior + KPIs + lançamentos com saldo corrido (ordem por `id`) |
+| GET | `/config` | teto de imposto mensal + acumulado do mês corrente (p/ card e baixa) |
 | POST | `/lancamentos` | cria lançamento manual |
 | PUT | `/lancamentos/:id` | edita lançamento manual (bloqueia se `origem != 'MA'`) |
 | DELETE | `/lancamentos/:id` | exclui manual / par de transferência (bloqueia CP/CR) |
@@ -192,12 +203,16 @@ Toda query usa `req.db!`. Transações via `db.transaction` (padrão da casa). C
 `src/modules/financeiro/pages/LivroCaixaPage.tsx`, no menu Financeiro, padrão Areia+Navy
 (tokens `G` locais, hero navy, KPI strip, tabela, modais — igual `PlanoContasPage`/`ContasPagarPage`).
 
-Layout:
-- **Hero navy**: título + SearchCombobox de **conta** + seletor de **mês/ano**.
-- **KPI strip** (margin-top negativo): cards de **saldo atual por conta** + **total geral**.
-- **Faixa de período**: **SALDO ANTERIOR** (grande) da conta selecionada no mês.
-- **Tabela conta-corrente**: Data · Histórico · (Plano/Centro, discretos) · Documento · **Débito** ·
-  **Crédito** · **Saldo** (corrido). Linhas de baixa com selo de origem (CP/CR) e visual "só-leitura".
+Layout (dashboard dedicado):
+- **Hero navy**: título + SearchCombobox de **conta** + filtro **De / Até** (datas) + botões.
+- **KPI strip do período** (margin-top negativo): **Entradas · Saídas · Resultado · Saldo final** +
+  **card do teto de imposto** (acumulado do mês × teto, barra de progresso, alerta se ultrapassar;
+  só aparece quando `teto > 0`).
+- **Saldo por conta**: cards de **saldo atual por conta** + **total geral**.
+- **Faixa de período**: **SALDO ANTERIOR** (antes do "De").
+- **Tabela conta-corrente** (ordenada por **Seq/id**): **Seq** · Data · Histórico · (Plano/Centro,
+  discretos) · Documento · **Débito** · **Crédito** · **Saldo** (corrido). Linhas de baixa com selo de
+  origem (CP/CR) e visual "só-leitura".
 - **Botões**: **Novo lançamento** (modal: conta, data, histórico, tipo C/D, valor mascarado pt-BR,
   plano/centro opcionais, documento) e **Transferência** (modal: conta origem, conta destino, valor,
   data, histórico).
