@@ -582,9 +582,9 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
   conta: Conta; parcela: Parcela; onClose: () => void; onSaved: () => void
 }) {
   const [form, setForm] = useState({
-    data_pagamento: todayISO(), valor_pago: String(parcela.valor),
-    juros: '0', desconto: '0', observacoes: '', gerar_residuo: true,
-    id_conta_caixa: '', valor_sem_imposto: String(parcela.valor), valor_com_imposto: '0',
+    data_pagamento: todayISO(), valor_pago: String(Math.round(Number(parcela.valor) * 100)),
+    juros: '', desconto: '', observacoes: '', gerar_residuo: true,
+    id_conta_caixa: '', valor_sem_imposto: String(Math.round(Number(parcela.valor) * 100)), valor_com_imposto: '',
   })
   const [contasCaixa, setContasCaixa] = useState<{ id: number; conta_nome: string }[]>([])
   const [teto, setTeto] = useState(0)
@@ -596,8 +596,8 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }))
-  const vPago = parseFloat(form.valor_pago || '0')
-  const residual = parcela.valor - vPago - parseFloat(form.desconto || '0')
+  const vPago = digitsToReais(form.valor_pago)
+  const residual = parcela.valor - vPago - digitsToReais(form.desconto)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError('')
@@ -607,13 +607,13 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
         id_parcela: parcela.id,
         data_pagamento: form.data_pagamento,
         valor_pago: vPago,
-        juros: parseFloat(form.juros || '0'),
-        desconto: parseFloat(form.desconto || '0'),
+        juros: digitsToReais(form.juros),
+        desconto: digitsToReais(form.desconto),
         observacoes: form.observacoes,
         gerar_residuo: form.gerar_residuo,
         id_conta_caixa: Number(form.id_conta_caixa),
-        valor_sem_imposto: parseFloat(form.valor_sem_imposto || '0'),
-        valor_com_imposto: parseFloat(form.valor_com_imposto || '0'),
+        valor_sem_imposto: digitsToReais(form.valor_sem_imposto),
+        valor_com_imposto: digitsToReais(form.valor_com_imposto),
       })
       const aviso = resp?.data?.aviso_teto_imposto
       if (aviso) {
@@ -652,23 +652,23 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Sem imposto
-                  <input value={form.valor_sem_imposto} onChange={e => set('valor_sem_imposto', e.target.value)} style={inputStyle} inputMode="decimal" />
+                  <input value={maskBRLFromDigits(form.valor_sem_imposto)} onChange={e => set('valor_sem_imposto', e.target.value.replace(/\D/g, ''))} style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" />
                 </label>
                 <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Com imposto
-                  <input value={form.valor_com_imposto} onChange={e => set('valor_com_imposto', e.target.value)} style={inputStyle} inputMode="decimal" />
+                  <input value={maskBRLFromDigits(form.valor_com_imposto)} onChange={e => set('valor_com_imposto', e.target.value.replace(/\D/g, ''))} style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" />
                 </label>
               </div>
             </div>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Valor Pago
-              <input value={form.valor_pago} onChange={e => set('valor_pago', e.target.value)} style={inputStyle} inputMode="decimal" />
+              <input value={maskBRLFromDigits(form.valor_pago)} onChange={e => set('valor_pago', e.target.value.replace(/\D/g, ''))} style={inputStyle} inputMode="numeric" />
             </label>
             <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Juros
-              <input value={form.juros} onChange={e => set('juros', e.target.value)} style={inputStyle} inputMode="decimal" />
+              <input value={maskBRLFromDigits(form.juros)} onChange={e => set('juros', e.target.value.replace(/\D/g, ''))} style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" />
             </label>
             <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Desconto
-              <input value={form.desconto} onChange={e => set('desconto', e.target.value)} style={inputStyle} inputMode="decimal" />
+              <input value={maskBRLFromDigits(form.desconto)} onChange={e => set('desconto', e.target.value.replace(/\D/g, ''))} style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" />
             </label>
           </div>
           {residual > 0.01 && (

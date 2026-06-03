@@ -9,6 +9,16 @@ const G = {
   muted: '#7A8899', navy: '#1E2D3D', mustard: '#FFD200', green: '#059669', red: '#DC2626',
 }
 const fmtBRL = (n: number) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+// Máscara BRL: estado guarda dígitos (centavos); display formatado; digita da direita p/ esquerda.
+function maskBRLFromDigits(digits: string): string {
+  const cents = (digits || '').replace(/\D/g, '')
+  if (!cents) return ''
+  return (parseInt(cents, 10) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+const digitsToReais = (digits: string): number => {
+  const cents = (digits || '').replace(/\D/g, '')
+  return cents ? parseInt(cents, 10) / 100 : 0
+}
 function fmtDate(d: string) {
   if (!d) return '—'
   const [y, m, day] = d.substring(0, 10).split('-')
@@ -214,7 +224,7 @@ function NovoLancamentoModal({ contas, contaInicial, onClose, onSaved }: {
     try {
       await api.post('/livro-caixa/lancamentos', {
         conta_id: Number(form.conta_id), data: form.data, tipo: form.tipo,
-        valor: parseFloat(String(form.valor).replace(',', '.')), historico: form.historico,
+        valor: digitsToReais(form.valor), historico: form.historico,
         id_plano_contas: form.id_plano_contas || null, id_centro_custo: form.id_centro_custo || null,
         documento: form.documento || null,
       })
@@ -273,7 +283,7 @@ function TransferenciaModal({ contas, onClose, onSaved }: { contas: ContaCaixa[]
     try {
       await api.post('/livro-caixa/transferencia', {
         conta_origem: Number(form.conta_origem), conta_destino: Number(form.conta_destino),
-        valor: parseFloat(String(form.valor).replace(',', '.')), data: form.data, historico: form.historico,
+        valor: digitsToReais(form.valor), data: form.data, historico: form.historico,
       })
       onSaved()
     } catch (err: any) { setError(err?.response?.data?.message ?? 'Erro') }
@@ -296,7 +306,7 @@ function TransferenciaModal({ contas, onClose, onSaved }: { contas: ContaCaixa[]
           </label>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <label style={lblStyle}>Valor<input value={form.valor} onChange={e => set('valor', e.target.value)} style={inputStyle} inputMode="decimal" placeholder="0,00" /></label>
+          <label style={lblStyle}>Valor<input value={maskBRLFromDigits(form.valor)} onChange={e => set('valor', e.target.value.replace(/\D/g, ''))} style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" /></label>
           <label style={lblStyle}>Data<input type="date" value={form.data} onChange={e => set('data', e.target.value)} style={inputStyle} /></label>
         </div>
         <label style={lblStyle}>Histórico<input value={form.historico} onChange={e => set('historico', e.target.value)} style={inputStyle} placeholder="Opcional" /></label>
@@ -318,7 +328,7 @@ function ContasModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
   useEffect(() => { load() }, [])
   async function add(e: React.FormEvent) {
     e.preventDefault()
-    await api.post('/livro-caixa/contas', { ...form, saldo_inicial: parseFloat(String(form.saldo_inicial || '0').replace(',', '.')) })
+    await api.post('/livro-caixa/contas', { ...form, saldo_inicial: digitsToReais(form.saldo_inicial) })
     setForm({ conta_nome: '', conta_tipo: 'caixa', saldo_inicial: '', data_saldo_inicial: todayISO() })
     load(); onChanged()
   }
@@ -332,7 +342,7 @@ function ContasModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
             <option value="caixa">Caixa</option><option value="banco">Banco</option><option value="pix">PIX</option><option value="outro">Outro</option>
           </select>
         </label>
-        <label style={lblStyle}>Saldo inicial<input value={form.saldo_inicial} onChange={e => set('saldo_inicial', e.target.value)} style={inputStyle} inputMode="decimal" placeholder="0,00" /></label>
+        <label style={lblStyle}>Saldo inicial<input value={maskBRLFromDigits(form.saldo_inicial)} onChange={e => set('saldo_inicial', e.target.value.replace(/\D/g, ''))} style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" /></label>
         <button type="submit" style={btnPrimary(G.mustard)}>+ Add</button>
       </form>
       <div style={{ maxHeight: 240, overflow: 'auto' }}>
