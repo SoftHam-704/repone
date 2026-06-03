@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, Eraser, AlertCircle, Save } from 'lucide-react';
+import { LogIn, Eraser, AlertCircle, Save, ShieldCheck } from 'lucide-react';
 import { api } from '@/shared/lib/api';
 import { useAuthStore } from '@/shared/stores/useAuthStore';
 
@@ -31,9 +31,21 @@ export default function LoginPage() {
   const [lembrar,   setLembrar]   = useState(!!saved);
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState('');
+  const [existingSession, setExistingSession] = useState<null | { info?: { ip?: string; userAgent?: string; dataLogin?: string } }>(null);
 
   const navigate = useNavigate();
   const { login } = useAuthStore();
+
+  // Mensagem de "você foi derrubado por outra máquina" persistida pelo interceptor 401
+  useEffect(() => {
+    try {
+      const msg = sessionStorage.getItem('sm_session_kick_msg');
+      if (msg) {
+        setError(msg);
+        sessionStorage.removeItem('sm_session_kick_msg');
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   const handleLimpar = () => {
     setCnpj(''); setNome(''); setSobrenome(''); setPassword('');
@@ -41,19 +53,14 @@ export default function LoginPage() {
     localStorage.removeItem(SAVED_KEY);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const doLogin = async (forceLogin: boolean) => {
+    setLoading(true);
     setError('');
     const cleanCNPJ = cnpj.replace(/\D/g, '');
-    if (cleanCNPJ.length !== 14) { setError('CNPJ deve ter 14 dígitos'); return; }
-    if (!nome.trim())             { setError('Informe o nome'); return; }
-    if (!sobrenome.trim())        { setError('Informe o sobrenome'); return; }
-    if (!password)                { setError('Informe a senha'); return; }
-
-    setLoading(true);
     try {
       const r = await api.post('/auth/login', {
         cnpj: cleanCNPJ, nome: nome.trim(), sobrenome: sobrenome.trim(), password,
+        forceLogin,
       });
       if (r.data.success) {
         if (lembrar) {
@@ -65,10 +72,35 @@ export default function LoginPage() {
         navigate('/mobile/home', { replace: true });
       }
     } catch (err: any) {
+      // Limite de sessões: backend novo manda code 'SESSION_LIMIT_REACHED'
+      // (o 'EXISTING_SESSION' antigo virou legacyCode). Aceita os dois.
+      const c = err.response?.data?.code;
+      const legacy = err.response?.data?.legacyCode;
+      if (err.response?.status === 409 &&
+          (c === 'SESSION_LIMIT_REACHED' || c === 'EXISTING_SESSION' || legacy === 'EXISTING_SESSION')) {
+        setExistingSession({ info: err.response.data.existingSession });
+        return;
+      }
       setError(err.response?.data?.message || 'CNPJ, nome ou senha inválidos');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    const cleanCNPJ = cnpj.replace(/\D/g, '');
+    if (cleanCNPJ.length !== 14) { setError('CNPJ deve ter 14 dígitos'); return; }
+    if (!nome.trim())             { setError('Informe o nome'); return; }
+    if (!sobrenome.trim())        { setError('Informe o sobrenome'); return; }
+    if (!password)                { setError('Informe a senha'); return; }
+    await doLogin(false);
+  };
+
+  const confirmForceLogin = async () => {
+    setExistingSession(null);
+    await doLogin(true);
   };
 
   const s: Record<string, React.CSSProperties> = {
@@ -235,6 +267,64 @@ export default function LoginPage() {
       <p style={{ position: 'absolute', bottom: 20, fontSize: 11, color: 'rgba(255,255,255,0.3)', zIndex: 1 }}>
         © 2026 RepOne. Todos os direitos reservados.
       </p>
+
+      {existingSession && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.7)', padding: 20,
+        }}>
+          <div style={{
+            background: 'var(--sand-bg)', borderRadius: 16, padding: '24px 22px',
+            width: '100%', maxWidth: 380,
+            boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <ShieldCheck size={20} color="var(--mustard)" />
+              <span style={{ fontSize: 15, fontWeight: 900, color: 'var(--navy)' }}>
+                Sessão já ativa
+              </span>
+            </div>
+            <p style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--navy-muted)', marginBottom: 12 }}>
+              Esse usuário já está logado em outro dispositivo. Só permitimos uma sessão por vez.
+            </p>
+            {existingSession.info?.dataLogin && (
+              <div style={{ background: 'rgba(255,210,0,0.10)', borderRadius: 8, padding: '8px 10px', marginBottom: 16, fontSize: 11, color: 'var(--navy-muted)' }}>
+                Logado em: <strong style={{ color: 'var(--navy)' }}>{new Date(existingSession.info.dataLogin).toLocaleString('pt-BR')}</strong>
+                {existingSession.info.ip && <><br />IP: <strong style={{ color: 'var(--navy)', fontFamily: 'monospace' }}>{existingSession.info.ip}</strong></>}
+              </div>
+            )}
+            <p style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--navy)', marginBottom: 18 }}>
+              Quer <strong>desconectar a outra sessão</strong> e entrar aqui?
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setExistingSession(null)}
+                disabled={loading}
+                style={{
+                  flex: 1, padding: '11px 0', borderRadius: 10, border: '1.5px solid var(--border)',
+                  background: 'transparent', color: 'var(--navy-muted)', fontSize: 12, fontWeight: 700,
+                  cursor: 'pointer', textTransform: 'uppercase' as const, letterSpacing: 0.5,
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmForceLogin}
+                disabled={loading}
+                style={{
+                  flex: 1.5, padding: '11px 0', borderRadius: 10, border: 'none',
+                  background: 'var(--mustard)', color: 'var(--navy)', fontSize: 12, fontWeight: 900,
+                  cursor: 'pointer', textTransform: 'uppercase' as const, letterSpacing: 0.5,
+                  boxShadow: '0 4px 12px rgba(255,210,0,0.35)',
+                }}
+              >
+                {loading ? 'Conectando...' : 'Sim, entrar aqui'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
