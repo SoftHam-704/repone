@@ -120,3 +120,95 @@ export async function configCaixaHandler(req: Request, res: Response): Promise<v
     res.json({ success: true, data: { teto_com_imposto_mensal: teto, acumulado_mes: Number(acc.rows[0].acc) } });
   } catch (e) { err(res, e, 'config'); }
 }
+
+// ════════════════════════════════════════════════════════════════════
+// LANÇAMENTOS (conta corrente) — ordenados pela SEQUÊNCIA (id)
+// ════════════════════════════════════════════════════════════════════
+
+// Bloqueia lançamento retroativo: a data não pode ser anterior à última já lançada na conta
+// (nem ao saldo inicial). Garante que ORDER BY id == ordem cronológica. Aceita db OU client.
+// Retorna o "piso" (DD/MM/YYYY) quando é retroativo, senão null.
+async function checkRetroativo(db: any, contaId: number, data: string): Promise<string | null> {
+  const r = await db.query(`
+    SELECT ($2::date < GREATEST(c.data_saldo_inicial,
+              COALESCE((SELECT MAX(l.data) FROM livro_caixa_lancamentos l WHERE l.conta_id = c.id), c.data_saldo_inicial))) AS retro,
+           to_char(GREATEST(c.data_saldo_inicial,
+              COALESCE((SELECT MAX(l.data) FROM livro_caixa_lancamentos l WHERE l.conta_id = c.id), c.data_saldo_inicial)), 'DD/MM/YYYY') AS piso
+    FROM livro_caixa_contas c WHERE c.id = $1
+  `, [contaId, data]);
+  return r.rows[0]?.retro ? (r.rows[0].piso as string) : null;
+}
+
+// GET /lancamentos?conta_id=&de=&ate=  → saldo anterior + KPIs + lançamentos (ordem = id/sequence)
+export async function listLancamentosHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const contaId = parseInt(String(req.query.conta_id));
+    const de = String(req.query.de || '');   // YYYY-MM-DD
+    const ate = String(req.query.ate || ''); // YYYY-MM-DD
+    if (!Number.isFinite(contaId) || !de || !ate) {
+      res.status(400).json({ success: false, message: 'conta_id, de e ate são obrigatórios.' }); return;
+    }
+    // saldo anterior = saldo_inicial + Σ lançamentos com data < de
+    const ant = await db.query(`
+      SELECT (c.saldo_inicial + COALESCE((
+        SELECT SUM(CASE WHEN l.tipo='C' THEN l.valor ELSE -l.valor END)
+        FROM livro_caixa_lancamentos l WHERE l.conta_id = c.id AND l.data < $2
+      ), 0)) AS saldo_anterior
+      FROM livro_caixa_contas c WHERE c.id = $1
+    `, [contaId, de]);
+    if (!ant.rows.length) { res.status(404).json({ success: false, message: 'Conta não encontrada.' }); return; }
+    const saldoAnterior = Number(ant.rows[0].saldo_anterior);
+
+    // lançamentos do período ordenados pela SEQUÊNCIA (id). Sem retroativo → id == cronologia.
+    const r = await db.query(`
+      SELECT l.id, l.data, l.historico, l.tipo, l.valor, l.documento, l.origem,
+             l.id_parcela_origem, l.id_transferencia,
+             l.id_plano_contas, pc.descricao AS plano_descricao,
+             l.id_centro_custo, cc.descricao AS centro_descricao,
+             SUM(CASE WHEN l.tipo='C' THEN l.valor ELSE -l.valor END)
+               OVER (ORDER BY l.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS delta_acum
+      FROM livro_caixa_lancamentos l
+      LEFT JOIN fin_plano_contas pc ON pc.id = l.id_plano_contas
+      LEFT JOIN fin_centro_custo  cc ON cc.id = l.id_centro_custo
+      WHERE l.conta_id = $1 AND l.data >= $2 AND l.data <= $3
+      ORDER BY l.id
+    `, [contaId, de, ate]);
+
+    let entradas = 0, saidas = 0;
+    const lancamentos = r.rows.map((x: any) => {
+      const v = Number(x.valor);
+      if (x.tipo === 'C') entradas += v; else saidas += v;
+      return { ...x, valor: v, saldo: saldoAnterior + Number(x.delta_acum) };
+    });
+    const saldoFinal = lancamentos.length ? lancamentos[lancamentos.length - 1].saldo : saldoAnterior;
+    res.json({ success: true, data: {
+      saldo_anterior: saldoAnterior, saldo_final: saldoFinal,
+      total_entradas: entradas, total_saidas: saidas, resultado: entradas - saidas,
+      lancamentos,
+    } });
+  } catch (e) { err(res, e, 'list lancamentos'); }
+}
+
+// POST /lancamentos — lançamento MANUAL (sem retroativo)
+export async function createLancamentoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { conta_id, data, historico, tipo, valor, id_plano_contas, id_centro_custo, documento } = req.body;
+    const valorNum = Number(valor);
+    if (!conta_id || !data || !historico || !String(historico).trim()) {
+      res.status(400).json({ success: false, message: 'Conta, data e histórico são obrigatórios.' }); return;
+    }
+    if (tipo !== 'C' && tipo !== 'D') { res.status(400).json({ success: false, message: 'Tipo deve ser C ou D.' }); return; }
+    if (!Number.isFinite(valorNum) || valorNum <= 0) { res.status(400).json({ success: false, message: 'Valor inválido.' }); return; }
+    const piso = await checkRetroativo(db, Number(conta_id), data);
+    if (piso) { res.status(400).json({ success: false, message: `Lançamento retroativo não permitido (anterior a ${piso}).` }); return; }
+    const r = await db.query(`
+      INSERT INTO livro_caixa_lancamentos
+        (conta_id, data, historico, tipo, valor, id_plano_contas, id_centro_custo, documento, origem)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'MA') RETURNING id
+    `, [conta_id, data, String(historico).trim(), tipo, valorNum,
+        id_plano_contas || null, id_centro_custo || null, documento || null]);
+    res.json({ success: true, message: 'Lançamento registrado.', id: r.rows[0].id });
+  } catch (e) { err(res, e, 'create lancamento'); }
+}
