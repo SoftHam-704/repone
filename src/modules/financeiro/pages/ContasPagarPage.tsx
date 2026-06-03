@@ -584,7 +584,15 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
   const [form, setForm] = useState({
     data_pagamento: todayISO(), valor_pago: String(parcela.valor),
     juros: '0', desconto: '0', observacoes: '', gerar_residuo: true,
+    id_conta_caixa: '', valor_sem_imposto: String(parcela.valor), valor_com_imposto: '0',
   })
+  const [contasCaixa, setContasCaixa] = useState<{ id: number; conta_nome: string }[]>([])
+  const [teto, setTeto] = useState(0)
+  const [accMes, setAccMes] = useState(0)
+  useEffect(() => {
+    api.get('/livro-caixa/contas').then(r => setContasCaixa(r.data.data)).catch(() => {})
+    api.get('/livro-caixa/config').then(r => { setTeto(Number(r.data.data.teto_com_imposto_mensal) || 0); setAccMes(Number(r.data.data.acumulado_mes) || 0) }).catch(() => {})
+  }, [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }))
@@ -593,8 +601,9 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError('')
+    if (!form.id_conta_caixa) { setError('Selecione a conta de caixa do pagamento.'); setSaving(false); return }
     try {
-      await api.post(`/financeiro/contas-pagar/${conta.id}/baixa`, {
+      const resp = await api.post(`/financeiro/contas-pagar/${conta.id}/baixa`, {
         id_parcela: parcela.id,
         data_pagamento: form.data_pagamento,
         valor_pago: vPago,
@@ -602,7 +611,14 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
         desconto: parseFloat(form.desconto || '0'),
         observacoes: form.observacoes,
         gerar_residuo: form.gerar_residuo,
+        id_conta_caixa: Number(form.id_conta_caixa),
+        valor_sem_imposto: parseFloat(form.valor_sem_imposto || '0'),
+        valor_com_imposto: parseFloat(form.valor_com_imposto || '0'),
       })
+      const aviso = resp?.data?.aviso_teto_imposto
+      if (aviso) {
+        alert(`⚠️ Teto mensal de pagamento COM IMPOSTO ultrapassado.\nAcumulado no mês: ${fmtBRL(aviso.acumulado)}\nTeto: ${fmtBRL(aviso.teto)}`)
+      }
       onSaved()
     } catch (err: any) { setError(err?.response?.data?.message ?? 'Erro') }
     finally { setSaving(false) }
@@ -623,6 +639,27 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
           <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Data Pagamento
             <input type="date" value={form.data_pagamento} onChange={e => set('data_pagamento', e.target.value)} style={inputStyle} />
           </label>
+          <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Conta de caixa
+            <select value={form.id_conta_caixa} onChange={e => set('id_conta_caixa', e.target.value)} style={inputStyle}>
+              <option value="">Selecione…</option>
+              {contasCaixa.map(c => <option key={c.id} value={c.id}>{c.conta_nome}</option>)}
+            </select>
+          </label>
+          {teto > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: '#FEF9C3', border: '1px solid #FCD34D', borderRadius: 6, padding: '10px 12px' }}>
+              <div style={{ fontSize: 11, color: '#92400E', fontWeight: 600 }}>
+                Split fiscal (reforma) — Com imposto no mês: {fmtBRL(accMes)} de {fmtBRL(teto)}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Sem imposto
+                  <input value={form.valor_sem_imposto} onChange={e => set('valor_sem_imposto', e.target.value)} style={inputStyle} inputMode="decimal" />
+                </label>
+                <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Com imposto
+                  <input value={form.valor_com_imposto} onChange={e => set('valor_com_imposto', e.target.value)} style={inputStyle} inputMode="decimal" />
+                </label>
+              </div>
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Valor Pago
               <input value={form.valor_pago} onChange={e => set('valor_pago', e.target.value)} style={inputStyle} inputMode="decimal" />

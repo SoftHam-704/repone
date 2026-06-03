@@ -585,7 +585,12 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
     valor_recebido: String(parcela.valor),
     juros: '0', desconto: '0',
     observacoes: '', gerar_residuo: true,
+    id_conta_caixa: '',
   })
+  const [contasCaixa, setContasCaixa] = useState<{ id: number; conta_nome: string }[]>([])
+  useEffect(() => {
+    api.get('/livro-caixa/contas').then(r => setContasCaixa(r.data.data)).catch(() => {})
+  }, [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }))
@@ -594,6 +599,7 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError('')
+    if (!form.id_conta_caixa) { setError('Selecione a conta de caixa do recebimento.'); setSaving(false); return }
     try {
       await api.post(`/financeiro/contas-receber/${conta.id}/baixa`, {
         id_parcela: parcela.id,
@@ -603,6 +609,7 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
         desconto: parseFloat(form.desconto || '0'),
         observacoes: form.observacoes,
         gerar_residuo: form.gerar_residuo,
+        id_conta_caixa: Number(form.id_conta_caixa),
       })
       onSaved()
     } catch (err: any) {
@@ -624,6 +631,12 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
           {error && <div style={{ background: '#FEE2E2', color: G.red, padding: '8px 12px', borderRadius: 6, fontSize: 13 }}>{error}</div>}
           <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Data Recebimento
             <input type="date" value={form.data_recebimento} onChange={e => set('data_recebimento', e.target.value)} style={inputStyle} />
+          </label>
+          <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Conta de caixa
+            <select value={form.id_conta_caixa} onChange={e => set('id_conta_caixa', e.target.value)} style={inputStyle}>
+              <option value="">Selecione…</option>
+              {contasCaixa.map(c => <option key={c.id} value={c.id}>{c.conta_nome}</option>)}
+            </select>
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Valor Recebido
