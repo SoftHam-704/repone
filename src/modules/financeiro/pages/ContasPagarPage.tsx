@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Plus, Search, Eye, Check, Trash2, ArrowUpCircle, X } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Plus, Search, Eye, Check, Trash2, ArrowUpCircle, X, Pencil, Building2, ChevronDown, ChevronUp, Calendar, FileText } from 'lucide-react'
 import { api } from '@/shared/lib/api'
 
 const G = {
@@ -19,6 +19,18 @@ const GRID_BG = `url("data:image/svg+xml,%3Csvg width='40' height='40' xmlns='ht
 
 function fmtBRL(v: any) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0)
+}
+// Máscara de moeda BRL para inputs controlados: estado interno em dígitos
+// (centavos como string), display formatado. Usuário digita da direita p/ esquerda.
+function maskBRLFromDigits(digits: string): string {
+  const cents = (digits || '').replace(/\D/g, '');
+  if (!cents) return '';
+  const num = parseInt(cents, 10) / 100;
+  return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+function digitsToReais(digits: string): number {
+  const cents = (digits || '').replace(/\D/g, '');
+  return cents ? parseInt(cents, 10) / 100 : 0;
 }
 function fmtDate(d: string) {
   if (!d) return '—'
@@ -78,6 +90,236 @@ function StatusBadge({ status }: { status: Status }) {
   )
 }
 
+// Form UI Subcomponents with focus/hover states
+function FormInput({
+  label,
+  required = false,
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & { label: string; required?: boolean }) {
+  const [focused, setFocused] = useState(false)
+  return (
+    <label style={{ fontSize: 12, color: G.muted, fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+      <span style={{ color: G.text }}>{label} {required && <span style={{ color: G.red }}>*</span>}</span>
+      <input
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={{
+          display: 'block',
+          width: '100%',
+          padding: '10px 14px',
+          border: focused ? `1.5px solid ${G.navy}` : `1px solid ${G.border}`,
+          borderRadius: 8,
+          fontSize: 13,
+          background: '#fff',
+          color: G.text,
+          outline: 'none',
+          boxSizing: 'border-box',
+          boxShadow: focused ? `${G.navy}1a 0px 0px 0px 3px` : 'none',
+          transition: 'all 0.15s ease-in-out',
+        }}
+        {...props}
+      />
+    </label>
+  )
+}
+
+function FormTextarea({
+  label,
+  required = false,
+  ...props
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label: string; required?: boolean }) {
+  const [focused, setFocused] = useState(false)
+  return (
+    <label style={{ fontSize: 12, color: G.muted, fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+      <span style={{ color: G.text }}>{label} {required && <span style={{ color: G.red }}>*</span>}</span>
+      <textarea
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={{
+          display: 'block',
+          width: '100%',
+          padding: '10px 14px',
+          border: focused ? `1.5px solid ${G.navy}` : `1px solid ${G.border}`,
+          borderRadius: 8,
+          fontSize: 13,
+          background: '#fff',
+          color: G.text,
+          outline: 'none',
+          boxSizing: 'border-box',
+          boxShadow: focused ? `${G.navy}1a 0px 0px 0px 3px` : 'none',
+          transition: 'all 0.15s ease-in-out',
+          height: 68,
+          resize: 'vertical',
+        }}
+        {...props}
+      />
+    </label>
+  )
+}
+
+interface ComboboxOption {
+  value: string
+  label: string
+  sublabel?: string
+}
+
+function CustomCombobox({
+  label,
+  options,
+  value,
+  onChange,
+  placeholder = '— Selecionar —',
+  required = false
+}: {
+  label: string
+  options: ComboboxOption[]
+  value: string
+  onChange: (val: string) => void
+  placeholder?: string
+  required?: boolean
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [isFocused, setIsFocused] = useState(false)
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const selectedOption = options.find(o => String(o.value) === String(value))
+
+  const filtered = options.filter(o =>
+    o.label.toLowerCase().includes(search.toLowerCase()) ||
+    (o.sublabel && o.sublabel.toLowerCase().includes(search.toLowerCase()))
+  )
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+      <label style={{ fontSize: 12, color: G.muted, fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ color: G.text }}>{label} {required && <span style={{ color: G.red }}>*</span>}</span>
+        <div
+          onClick={() => { setIsOpen(!isOpen); setSearch(''); }}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          tabIndex={0}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            width: '100%',
+            padding: '10px 14px',
+            border: isOpen || isFocused ? `1.5px solid ${G.navy}` : `1px solid ${G.border}`,
+            borderRadius: 8,
+            fontSize: 13,
+            background: '#fff',
+            color: selectedOption ? G.text : G.muted,
+            cursor: 'pointer',
+            boxSizing: 'border-box',
+            outline: 'none',
+            boxShadow: isOpen || isFocused ? `${G.navy}1a 0px 0px 0px 3px` : 'none',
+            transition: 'all 0.15s ease-in-out',
+          }}
+        >
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {selectedOption ? (
+              selectedOption.sublabel ? `${selectedOption.sublabel} — ${selectedOption.label}` : selectedOption.label
+            ) : (
+              placeholder
+            )}
+          </span>
+          {isOpen ? <ChevronUp size={16} color={G.muted} /> : <ChevronDown size={16} color={G.muted} />}
+        </div>
+      </label>
+
+      {isOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            marginTop: 6,
+            background: '#ffffff',
+            border: `1px solid ${G.border}`,
+            borderRadius: 8,
+            boxShadow: '0 8px 30px rgba(40,55,74,0.15)',
+            zIndex: 1010,
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ padding: 8, borderBottom: `1px solid ${G.border}`, display: 'flex', alignItems: 'center', gap: 6, background: '#FAF8F5' }}>
+            <Search size={14} color={G.muted} />
+            <input
+              autoFocus
+              type="text"
+              placeholder="Buscar..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{
+                width: '100%',
+                border: 'none',
+                background: 'transparent',
+                outline: 'none',
+                fontSize: 13,
+                color: G.text,
+              }}
+            />
+          </div>
+          <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: '12px 14px', fontSize: 13, color: G.muted, textAlign: 'center' }}>
+                Nenhum resultado encontrado
+              </div>
+            ) : (
+              filtered.map((opt, idx) => {
+                const isSelected = String(opt.value) === String(value)
+                const isHovered = hoveredIdx === idx
+                return (
+                  <div
+                    key={opt.value}
+                    onMouseEnter={() => setHoveredIdx(idx)}
+                    onMouseLeave={() => setHoveredIdx(null)}
+                    onClick={() => {
+                      onChange(String(opt.value))
+                      setIsOpen(false)
+                    }}
+                    style={{
+                      padding: '10px 14px',
+                      fontSize: 13,
+                      color: isSelected ? '#fff' : G.text,
+                      background: isSelected ? G.navy : isHovered ? '#F5F2EC' : 'transparent',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2,
+                      transition: 'background 0.1s ease',
+                    }}
+                  >
+                    <span style={{ fontWeight: isSelected ? 600 : 500 }}>{opt.label}</span>
+                    {opt.sublabel && (
+                      <span style={{ fontSize: 11, color: isSelected ? 'rgba(255,255,255,0.7)' : G.muted }}>
+                        {opt.sublabel}
+                      </span>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const inputStyle: React.CSSProperties = {
   display: 'block', width: '100%', marginTop: 4, padding: '8px 10px',
   border: `1px solid ${G.border}`, borderRadius: 6, fontSize: 13,
@@ -92,95 +334,254 @@ const btnPrimary = (bg: string): React.CSSProperties => ({
   borderRadius: 7, fontSize: 13, color: '#fff', cursor: 'pointer', fontWeight: 600,
 })
 
-function NovaContaModal({ onClose, onSaved, fornecedores, planoContas }: {
+function NovaContaModal({ onClose, onSaved, fornecedores, planoContas, centrosCusto, editingId }: {
   onClose: () => void; onSaved: () => void
-  fornecedores: FinFornecedor[]; planoContas: PlanoContas[]
+  fornecedores: FinFornecedor[]; planoContas: PlanoContas[]; centrosCusto: any[]
+  editingId?: number | null
 }) {
+  const isEdit = editingId != null
   const [form, setForm] = useState({
     descricao: '', id_fornecedor: '', numero_documento: '',
     valor_total: '', data_emissao: todayISO(), data_vencimento: todayISO(),
-    observacoes: '', id_plano_contas: '', numero_parcelas: '1', intervalo_dias: '30',
+    observacoes: '', id_plano_contas: '', id_centro_custo: '', numero_parcelas: '1', intervalo_dias: '30',
   })
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [saving, setSaving]     = useState(false)
+  const [loading, setLoading]   = useState(isEdit)
+  const [hasPago, setHasPago]   = useState(false)
+  const [error, setError]       = useState('')
+  const [hoveredBtn, setHoveredBtn] = useState<string | null>(null)
+  
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  useEffect(() => {
+    if (!isEdit) return
+    api.get(`/financeiro/contas-pagar/${editingId}`).then(r => {
+      if (!r.data.success) return
+      const c = r.data.data
+      const parcelas = c.parcelas ?? []
+      // Infere intervalo a partir das 2 primeiras parcelas
+      let intervalo = 30
+      if (parcelas.length >= 2) {
+        const d0 = new Date(parcelas[0].data_vencimento)
+        const d1 = new Date(parcelas[1].data_vencimento)
+        const diff = Math.round((d1.getTime() - d0.getTime()) / 86_400_000)
+        if (diff > 0) intervalo = diff
+      }
+      // valor_total no estado = string de centavos (dígitos)
+      const cents = Math.round(Number(c.valor_total) * 100).toString()
+      setForm({
+        descricao: c.descricao ?? '',
+        id_fornecedor: c.id_fornecedor ? String(c.id_fornecedor) : '',
+        numero_documento: c.numero_documento ?? '',
+        valor_total: cents,
+        data_emissao: (c.data_emissao ?? todayISO()).substring(0, 10),
+        data_vencimento: (c.data_vencimento ?? todayISO()).substring(0, 10),
+        observacoes: c.observacoes ?? '',
+        id_plano_contas: c.id_plano_contas ? String(c.id_plano_contas) : '',
+        id_centro_custo: c.id_centro_custo ? String(c.id_centro_custo) : '',
+        numero_parcelas: String(parcelas.length || 1),
+        intervalo_dias: String(intervalo),
+      })
+      setHasPago(Number(c.valor_pago) > 0)
+    }).catch(() => setError('Falha ao carregar conta.')).finally(() => setLoading(false))
+  }, [editingId, isEdit])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.descricao || !form.valor_total || !form.data_vencimento) { setError('Preencha os campos obrigatórios.'); return }
+    const valorReais = digitsToReais(form.valor_total)
+    if (!form.descricao || valorReais <= 0 || !form.data_vencimento) { setError('Preencha os campos obrigatórios.'); return }
+    if (isEdit && hasPago && !confirm('Esta conta já tem pagamentos registrados. Editar irá APAGAR todas as parcelas (inclusive as pagas) e regenerar. Continuar?')) return
     setSaving(true); setError('')
     try {
-      await api.post('/financeiro/contas-pagar', {
+      const payload = {
         ...form,
-        valor_total: parseFloat(form.valor_total.replace(',', '.')),
+        valor_total: valorReais,
         numero_parcelas: parseInt(form.numero_parcelas),
         intervalo_dias: parseInt(form.intervalo_dias),
         id_fornecedor:  form.id_fornecedor || null,
         id_plano_contas: form.id_plano_contas || null,
-      })
+        id_centro_custo: form.id_centro_custo || null,
+      }
+      if (isEdit) await api.put(`/financeiro/contas-pagar/${editingId}`, payload)
+      else        await api.post('/financeiro/contas-pagar', payload)
       onSaved()
     } catch (err: any) { setError(err?.response?.data?.message ?? 'Erro ao salvar') }
     finally { setSaving(false) }
   }
 
+  // Prepara opções dos comboboxes
+  const fornecedorOpts = fornecedores.map(f => ({ value: String(f.id), label: f.nome_razao }))
+  const planoOpts = planoContas.filter(p => p.tipo === 'D').map(p => ({ value: String(p.id), label: p.descricao, sublabel: p.codigo }))
+  const centroOpts = centrosCusto.filter(c => c.ativo !== false).map(c => ({ value: String(c.id), label: c.descricao, sublabel: c.codigo || undefined }))
+
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 520, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: G.text }}>Nova Conta a Pagar</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted }}><X size={18} /></button>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(40, 55, 74, 0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 16, padding: 28, width: '100%', maxWidth: 540, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(40,55,74,0.18)', display: 'flex', flexDirection: 'column' }}>
+        
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, paddingBottom: 16, borderBottom: `1px solid ${G.border}` }}>
+          <div style={{ width: 42, height: 42, borderRadius: 10, background: `${G.navy}0d`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <FileText size={20} color={G.navy} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: G.text }}>{isEdit ? 'Editar Conta a Pagar' : 'Nova Conta a Pagar'}</h3>
+            <p style={{ margin: 0, fontSize: 11, color: G.muted }}>{isEdit ? 'Atualize as informações do lançamento financeiro' : 'Cadastre um novo compromisso financeiro'}</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted, padding: 4, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
         </div>
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {error && <div style={{ background: '#FEE2E2', color: G.red, padding: '8px 12px', borderRadius: 6, fontSize: 13 }}>{error}</div>}
-          <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Descrição *
-            <input value={form.descricao} onChange={e => set('descricao', e.target.value)} style={inputStyle} required />
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Valor Total *
-              <input value={form.valor_total} onChange={e => set('valor_total', e.target.value)} style={inputStyle} inputMode="decimal" required />
-            </label>
-            <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>N° Documento
-              <input value={form.numero_documento} onChange={e => set('numero_documento', e.target.value)} style={inputStyle} />
-            </label>
+
+        {loading ? <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Carregando...</div> : (
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {error && <div style={{ background: '#FEE2E2', color: G.red, padding: '10px 14px', borderRadius: 8, fontSize: 13, borderLeft: `4px solid ${G.red}` }}>{error}</div>}
+          {isEdit && hasPago && (
+            <div style={{ background: '#FEF3C7', border: '1px solid #F59E0B', color: '#92400E', padding: '10px 14px', borderRadius: 8, fontSize: 12, borderLeft: '4px solid #F59E0B' }}>
+              ⚠ Esta conta tem pagamentos registrados. Salvar irá <strong>apagar todas as parcelas (inclusive as pagas)</strong> e regenerar a partir dos novos valores.
+            </div>
+          )}
+
+          {/* Descrição */}
+          <FormInput
+            label="Descrição"
+            value={form.descricao}
+            onChange={e => set('descricao', e.target.value)}
+            placeholder="Ex: Aluguel do escritório"
+            required
+          />
+
+          {/* Valor Total & N° Documento */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <FormInput
+              label="Valor Total"
+              value={maskBRLFromDigits(form.valor_total)}
+              onChange={e => set('valor_total', e.target.value.replace(/\D/g, ''))}
+              placeholder="R$ 0,00"
+              inputMode="numeric"
+              required
+            />
+            <FormInput
+              label="N° Documento"
+              value={form.numero_documento}
+              onChange={e => set('numero_documento', e.target.value)}
+              placeholder="000.000"
+            />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Emissão
-              <input type="date" value={form.data_emissao} onChange={e => set('data_emissao', e.target.value)} style={inputStyle} />
-            </label>
-            <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Vencimento *
-              <input type="date" value={form.data_vencimento} onChange={e => set('data_vencimento', e.target.value)} style={inputStyle} required />
-            </label>
+
+          {/* Emissão & Vencimento */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <FormInput
+              type="date"
+              label="Emissão"
+              value={form.data_emissao}
+              onChange={e => set('data_emissao', e.target.value)}
+            />
+            <FormInput
+              type="date"
+              label="Vencimento"
+              value={form.data_vencimento}
+              onChange={e => set('data_vencimento', e.target.value)}
+              required
+            />
           </div>
-          <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Fornecedor
-            <select value={form.id_fornecedor} onChange={e => set('id_fornecedor', e.target.value)} style={inputStyle}>
-              <option value="">— Selecionar —</option>
-              {fornecedores.map(f => <option key={f.id} value={f.id}>{f.nome_razao}</option>)}
-            </select>
-          </label>
-          <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Plano de Contas (Despesa)
-            <select value={form.id_plano_contas} onChange={e => set('id_plano_contas', e.target.value)} style={inputStyle}>
-              <option value="">— Selecionar —</option>
-              {planoContas.filter(p => p.tipo === 'D').map(p => (
-                <option key={p.id} value={p.id}>{p.codigo} — {p.descricao}</option>
-              ))}
-            </select>
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>N° Parcelas
-              <input type="number" value={form.numero_parcelas} onChange={e => set('numero_parcelas', e.target.value)} style={inputStyle} min="1" max="60" />
-            </label>
-            <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Intervalo (dias)
-              <input type="number" value={form.intervalo_dias} onChange={e => set('intervalo_dias', e.target.value)} style={inputStyle} min="1" />
-            </label>
+
+          {/* Fornecedor Combobox */}
+          <CustomCombobox
+            label="Fornecedor"
+            options={fornecedorOpts}
+            value={form.id_fornecedor}
+            onChange={val => set('id_fornecedor', val)}
+            placeholder="— Selecionar Fornecedor —"
+          />
+
+          {/* Plano de Contas Combobox */}
+          <CustomCombobox
+            label="Plano de Contas (Despesa)"
+            options={planoOpts}
+            value={form.id_plano_contas}
+            onChange={val => set('id_plano_contas', val)}
+            placeholder="— Selecionar Plano de Contas —"
+          />
+
+          {/* Centro de Custo Combobox */}
+          <CustomCombobox
+            label="Centro de Custo"
+            options={centroOpts}
+            value={form.id_centro_custo}
+            onChange={val => set('id_centro_custo', val)}
+            placeholder="— Selecionar Centro de Custo —"
+          />
+
+          {/* N° Parcelas & Intervalo */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <FormInput
+              type="number"
+              label="N° Parcelas"
+              value={form.numero_parcelas}
+              onChange={e => set('numero_parcelas', e.target.value)}
+              min="1"
+              max="60"
+            />
+            <FormInput
+              type="number"
+              label="Intervalo (dias)"
+              value={form.intervalo_dias}
+              onChange={e => set('intervalo_dias', e.target.value)}
+              min="1"
+            />
           </div>
-          <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Observações
-            <textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)} style={{ ...inputStyle, height: 60, resize: 'vertical' }} />
-          </label>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={btnSecondary}>Cancelar</button>
-            <button type="submit" disabled={saving} style={btnPrimary(G.red)}>{saving ? 'Salvando...' : 'Salvar'}</button>
+
+          {/* Observações */}
+          <FormTextarea
+            label="Observações"
+            value={form.observacoes}
+            onChange={e => set('observacoes', e.target.value)}
+            placeholder="Informações adicionais..."
+          />
+
+          {/* Footer Action Buttons */}
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 12, paddingTop: 16, borderTop: `1px solid ${G.border}` }}>
+            <button
+              type="button"
+              onClick={onClose}
+              onMouseEnter={() => setHoveredBtn('cancel')}
+              onMouseLeave={() => setHoveredBtn(null)}
+              style={{
+                padding: '10px 20px',
+                border: `1.5px solid ${G.border}`,
+                background: hoveredBtn === 'cancel' ? '#F5F2EC' : 'transparent',
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 600,
+                color: G.text,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease-in-out',
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              onMouseEnter={() => setHoveredBtn('save')}
+              onMouseLeave={() => setHoveredBtn(null)}
+              style={{
+                padding: '10px 24px',
+                border: 'none',
+                background: saving ? G.muted : G.red,
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 600,
+                color: '#fff',
+                cursor: saving ? 'not-allowed' : 'pointer',
+                boxShadow: hoveredBtn === 'save' && !saving ? `0 4px 12px ${G.red}33` : 'none',
+                transform: hoveredBtn === 'save' && !saving ? 'translateY(-1px)' : 'none',
+                transition: 'all 0.15s ease-in-out',
+              }}
+            >
+              {saving ? 'Salvando...' : 'Salvar'}
+            </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   )
@@ -337,11 +738,13 @@ export default function ContasPagarPage() {
   const [loading, setLoading]             = useState(true)
   const [fornecedores, setFornecedores]   = useState<FinFornecedor[]>([])
   const [planoContas, setPlanoContas]     = useState<PlanoContas[]>([])
+  const [centrosCusto, setCentrosCusto]   = useState<any[]>([])
   const [filters, setFilters] = useState({
     dataInicio: firstOfMonth(), dataFim: todayISO(), status: '', idFornecedor: '',
   })
   const [search, setSearch]         = useState('')
   const [showNova, setShowNova]     = useState(false)
+  const [editingId, setEditingId]   = useState<number | null>(null)
   const [detalhesId, setDetalhesId] = useState<number | null>(null)
   const [baixaData, setBaixaData]   = useState<{ conta: Conta; parcela: Parcela } | null>(null)
 
@@ -363,6 +766,7 @@ export default function ContasPagarPage() {
   useEffect(() => {
     api.get('/financeiro/fin-fornecedores').then(r => r.data.success && setFornecedores(r.data.data)).catch(() => {})
     api.get('/financeiro/plano-contas').then(r => r.data.success && setPlanoContas(r.data.data)).catch(() => {})
+    api.get('/financeiro/centro-custo').then(r => r.data.success && setCentrosCusto(r.data.data)).catch(() => {})
   }, [])
 
   async function handleDelete(id: number) {
@@ -494,6 +898,9 @@ export default function ContasPagarPage() {
                         <button title="Ver detalhes" onClick={() => setDetalhesId(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted, padding: 4 }}>
                           <Eye size={15} />
                         </button>
+                        <button title="Editar" onClick={() => setEditingId(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.text, padding: 4 }}>
+                          <Pencil size={14} />
+                        </button>
                         {(c.status === 'ABERTO' || isVencida(c)) && (
                           <button title="Registrar pagamento" onClick={async () => {
                             const r = await api.get(`/financeiro/contas-pagar/${c.id}`)
@@ -520,7 +927,12 @@ export default function ContasPagarPage() {
 
       {showNova && (
         <NovaContaModal onClose={() => setShowNova(false)} onSaved={() => { setShowNova(false); load() }}
-          fornecedores={fornecedores} planoContas={planoContas} />
+          fornecedores={fornecedores} planoContas={planoContas} centrosCusto={centrosCusto} />
+      )}
+      {editingId !== null && (
+        <NovaContaModal editingId={editingId}
+          onClose={() => setEditingId(null)} onSaved={() => { setEditingId(null); load() }}
+          fornecedores={fornecedores} planoContas={planoContas} centrosCusto={centrosCusto} />
       )}
       {detalhesId !== null && (
         <DetalhesModal contaId={detalhesId} onClose={() => setDetalhesId(null)}

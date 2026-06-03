@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authMiddleware } from '../../middleware/auth';
 import { tenantMiddleware } from '../../middleware/tenant';
+import { requireLevel, LEVEL } from '../../shared/roles';
 import {
   // Plano de Contas
   listPlanoContasHandler, createPlanoContasHandler, updatePlanoContasHandler, deletePlanoContasHandler,
@@ -11,7 +12,7 @@ import {
   // Fornecedores Financeiros
   listFinSuppliersHandler, getFinSupplierHandler, createFinSupplierHandler, updateFinSupplierHandler, deleteFinSupplierHandler,
   // Contas a Pagar
-  listContasPagarHandler, getContaPagarHandler, createContaPagarHandler,
+  listContasPagarHandler, getContaPagarHandler, createContaPagarHandler, updateContaPagarHandler,
   baixaContaPagarHandler, deleteContaPagarHandler,
   // Contas a Receber
   listContasReceberHandler, getContaReceberHandler, createContaReceberHandler,
@@ -23,7 +24,8 @@ import {
 } from './financeiro.controller';
 
 const router = Router();
-router.use(authMiddleware, tenantMiddleware);
+// Financeiro inteiro: gerência+ (operador não acessa). Master vê tudo.
+router.use(authMiddleware, tenantMiddleware, requireLevel(LEVEL.GERENCIA));
 
 // Dashboard
 router.get('/dashboard/summary', financeiroDashboardHandler);
@@ -62,6 +64,7 @@ router.delete('/fin-fornecedores/:id', deleteFinSupplierHandler);
 router.get   ('/contas-pagar',         listContasPagarHandler);
 router.post  ('/contas-pagar',         createContaPagarHandler);
 router.get   ('/contas-pagar/:id',     getContaPagarHandler);
+router.put   ('/contas-pagar/:id',     updateContaPagarHandler);
 router.post  ('/contas-pagar/:id/baixa', baixaContaPagarHandler);
 router.delete('/contas-pagar/:id',     deleteContaPagarHandler);
 

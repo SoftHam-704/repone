@@ -301,121 +301,161 @@ export async function getContaPagarHandler(req: Request, res: Response): Promise
 }
 
 export async function createContaPagarHandler(req: Request, res: Response): Promise<void> {
-  const db = req.db!;
-  const client = await (db as any).connect();
   try {
-    await client.query('BEGIN');
+    const db = req.db!;
     const { descricao, id_fornecedor, numero_documento, valor_total, data_emissao, data_vencimento,
             observacoes, id_plano_contas, id_centro_custo,
             numero_parcelas = 1, intervalo_dias = 30 } = req.body;
     const criado_por = req.user?.userId ?? null;
-
-    const conta = await client.query(`
-      INSERT INTO fin_contas_pagar (descricao,id_fornecedor,numero_documento,valor_total,data_emissao,data_vencimento,observacoes,id_plano_contas,id_centro_custo,criado_por)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *
-    `, [descricao, id_fornecedor || null, numero_documento, valor_total, data_emissao, data_vencimento,
-        observacoes, id_plano_contas || null, id_centro_custo || null, criado_por]);
-
-    const contaId = conta.rows[0].id;
     const nParcelas = Number(numero_parcelas) || 1;
+    const valorTotalNum = Number(valor_total) || 0;
 
-    if (nParcelas > 1) {
-      const valorParcela = parseFloat((valor_total / nParcelas).toFixed(2));
-      let soma = 0;
-      for (let i = 1; i <= nParcelas; i++) {
-        const isUltima = i === nParcelas;
-        const valor = isUltima ? valor_total - soma : valorParcela;
-        const dt = new Date(data_vencimento);
-        dt.setDate(dt.getDate() + (i - 1) * Number(intervalo_dias));
+    const conta = await db.transaction(async client => {
+      const r = await client.query(`
+        INSERT INTO fin_contas_pagar (descricao,id_fornecedor,numero_documento,valor_total,data_emissao,data_vencimento,observacoes,id_plano_contas,id_centro_custo,criado_por)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *
+      `, [descricao, id_fornecedor || null, numero_documento, valorTotalNum, data_emissao, data_vencimento,
+          observacoes, id_plano_contas || null, id_centro_custo || null, criado_por]);
+      const contaId = r.rows[0].id;
+
+      if (nParcelas > 1) {
+        const valorParcela = parseFloat((valorTotalNum / nParcelas).toFixed(2));
+        let soma = 0;
+        for (let i = 1; i <= nParcelas; i++) {
+          const isUltima = i === nParcelas;
+          const valor = isUltima ? valorTotalNum - soma : valorParcela;
+          const dt = new Date(data_vencimento);
+          dt.setDate(dt.getDate() + (i - 1) * Number(intervalo_dias));
+          await client.query(
+            `INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
+            [contaId, i, valor, dt.toISOString().split('T')[0]]
+          );
+          soma += valor;
+        }
+      } else {
         await client.query(
-          `INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
-          [contaId, i, valor, dt.toISOString().split('T')[0]]
+          `INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento) VALUES ($1,1,$2,$3)`,
+          [contaId, valorTotalNum, data_vencimento]
         );
-        soma += valor;
       }
-    } else {
-      await client.query(
-        `INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento) VALUES ($1,1,$2,$3)`,
-        [contaId, valor_total, data_vencimento]
-      );
-    }
+      return r.rows[0];
+    });
 
-    await client.query('COMMIT');
-    res.json({ success: true, message: `Conta criada com ${nParcelas} parcela(s)`, data: conta.rows[0] });
-  } catch (e) {
-    await client.query('ROLLBACK');
-    err(res, e, 'create conta-pagar');
-  } finally {
-    client.release();
-  }
+    res.json({ success: true, message: `Conta criada com ${nParcelas} parcela(s)`, data: conta });
+  } catch (e) { err(res, e, 'create conta-pagar'); }
+}
+
+// PUT /contas-pagar/:id — edição completa (Hamilton 2026-05-25). Regenera as parcelas
+// a partir do novo valor_total + numero_parcelas. Se a conta tinha pagamentos,
+// estes são RESETADOS (parcelas pagas somem). Frontend mostra aviso antes.
+export async function updateContaPagarHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { id } = req.params;
+    const { descricao, id_fornecedor, numero_documento, valor_total, data_emissao, data_vencimento,
+            observacoes, id_plano_contas, id_centro_custo,
+            numero_parcelas = 1, intervalo_dias = 30 } = req.body;
+    const nParcelas = Number(numero_parcelas) || 1;
+    const valorTotalNum = Number(valor_total) || 0;
+
+    const updated = await db.transaction(async client => {
+      const r = await client.query(`
+        UPDATE fin_contas_pagar SET
+          descricao=$1, id_fornecedor=$2, numero_documento=$3, valor_total=$4,
+          data_emissao=$5, data_vencimento=$6, observacoes=$7,
+          id_plano_contas=$8, id_centro_custo=$9,
+          valor_pago=0, status='ABERTO', data_pagamento=NULL
+        WHERE id=$10 RETURNING *
+      `, [descricao, id_fornecedor || null, numero_documento, valorTotalNum, data_emissao, data_vencimento,
+          observacoes, id_plano_contas || null, id_centro_custo || null, id]);
+      if (!r.rows.length) return null;
+
+      // Regenera parcelas: apaga todas (inclusive pagas) e cria N novas
+      await client.query('DELETE FROM fin_parcelas_pagar WHERE id_conta_pagar = $1', [id]);
+
+      if (nParcelas > 1) {
+        const valorParcela = parseFloat((valorTotalNum / nParcelas).toFixed(2));
+        let soma = 0;
+        for (let i = 1; i <= nParcelas; i++) {
+          const isUltima = i === nParcelas;
+          const valor = isUltima ? valorTotalNum - soma : valorParcela;
+          const dt = new Date(data_vencimento);
+          dt.setDate(dt.getDate() + (i - 1) * Number(intervalo_dias));
+          await client.query(
+            `INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
+            [id, i, valor, dt.toISOString().split('T')[0]]
+          );
+          soma += valor;
+        }
+      } else {
+        await client.query(
+          `INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento) VALUES ($1,1,$2,$3)`,
+          [id, valorTotalNum, data_vencimento]
+        );
+      }
+      return r.rows[0];
+    });
+
+    if (!updated) { res.status(404).json({ success: false, message: 'Conta não encontrada' }); return; }
+    res.json({ success: true, message: `Conta atualizada com ${nParcelas} parcela(s)`, data: updated });
+  } catch (e) { err(res, e, 'update conta-pagar'); }
 }
 
 export async function baixaContaPagarHandler(req: Request, res: Response): Promise<void> {
-  const db = req.db!;
-  const client = await (db as any).connect();
   try {
-    await client.query('BEGIN');
+    const db = req.db!;
     const { id } = req.params;
     const { id_parcela, data_pagamento, valor_pago, juros = 0, desconto = 0, observacoes, gerar_residuo = true } = req.body;
 
-    await client.query(`
-      UPDATE fin_parcelas_pagar
-      SET data_pagamento=$1, valor_pago=$2, juros=$3, desconto=$4, status='PAGO', observacoes=$5
-      WHERE id=$6
-    `, [data_pagamento, valor_pago, juros, desconto, observacoes, id_parcela]);
-
-    const orig = await client.query('SELECT valor FROM fin_parcelas_pagar WHERE id = $1', [id_parcela]);
-    const residual = parseFloat(orig.rows[0].valor) - Number(valor_pago) - Number(desconto);
-
-    if (gerar_residuo && residual > 0.01) {
-      const maxNum = await client.query('SELECT MAX(numero_parcela) AS mx FROM fin_parcelas_pagar WHERE id_conta_pagar = $1', [id]);
-      const nextNum = (maxNum.rows[0].mx || 0) + 1;
+    await db.transaction(async client => {
       await client.query(`
-        INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento,status)
-        VALUES ($1,$2,$3,(SELECT data_vencimento FROM fin_parcelas_pagar WHERE id=$4),'ABERTO')
-      `, [id, nextNum, residual, id_parcela]);
-    }
+        UPDATE fin_parcelas_pagar
+        SET data_pagamento=$1, valor_pago=$2, juros=$3, desconto=$4, status='PAGO', observacoes=$5
+        WHERE id=$6
+      `, [data_pagamento, valor_pago, juros, desconto, observacoes, id_parcela]);
 
-    const totals = await client.query(`
-      SELECT COUNT(*) AS total, COUNT(CASE WHEN status='PAGO' THEN 1 END) AS pagas, COALESCE(SUM(valor_pago),0) AS total_pago
-      FROM fin_parcelas_pagar WHERE id_conta_pagar = $1
-    `, [id]);
-    const { total, pagas, total_pago } = totals.rows[0];
-    const novStatus = parseInt(total) === parseInt(pagas) ? 'PAGO' : 'ABERTO';
+      const orig = await client.query('SELECT valor FROM fin_parcelas_pagar WHERE id = $1', [id_parcela]);
+      const residual = parseFloat(orig.rows[0].valor) - Number(valor_pago) - Number(desconto);
 
-    await client.query(`
-      UPDATE fin_contas_pagar SET valor_pago=$1, status=$2,
-        data_pagamento = CASE WHEN $2='PAGO' THEN $3::date ELSE NULL END
-      WHERE id=$4
-    `, [total_pago, novStatus, data_pagamento, id]);
+      if (gerar_residuo && residual > 0.01) {
+        const maxNum = await client.query('SELECT MAX(numero_parcela) AS mx FROM fin_parcelas_pagar WHERE id_conta_pagar = $1', [id]);
+        const nextNum = (maxNum.rows[0].mx || 0) + 1;
+        await client.query(`
+          INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento,status)
+          VALUES ($1,$2,$3,(SELECT data_vencimento FROM fin_parcelas_pagar WHERE id=$4),'ABERTO')
+        `, [id, nextNum, residual, id_parcela]);
+      }
 
-    await client.query('COMMIT');
+      const totals = await client.query(`
+        SELECT COUNT(*) AS total, COUNT(CASE WHEN status='PAGO' THEN 1 END) AS pagas, COALESCE(SUM(valor_pago),0) AS total_pago
+        FROM fin_parcelas_pagar WHERE id_conta_pagar = $1
+      `, [id]);
+      const { total, pagas, total_pago } = totals.rows[0];
+      const novStatus = parseInt(total) === parseInt(pagas) ? 'PAGO' : 'ABERTO';
+
+      await client.query(`
+        UPDATE fin_contas_pagar SET valor_pago=$1, status=$2::varchar,
+          data_pagamento = CASE WHEN $2::varchar='PAGO' THEN $3::date ELSE NULL END
+        WHERE id=$4
+      `, [total_pago, novStatus, data_pagamento, id]);
+    });
+
     res.json({ success: true, message: 'Pagamento registrado com sucesso' });
-  } catch (e) {
-    await client.query('ROLLBACK');
-    err(res, e, 'baixa conta-pagar');
-  } finally {
-    client.release();
-  }
+  } catch (e) { err(res, e, 'baixa conta-pagar'); }
 }
 
 export async function deleteContaPagarHandler(req: Request, res: Response): Promise<void> {
-  const db = req.db!;
-  const client = await (db as any).connect();
   try {
-    await client.query('BEGIN');
+    const db = req.db!;
     const { id } = req.params;
-    await client.query('DELETE FROM fin_parcelas_pagar WHERE id_conta_pagar = $1', [id]);
-    const result = await client.query('DELETE FROM fin_contas_pagar WHERE id = $1 RETURNING id', [id]);
-    if (!result.rows.length) { await client.query('ROLLBACK'); res.status(404).json({ success: false, message: 'Conta não encontrada' }); return; }
-    await client.query('COMMIT');
+    const deleted = await db.transaction(async client => {
+      await client.query('DELETE FROM fin_parcelas_pagar WHERE id_conta_pagar = $1', [id]);
+      const r = await client.query('DELETE FROM fin_contas_pagar WHERE id = $1 RETURNING id', [id]);
+      return r.rows.length > 0;
+    });
+    if (!deleted) { res.status(404).json({ success: false, message: 'Conta não encontrada' }); return; }
     res.json({ success: true, message: 'Conta excluída com sucesso' });
-  } catch (e) {
-    await client.query('ROLLBACK');
-    err(res, e, 'delete conta-pagar');
-  } finally {
-    client.release();
-  }
+  } catch (e) { err(res, e, 'delete conta-pagar'); }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -478,121 +518,105 @@ export async function getContaReceberHandler(req: Request, res: Response): Promi
 }
 
 export async function createContaReceberHandler(req: Request, res: Response): Promise<void> {
-  const db = req.db!;
-  const client = await (db as any).connect();
   try {
-    await client.query('BEGIN');
+    const db = req.db!;
     const { descricao, id_cliente, numero_documento, valor_total, data_emissao, data_vencimento,
             observacoes, id_plano_contas, id_centro_custo,
             numero_parcelas = 1, intervalo_dias = 30 } = req.body;
     const criado_por = req.user?.userId ?? null;
-
-    const conta = await client.query(`
-      INSERT INTO fin_contas_receber (descricao,id_cliente,numero_documento,valor_total,data_emissao,data_vencimento,observacoes,id_plano_contas,id_centro_custo,criado_por)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *
-    `, [descricao, id_cliente || null, numero_documento, valor_total, data_emissao, data_vencimento,
-        observacoes, id_plano_contas || null, id_centro_custo || null, criado_por]);
-
-    const contaId = conta.rows[0].id;
     const nParcelas = Number(numero_parcelas) || 1;
+    const valorTotalNum = Number(valor_total) || 0;
 
-    if (nParcelas > 1) {
-      const valorParcela = parseFloat((valor_total / nParcelas).toFixed(2));
-      let soma = 0;
-      for (let i = 1; i <= nParcelas; i++) {
-        const isUltima = i === nParcelas;
-        const valor = isUltima ? valor_total - soma : valorParcela;
-        const dt = new Date(data_vencimento);
-        dt.setDate(dt.getDate() + (i - 1) * Number(intervalo_dias));
+    const conta = await db.transaction(async client => {
+      const r = await client.query(`
+        INSERT INTO fin_contas_receber (descricao,id_cliente,numero_documento,valor_total,data_emissao,data_vencimento,observacoes,id_plano_contas,id_centro_custo,criado_por)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *
+      `, [descricao, id_cliente || null, numero_documento, valorTotalNum, data_emissao, data_vencimento,
+          observacoes, id_plano_contas || null, id_centro_custo || null, criado_por]);
+      const contaId = r.rows[0].id;
+
+      if (nParcelas > 1) {
+        const valorParcela = parseFloat((valorTotalNum / nParcelas).toFixed(2));
+        let soma = 0;
+        for (let i = 1; i <= nParcelas; i++) {
+          const isUltima = i === nParcelas;
+          const valor = isUltima ? valorTotalNum - soma : valorParcela;
+          const dt = new Date(data_vencimento);
+          dt.setDate(dt.getDate() + (i - 1) * Number(intervalo_dias));
+          await client.query(
+            `INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
+            [contaId, i, valor, dt.toISOString().split('T')[0]]
+          );
+          soma += valor;
+        }
+      } else {
         await client.query(
-          `INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
-          [contaId, i, valor, dt.toISOString().split('T')[0]]
+          `INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento) VALUES ($1,1,$2,$3)`,
+          [contaId, valorTotalNum, data_vencimento]
         );
-        soma += valor;
       }
-    } else {
-      await client.query(
-        `INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento) VALUES ($1,1,$2,$3)`,
-        [contaId, valor_total, data_vencimento]
-      );
-    }
+      return r.rows[0];
+    });
 
-    await client.query('COMMIT');
-    res.json({ success: true, message: `Conta criada com ${nParcelas} parcela(s)`, data: conta.rows[0] });
-  } catch (e) {
-    await client.query('ROLLBACK');
-    err(res, e, 'create conta-receber');
-  } finally {
-    client.release();
-  }
+    res.json({ success: true, message: `Conta criada com ${nParcelas} parcela(s)`, data: conta });
+  } catch (e) { err(res, e, 'create conta-receber'); }
 }
 
 export async function baixaContaReceberHandler(req: Request, res: Response): Promise<void> {
-  const db = req.db!;
-  const client = await (db as any).connect();
   try {
-    await client.query('BEGIN');
+    const db = req.db!;
     const { id } = req.params;
     const { id_parcela, data_recebimento, valor_recebido, juros = 0, desconto = 0, observacoes, gerar_residuo = true } = req.body;
 
-    await client.query(`
-      UPDATE fin_parcelas_receber
-      SET data_recebimento=$1, valor_recebido=$2, juros=$3, desconto=$4, status='RECEBIDO', observacoes=$5
-      WHERE id=$6
-    `, [data_recebimento, valor_recebido, juros, desconto, observacoes, id_parcela]);
-
-    const orig = await client.query('SELECT valor FROM fin_parcelas_receber WHERE id = $1', [id_parcela]);
-    const residual = parseFloat(orig.rows[0].valor) - Number(valor_recebido) - Number(desconto);
-
-    if (gerar_residuo && residual > 0.01) {
-      const maxNum = await client.query('SELECT MAX(numero_parcela) AS mx FROM fin_parcelas_receber WHERE id_conta_receber = $1', [id]);
-      const nextNum = (maxNum.rows[0].mx || 0) + 1;
+    await db.transaction(async client => {
       await client.query(`
-        INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento,status)
-        VALUES ($1,$2,$3,(SELECT data_vencimento FROM fin_parcelas_receber WHERE id=$4),'ABERTO')
-      `, [id, nextNum, residual, id_parcela]);
-    }
+        UPDATE fin_parcelas_receber
+        SET data_recebimento=$1, valor_recebido=$2, juros=$3, desconto=$4, status='RECEBIDO', observacoes=$5
+        WHERE id=$6
+      `, [data_recebimento, valor_recebido, juros, desconto, observacoes, id_parcela]);
 
-    const totals = await client.query(`
-      SELECT COUNT(*) AS total, COUNT(CASE WHEN status='RECEBIDO' THEN 1 END) AS recebidas, COALESCE(SUM(valor_recebido),0) AS total_recebido
-      FROM fin_parcelas_receber WHERE id_conta_receber = $1
-    `, [id]);
-    const { total, recebidas, total_recebido } = totals.rows[0];
-    const novStatus = parseInt(total) === parseInt(recebidas) ? 'RECEBIDO' : 'ABERTO';
+      const orig = await client.query('SELECT valor FROM fin_parcelas_receber WHERE id = $1', [id_parcela]);
+      const residual = parseFloat(orig.rows[0].valor) - Number(valor_recebido) - Number(desconto);
 
-    await client.query(`
-      UPDATE fin_contas_receber SET valor_recebido=$1, status=$2,
-        data_recebimento = CASE WHEN $2='RECEBIDO' THEN $3::date ELSE NULL END
-      WHERE id=$4
-    `, [total_recebido, novStatus, data_recebimento, id]);
+      if (gerar_residuo && residual > 0.01) {
+        const maxNum = await client.query('SELECT MAX(numero_parcela) AS mx FROM fin_parcelas_receber WHERE id_conta_receber = $1', [id]);
+        const nextNum = (maxNum.rows[0].mx || 0) + 1;
+        await client.query(`
+          INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento,status)
+          VALUES ($1,$2,$3,(SELECT data_vencimento FROM fin_parcelas_receber WHERE id=$4),'ABERTO')
+        `, [id, nextNum, residual, id_parcela]);
+      }
 
-    await client.query('COMMIT');
+      const totals = await client.query(`
+        SELECT COUNT(*) AS total, COUNT(CASE WHEN status='RECEBIDO' THEN 1 END) AS recebidas, COALESCE(SUM(valor_recebido),0) AS total_recebido
+        FROM fin_parcelas_receber WHERE id_conta_receber = $1
+      `, [id]);
+      const { total, recebidas, total_recebido } = totals.rows[0];
+      const novStatus = parseInt(total) === parseInt(recebidas) ? 'RECEBIDO' : 'ABERTO';
+
+      await client.query(`
+        UPDATE fin_contas_receber SET valor_recebido=$1, status=$2::varchar,
+          data_recebimento = CASE WHEN $2::varchar='RECEBIDO' THEN $3::date ELSE NULL END
+        WHERE id=$4
+      `, [total_recebido, novStatus, data_recebimento, id]);
+    });
+
     res.json({ success: true, message: 'Recebimento registrado com sucesso' });
-  } catch (e) {
-    await client.query('ROLLBACK');
-    err(res, e, 'baixa conta-receber');
-  } finally {
-    client.release();
-  }
+  } catch (e) { err(res, e, 'baixa conta-receber'); }
 }
 
 export async function deleteContaReceberHandler(req: Request, res: Response): Promise<void> {
-  const db = req.db!;
-  const client = await (db as any).connect();
   try {
-    await client.query('BEGIN');
+    const db = req.db!;
     const { id } = req.params;
-    await client.query('DELETE FROM fin_parcelas_receber WHERE id_conta_receber = $1', [id]);
-    const result = await client.query('DELETE FROM fin_contas_receber WHERE id = $1 RETURNING id', [id]);
-    if (!result.rows.length) { await client.query('ROLLBACK'); res.status(404).json({ success: false, message: 'Conta não encontrada' }); return; }
-    await client.query('COMMIT');
+    const deleted = await db.transaction(async client => {
+      await client.query('DELETE FROM fin_parcelas_receber WHERE id_conta_receber = $1', [id]);
+      const r = await client.query('DELETE FROM fin_contas_receber WHERE id = $1 RETURNING id', [id]);
+      return r.rows.length > 0;
+    });
+    if (!deleted) { res.status(404).json({ success: false, message: 'Conta não encontrada' }); return; }
     res.json({ success: true, message: 'Conta excluída com sucesso' });
-  } catch (e) {
-    await client.query('ROLLBACK');
-    err(res, e, 'delete conta-receber');
-  } finally {
-    client.release();
-  }
+  } catch (e) { err(res, e, 'delete conta-receber'); }
 }
 
 // ════════════════════════════════════════════════════════════════════
