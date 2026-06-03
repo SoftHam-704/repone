@@ -56,8 +56,21 @@ export async function createDespesaHandler(req: Request, res: Response): Promise
       res.status(400).json({ success: false, message: 'Valor inválido.' });
       return;
     }
-    const sellerId = await getLinkedSellerId(db, req.user?.userId);
-    const venId = sellerId !== null ? sellerId : (desp_vendedor ? parseInt(String(desp_vendedor)) : null);
+    // Despesa é de QUEM GASTOU: resolve o vendedor DIRETO pelo vínculo usuário→vendedor
+    // (ven_codusu), SEM excluir gerência/master — diferente do getLinkedSellerId, que é
+    // helper de escopo e zera p/ gestor. Fallbacks: getLinkedSellerId e desp_vendedor do body.
+    let venId: number | null = null;
+    try {
+      const vr = await db.query(
+        'SELECT ven_codigo FROM vendedores WHERE ven_codusu = $1 LIMIT 1',
+        [req.user?.userId]
+      );
+      venId = vr.rows[0]?.ven_codigo ?? null;
+    } catch { venId = null; }
+    if (venId === null) {
+      const sellerId = await getLinkedSellerId(db, req.user?.userId);
+      venId = sellerId ?? (desp_vendedor ? parseInt(String(desp_vendedor)) : null);
+    }
     if (venId === null) {
       res.status(400).json({ success: false, message: 'Vendedor não identificado para a despesa.' });
       return;
