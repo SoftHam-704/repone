@@ -1,9 +1,8 @@
 // src/mobile/pages/DespesasPage.tsx
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, X, Loader2, Camera, Trash2, Receipt } from 'lucide-react';
+import { Plus, X, Loader2, Trash2, Receipt } from 'lucide-react';
 import { api } from '@/shared/lib/api';
 import { DESPESA_CATEGORIAS } from '@/shared/lib/despesasCategorias';
-import { resizeImage } from '../lib/imagem';
 import { MobileHeader } from '../components/MobileHeader';
 
 interface Despesa {
@@ -45,7 +44,6 @@ export default function DespesasPage() {
   const [valor, setValor] = useState('');
   const [descricao, setDescricao] = useState('');
   const [km, setKm] = useState('');
-  const [foto, setFoto] = useState<File | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,7 +60,7 @@ export default function DespesasPage() {
 
   function resetForm() {
     setData(hoje()); setCategoria(DESPESA_CATEGORIAS[0]); setValor('');
-    setDescricao(''); setKm(''); setFoto(null); setErr('');
+    setDescricao(''); setKm(''); setErr('');
   }
 
   async function salvar() {
@@ -70,28 +68,16 @@ export default function DespesasPage() {
     if (!valor.trim()) { setErr('Informe o valor.'); return; }
     setSaving(true);
     try {
-      const fd = new FormData();
-      fd.append('desp_data', data);
-      fd.append('desp_categoria', categoria);
-      fd.append('desp_valor', valor.trim());
-      if (descricao.trim()) fd.append('desp_descricao', descricao.trim());
-      if (km.trim()) fd.append('desp_km', km.trim());
-      if (foto) {
-        const blob = await resizeImage(foto);
-        fd.append('comprovante', blob, 'comprovante.jpg');
-      }
-      const res = await fetch('/api/despesas', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('sm_token') || ''}` },
-        body: fd,
+      await api.post('/despesas', {
+        desp_data: data,
+        desp_categoria: categoria,
+        desp_valor: valor.trim(),
+        desp_descricao: descricao.trim() || undefined,
+        desp_km: km.trim() || undefined,
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => null);
-        throw new Error(j?.message || `Erro ${res.status}`);
-      }
       setModal(false); resetForm(); await load();
     } catch (e: any) {
-      setErr(e.message || 'Falha ao salvar.');
+      setErr(e.response?.data?.message || 'Falha ao salvar.');
     } finally { setSaving(false); }
   }
 
@@ -104,7 +90,7 @@ export default function DespesasPage() {
     <>
       <MobileHeader
         title="Despesas"
-        helpItems={[{ icon: '🧾', title: 'O que é', text: 'Lance aqui suas despesas de viagem (combustível, alimentação, manutenção…) com foto do comprovante. O gestor acompanha pelo sistema.' }]}
+        helpItems={[{ icon: '🧾', title: 'O que é', text: 'Lance aqui suas despesas de viagem (combustível, alimentação, manutenção…). O gestor acompanha pelo sistema.' }]}
       />
 
       <div style={{ padding: '14px 16px 0' }}>
@@ -183,14 +169,6 @@ export default function DespesasPage() {
               <div>
                 <label style={lblSt}>Descrição (opcional)</label>
                 <input value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="ex.: posto BR rodovia" style={inputSt} />
-              </div>
-              <div>
-                <label style={lblSt}>Comprovante</label>
-                <label style={{ ...inputSt, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: foto ? 'var(--navy)' : 'var(--navy-muted)' }}>
-                  <Camera size={18} />
-                  {foto ? foto.name : 'Tirar foto / escolher imagem'}
-                  <input type="file" accept="image/*" capture="environment" onChange={e => setFoto(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-                </label>
               </div>
 
               {err && <div style={{ color: '#dc2626', fontSize: 12, fontWeight: 700 }}>{err}</div>}

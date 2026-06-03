@@ -1,6 +1,6 @@
 // src/modules/despesas/pages/DespesasPage.tsx
 import { useEffect, useMemo, useState } from 'react';
-import { Image as ImageIcon, Download } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { api } from '@/shared/lib/api';
 import { DESPESA_CATEGORIAS } from '@/shared/lib/despesasCategorias';
 import { CadastroShell, G } from '@/shared/components/layout/CadastroShell';
@@ -13,7 +13,6 @@ interface Despesa {
   desp_categoria: string;
   desp_valor: number | string;
   desp_descricao?: string;
-  desp_comprovante?: string | null;
 }
 
 const fmtBRL = (v: number | string) =>
@@ -81,18 +80,6 @@ export default function DespesasPage() {
     setTimeout(() => URL.revokeObjectURL(a.href), 100);
   }
 
-  function abrirComprovante(arq: string) {
-    fetch(`/api/despesas/comprovante/${arq}`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('sm_token') || ''}` },
-    })
-      .then(r => r.blob())
-      .then(b => {
-        const url = URL.createObjectURL(b);
-        window.open(url, '_blank');
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-      });
-  }
-
   const selSt: React.CSSProperties = {
     border: `1px solid ${G.border}`, borderRadius: 8, padding: '8px 10px',
     fontSize: 13, color: G.text, background: '#fff', outline: 'none',
@@ -147,12 +134,11 @@ export default function DespesasPage() {
               <th style={{ padding: '10px 12px' }}>Categoria</th>
               <th style={{ padding: '10px 12px' }}>Descrição</th>
               <th style={{ padding: '10px 12px', textAlign: 'right' }}>Valor</th>
-              <th style={{ padding: '10px 12px', textAlign: 'center' }}>Comprov.</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: G.textMuted }}>Nenhuma despesa no período.</td></tr>
+              <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: G.textMuted }}>Nenhuma despesa no período.</td></tr>
             ) : filtered.map(d => (
               <tr key={d.desp_id} style={{ borderTop: `1px solid ${G.border}` }}>
                 <td style={{ padding: '10px 12px' }}>{new Date(d.desp_data + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
@@ -160,11 +146,6 @@ export default function DespesasPage() {
                 <td style={{ padding: '10px 12px' }}>{d.desp_categoria}</td>
                 <td style={{ padding: '10px 12px', color: G.textSec }}>{d.desp_descricao || '—'}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: G.text }}>{fmtBRL(d.desp_valor)}</td>
-                <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                  {d.desp_comprovante
-                    ? <button onClick={() => abrirComprovante(d.desp_comprovante!)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.mustard }}><ImageIcon size={17} /></button>
-                    : <span style={{ color: G.textMuted }}>—</span>}
-                </td>
               </tr>
             ))}
           </tbody>

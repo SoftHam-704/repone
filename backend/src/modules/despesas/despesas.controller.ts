@@ -1,7 +1,4 @@
 import { Request, Response } from 'express';
-import * as fs from 'fs';
-import * as path from 'path';
-import multer from 'multer';
 import { getLinkedSellerId } from '../../shared/permissions';
 
 // Converte valor monetário pt-BR para number. Aceita "1.234,56", "1234,56",
@@ -13,24 +10,9 @@ function parseValorBR(raw: any): number {
   return parseFloat(s);
 }
 
-// ─── Upload do comprovante (disco, por schema) ───────────────────────────────
-const storage = multer.diskStorage({
-  destination: (req: Request, _file, cb) => {
-    const dir = path.join(process.cwd(), 'uploads', 'despesas', req.schema || 'public');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (_req, file, cb) =>
-    cb(null, `${Date.now()}-${Math.round(Math.random() * 1e6)}${path.extname(file.originalname).toLowerCase()}`),
-});
-export const uploadComprovante = multer({
-  storage,
-  limits: { fileSize: 8 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    if (/^image\//.test(file.mimetype)) cb(null, true);
-    else cb(new Error('Somente imagens são aceitas como comprovante.'));
-  },
-});
+// NOTA: comprovante (foto) ficou para uma 2ª etapa — a estratégia de armazenamento
+// (disco vs banco) será decidida com o dono. A coluna desp_comprovante existe na
+// tabela (nullable, sem uso por ora) para a foto voltar sem mudança de schema.
 
 // ─── GET /api/despesas ───────────────────────────────────────────────────────
 export async function listDespesasHandler(req: Request, res: Response): Promise<void> {
@@ -40,7 +22,7 @@ export async function listDespesasHandler(req: Request, res: Response): Promise<
     const params: any[] = [];
     let q = `
       SELECT d.desp_id, d.desp_vendedor, d.desp_data, d.desp_categoria, d.desp_valor,
-             d.desp_descricao, d.desp_km, d.desp_comprovante, d.desp_criado_em,
+             d.desp_descricao, d.desp_km, d.desp_criado_em,
              v.ven_nome AS vendedor_nome
       FROM despesas d
       LEFT JOIN vendedores v ON v.ven_codigo = d.desp_vendedor
@@ -60,7 +42,7 @@ export async function listDespesasHandler(req: Request, res: Response): Promise<
   }
 }
 
-// ─── POST /api/despesas (multipart: comprovante opcional) ─────────────────────
+// ─── POST /api/despesas (JSON) ───────────────────────────────────────────────
 export async function createDespesaHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
@@ -80,13 +62,12 @@ export async function createDespesaHandler(req: Request, res: Response): Promise
       res.status(400).json({ success: false, message: 'Vendedor não identificado para a despesa.' });
       return;
     }
-    const comprovante = req.file ? req.file.filename : null;
     const result = await db.query(
       `INSERT INTO despesas
-         (desp_vendedor, desp_data, desp_categoria, desp_valor, desp_descricao, desp_km, desp_comprovante)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING desp_id`,
+         (desp_vendedor, desp_data, desp_categoria, desp_valor, desp_descricao, desp_km)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING desp_id`,
       [venId, desp_data, desp_categoria, valorNum,
-       desp_descricao || null, desp_km ? parseInt(String(desp_km)) : null, comprovante]
+       desp_descricao || null, desp_km ? parseInt(String(desp_km)) : null]
     );
     res.json({ success: true, message: 'Despesa lançada.', id: result.rows[0].desp_id });
   } catch (error: any) {
@@ -104,14 +85,9 @@ export async function deleteDespesaHandler(req: Request, res: Response): Promise
     const params: any[] = [id];
     let q = `DELETE FROM despesas WHERE desp_id = $1`;
     if (sellerId !== null) { params.push(sellerId); q += ` AND desp_vendedor = $${params.length}`; }
-    q += ` RETURNING desp_comprovante`;
+    q += ` RETURNING desp_id`;
     const result = await db.query(q, params);
     if (!result.rows.length) { res.status(404).json({ success: false, message: 'Despesa não encontrada.' }); return; }
-    const arq = result.rows[0].desp_comprovante;
-    if (arq) {
-      const fp = path.join(process.cwd(), 'uploads', 'despesas', req.schema || 'public', arq);
-      fs.promises.unlink(fp).catch(() => {});
-    }
     res.json({ success: true, message: 'Despesa removida.' });
   } catch (error: any) {
     console.error('❌ [DESPESAS] delete:', error.message);
@@ -137,31 +113,6 @@ export async function relatorioDespesasHandler(req: Request, res: Response): Pro
     const totalRow = await db.query(
       `SELECT COALESCE(SUM(desp_valor),0) AS total, COUNT(*) AS qtd FROM despesas ${where}`, params);
     res.json({ success: true, data: { por_categoria: porCat.rows, total: totalRow.rows[0] } });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-}
-
-// ─── GET /api/despesas/comprovante/:arquivo (servido autenticado) ─────────────
-export async function comprovanteHandler(req: Request, res: Response): Promise<void> {
-  try {
-    const db = req.db!;
-    const arquivo = path.basename(String(req.params.arquivo));
-    const params: any[] = [arquivo];
-    let q = `SELECT 1 FROM despesas WHERE desp_comprovante = $1`;
-    const sellerId = await getLinkedSellerId(db, req.user?.userId);
-    if (sellerId !== null) { params.push(sellerId); q += ` AND desp_vendedor = $${params.length}`; }
-    q += ` LIMIT 1`;
-    const ok = await db.query(q, params);
-    if (!ok.rows.length) { res.status(404).json({ success: false, message: 'Comprovante não encontrado.' }); return; }
-    const fp = path.join(process.cwd(), 'uploads', 'despesas', req.schema || 'public', arquivo);
-    try {
-      await fs.promises.access(fp);
-    } catch {
-      res.status(404).json({ success: false, message: 'Arquivo ausente.' });
-      return;
-    }
-    res.sendFile(fp);
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
   }
