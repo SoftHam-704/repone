@@ -154,8 +154,15 @@ BEGIN
       --             = GREATEST( MAX(id)+1 ,
       --                         proximo_valor_atual_da_seq_local ,
       --                         1 )
-      --   Aplicado como setval(seq, next_safe - 1, true) => proximo nextval
-      --   retorna next_safe. Nunca reusa id ja gravado; nunca recua a seq.
+      --   Queremos que o PROXIMO nextval entregue exatamente next_safe.
+      --
+      --   setval robusto (vale ate p/ tabela vazia, next_safe = 1):
+      --     * next_safe <= 1  -> setval(seq, 1, false)         (is_called=false)
+      --                          => proximo nextval = 1, sem violar o minimo 1.
+      --     * next_safe >= 2  -> setval(seq, next_safe - 1, true)
+      --                          => proximo nextval = next_safe.
+      --   O setval(seq, 0, true) antigo estourava em tenant VAZIO porque 0 < 1
+      --   (minimo da sequence). Nunca reusa id ja gravado; nunca recua a seq.
       -- ---------------------------------------------------------------------
       EXECUTE format($q$
         SELECT GREATEST(
@@ -166,7 +173,13 @@ BEGIN
                )
       $q$, tbl_qual, seq_qual) INTO next_safe;
 
-      PERFORM setval(seq_qual::regclass, next_safe - 1, true);
+      IF next_safe <= 1 THEN
+        -- is_called=false => o proximo nextval retorna 1 (sem violar o minimo).
+        PERFORM setval(seq_qual::regclass, 1, false);
+      ELSE
+        -- is_called=true  => o proximo nextval retorna next_safe.
+        PERFORM setval(seq_qual::regclass, next_safe - 1, true);
+      END IF;
 
       -- ---------------------------------------------------------------------
       -- PASSO 3: repontar o DEFAULT da coluna id para a seq LOCAL qualificada.
@@ -180,7 +193,7 @@ BEGIN
       EXECUTE format('ALTER SEQUENCE %s OWNED BY %s.id', seq_qual, tbl_qual);
 
       n_fixed := n_fixed + 1;
-      RAISE NOTICE '[%][%] CORRIGIDO — default=%, owned_by=%s.id, seq setada p/ proximo=%',
+      RAISE NOTICE '[%][%] CORRIGIDO — default=%, owned_by=%.id, seq setada p/ proximo=%',
         schema_var, tbl_var, want_default, tbl_qual, next_safe;
 
     END LOOP;
