@@ -17,15 +17,22 @@ export default function RotaMapaPage() {
   const { id } = useParams();
   const [paradas, setParadas] = useState<Parada[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
+    if (!id) {
+      setLoading(false);
+      setError(true);
+      return;
+    }
     (async () => {
       setLoading(true);
+      setError(false);
       try {
         const r = await api.get(`/itinerarios/${id}/paradas`);
         setParadas(r.data?.data || []);
       } catch {
-        /* silencioso */
+        setError(true);
       } finally {
         setLoading(false);
       }
@@ -55,6 +62,18 @@ export default function RotaMapaPage() {
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
           <Loader2 size={26} style={{ color: 'var(--navy)', animation: 'spin 0.8s linear infinite' }} />
+        </div>
+      ) : error ? (
+        <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--navy-muted)', fontSize: 14 }}>
+          <AlertCircle size={36} style={{ opacity: 0.4, marginBottom: 12 }} />
+          <p style={{ fontWeight: 700, color: 'var(--navy)' }}>Não foi possível carregar a rota</p>
+          <p style={{ fontSize: 13, marginTop: 4 }}>Verifique sua conexão e tente novamente.</p>
+        </div>
+      ) : paradas.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--navy-muted)', fontSize: 14 }}>
+          <MapPin size={36} style={{ opacity: 0.4, marginBottom: 12 }} />
+          <p style={{ fontWeight: 700, color: 'var(--navy)' }}>Esta rota ainda não tem clientes</p>
+          <p style={{ fontSize: 13, marginTop: 4 }}>Adicione paradas pela rota no sistema web.</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
