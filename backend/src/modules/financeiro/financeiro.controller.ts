@@ -395,6 +395,11 @@ export async function updateContaPagarHandler(req: Request, res: Response): Prom
       if (!r.rows.length) return null;
 
       // Regenera parcelas: apaga todas (inclusive pagas) e cria novas
+      // As parcelas (inclusive pagas) serão apagadas e regeneradas → remove os lançamentos de caixa delas.
+      await client.query(`
+        DELETE FROM livro_caixa_lancamentos
+        WHERE origem='CP' AND id_parcela_origem IN (SELECT id FROM fin_parcelas_pagar WHERE id_conta_pagar=$1)
+      `, [id]);
       await client.query('DELETE FROM fin_parcelas_pagar WHERE id_conta_pagar = $1', [id]);
 
       if (temParcelasExplicitas) {
@@ -439,13 +444,16 @@ export async function baixaContaPagarHandler(req: Request, res: Response): Promi
     const { id_parcela, data_pagamento, valor_pago, juros = 0, desconto = 0, observacoes, gerar_residuo = true, id_conta_caixa } = req.body;
     if (!id_conta_caixa) { res.status(400).json({ success: false, message: 'Informe a conta de caixa do pagamento.' }); return; }
     if (!data_pagamento) { res.status(400).json({ success: false, message: 'Informe a data do pagamento.' }); return; }
+    const valor_com_imposto = Number(req.body.valor_com_imposto) || 0;
+    const valor_sem_imposto = Number(req.body.valor_sem_imposto) || 0;
 
     await db.transaction(async client => {
       await client.query(`
         UPDATE fin_parcelas_pagar
-        SET data_pagamento=$1, valor_pago=$2, juros=$3, desconto=$4, status='PAGO', observacoes=$5
+        SET data_pagamento=$1, valor_pago=$2, juros=$3, desconto=$4, status='PAGO', observacoes=$5,
+            valor_com_imposto=$7, valor_sem_imposto=$8
         WHERE id=$6
-      `, [data_pagamento, valor_pago, juros, desconto, observacoes, id_parcela]);
+      `, [data_pagamento, valor_pago, juros, desconto, observacoes, id_parcela, valor_com_imposto, valor_sem_imposto]);
 
       const orig = await client.query('SELECT valor FROM fin_parcelas_pagar WHERE id = $1', [id_parcela]);
       const residual = parseFloat(orig.rows[0].valor) - Number(valor_pago) - Number(desconto);
@@ -492,7 +500,24 @@ export async function baixaContaPagarHandler(req: Request, res: Response): Promi
       }
     });
 
-    res.json({ success: true, message: 'Pagamento registrado com sucesso' });
+    // Aviso de teto "com imposto" do mês (só avisa, nunca trava). 0 = desligado.
+    let aviso_teto_imposto: { teto: number; acumulado: number } | null = null;
+    try {
+      const cfg = await db.query('SELECT COALESCE(emp_teto_com_imposto_mensal,0) AS teto FROM empresa_status WHERE emp_id=1 LIMIT 1');
+      const teto = Number(cfg.rows[0]?.teto || 0);
+      if (teto > 0 && valor_com_imposto > 0) {
+        const acc = await db.query(`
+          SELECT COALESCE(SUM(valor_com_imposto),0) AS acc FROM fin_parcelas_pagar
+          WHERE status='PAGO'
+            AND data_pagamento >= date_trunc('month', $1::date)
+            AND data_pagamento <  date_trunc('month', $1::date) + INTERVAL '1 month'
+        `, [data_pagamento]);
+        const acumulado = Number(acc.rows[0].acc);
+        if (acumulado > teto) aviso_teto_imposto = { teto, acumulado };
+      }
+    } catch { /* config ausente → sem aviso */ }
+
+    res.json({ success: true, message: 'Pagamento registrado com sucesso', aviso_teto_imposto });
   } catch (e) { err(res, e, 'baixa conta-pagar'); }
 }
 
@@ -501,6 +526,11 @@ export async function deleteContaPagarHandler(req: Request, res: Response): Prom
     const db = req.db!;
     const { id } = req.params;
     const deleted = await db.transaction(async client => {
+      // As parcelas (inclusive pagas) serão apagadas → remove os lançamentos de caixa delas.
+      await client.query(`
+        DELETE FROM livro_caixa_lancamentos
+        WHERE origem='CP' AND id_parcela_origem IN (SELECT id FROM fin_parcelas_pagar WHERE id_conta_pagar=$1)
+      `, [id]);
       await client.query('DELETE FROM fin_parcelas_pagar WHERE id_conta_pagar = $1', [id]);
       const r = await client.query('DELETE FROM fin_contas_pagar WHERE id = $1 RETURNING id', [id]);
       return r.rows.length > 0;
@@ -663,6 +693,11 @@ export async function updateContaReceberHandler(req: Request, res: Response): Pr
       if (!r.rows.length) return null;
 
       // Regenera parcelas: apaga todas (inclusive recebidas) e cria novas
+      // As parcelas (inclusive recebidas) serão apagadas e regeneradas → remove os lançamentos de caixa delas.
+      await client.query(`
+        DELETE FROM livro_caixa_lancamentos
+        WHERE origem='CR' AND id_parcela_origem IN (SELECT id FROM fin_parcelas_receber WHERE id_conta_receber=$1)
+      `, [id]);
       await client.query('DELETE FROM fin_parcelas_receber WHERE id_conta_receber = $1', [id]);
 
       if (temParcelasExplicitas) {
@@ -769,6 +804,11 @@ export async function deleteContaReceberHandler(req: Request, res: Response): Pr
     const db = req.db!;
     const { id } = req.params;
     const deleted = await db.transaction(async client => {
+      // As parcelas (inclusive recebidas) serão apagadas → remove os lançamentos de caixa delas.
+      await client.query(`
+        DELETE FROM livro_caixa_lancamentos
+        WHERE origem='CR' AND id_parcela_origem IN (SELECT id FROM fin_parcelas_receber WHERE id_conta_receber=$1)
+      `, [id]);
       await client.query('DELETE FROM fin_parcelas_receber WHERE id_conta_receber = $1', [id]);
       const r = await client.query('DELETE FROM fin_contas_receber WHERE id = $1 RETURNING id', [id]);
       return r.rows.length > 0;
