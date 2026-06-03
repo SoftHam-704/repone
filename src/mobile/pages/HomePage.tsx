@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ShoppingCart, CalendarDays, Users, Package, BarChart3,
-  Target, Sparkles, Wifi, WifiOff, ArrowUpRight, Wrench, Route,
+  Target, Sparkles, Wifi, WifiOff, ArrowUpRight, Wrench, Route, Receipt,
   AlertTriangle, Shield, ChevronRight, Zap, LogOut, Loader2,
 } from 'lucide-react';
 import { api }           from '@/shared/lib/api';
@@ -706,6 +706,7 @@ const ACTIONS = [
   { icon: Sparkles,     label: 'Smart Mix',   bg: '#d97706', path: '#' },
   { icon: BarChart3,    label: 'BI',          bg: '#6b7280', path: '/mobile/bi' },
   { icon: Route,        label: 'Rotas',       bg: '#1d4ed8', path: '/mobile/rotas' },
+  { icon: Receipt,      label: 'Despesas',    bg: '#0d9488', path: '/mobile/despesas' },
   { icon: Wrench,       label: 'Aftermarket', bg: '#0f766e', path: '/mobile/aftermarket' },
 ];
 
