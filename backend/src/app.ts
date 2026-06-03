@@ -61,6 +61,7 @@ import adminRoutes        from './modules/admin/admin.routes';
 import trainingRoutes     from './modules/training/training.routes';
 import portalPubRoutes   from './modules/portal-pub/portal-pub.routes';
 import despesasRoutes       from './modules/despesas/despesas.routes';
+import livroCaixaRoutes        from './modules/livro-caixa/livro-caixa.routes';
 
 app.use('/api/auth',      authRoutes);
 app.use('/api/aux',       auxiliaryRoutes);
@@ -96,6 +97,7 @@ app.use('/api/nfe',             nfeRoutes);
 app.use('/api/users',           usersRoutes);
 app.use('/api/agenda',          agendaRoutes);
 app.use('/api/financeiro',      financeiroRoutes);
+app.use('/api/livro-caixa',     livroCaixaRoutes);
 app.use('/api/crm',            crmRoutes);
 app.use('/api/aftermarket',    aftermarketRoutes);
 app.use('/api/ia',             iaRoutes);
