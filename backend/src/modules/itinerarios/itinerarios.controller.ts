@@ -44,6 +44,14 @@ export async function listItinerariosHandler(req: Request, res: Response): Promi
 export async function getItinerarioHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
+    const sellerId = await getLinkedSellerId(db, req.user?.userId);
+    if (sellerId !== null) {
+      const own = await db.query(
+        'SELECT 1 FROM itinerarios WHERE iti_codigo = $1 AND iti_vendedor_id = $2',
+        [parseInt(String(req.params.id)), sellerId]
+      );
+      if (!own.rows.length) { res.status(403).json({ success: false, message: 'Acesso negado a esta rota.' }); return; }
+    }
     const result = await db.query(
       `SELECT i.iti_codigo, i.iti_descricao, i.iti_frequencia, i.iti_observacao,
               i.iti_vendedor_id, i.iti_regiao_id,
@@ -113,6 +121,16 @@ export async function deleteItinerarioHandler(req: Request, res: Response): Prom
 export async function listParadasHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
+    const itinId = parseInt(String(req.params.id));
+    // Operador só acessa paradas das próprias rotas (master/gerência: sellerId null = acesso total)
+    const sellerId = await getLinkedSellerId(db, req.user?.userId);
+    if (sellerId !== null) {
+      const own = await db.query(
+        'SELECT 1 FROM itinerarios WHERE iti_codigo = $1 AND iti_vendedor_id = $2',
+        [itinId, sellerId]
+      );
+      if (!own.rows.length) { res.status(403).json({ success: false, message: 'Acesso negado a esta rota.' }); return; }
+    }
     const result = await db.query(
       `SELECT p.itp_codigo, p.itp_ordem, p.itp_obs,
               c.cli_codigo, c.cli_nomred AS cli_nome, c.cli_fantasia,
@@ -126,7 +144,7 @@ export async function listParadasHandler(req: Request, res: Response): Promise<v
        LEFT  JOIN public.cidades cid ON cid.cid_codigo = c.cli_idcidade
        WHERE p.itp_itinerario = $1
        ORDER BY p.itp_ordem, p.itp_codigo`,
-      [parseInt(String(req.params.id))]
+      [itinId]
     );
     res.json({ success: true, data: result.rows });
   } catch (error: any) {
