@@ -124,13 +124,28 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
       // ─── 4. VALIDAR USUÁRIO NO TENANT ───
       userResult = await tenantClient.query(`
         SELECT codigo as id, nome, sobrenome, usuario,
-               master as e_admin, gerencia, iniciais,
-               (SELECT ven_cumpremetas FROM vendedores WHERE ven_codusu = un.codigo LIMIT 1) AS ven_cumpremetas
-        FROM user_nomes un
+               master as e_admin, gerencia, iniciais
+        FROM user_nomes
         WHERE LOWER(nome) = LOWER($1)
           AND LOWER(sobrenome) = LOWER($2)
           AND senha = $3
       `, [nome, sobrenome, password]);
+
+      // ─── 4.1. Flag de promotor (DEFENSIVO — NUNCA pode quebrar o login) ───
+      // Lookup isolado e protegido: se a tabela vendedores / colunas ven_codusu /
+      // ven_cumpremetas faltarem em algum tenant, o login segue normal (sem promotor).
+      if (userResult.rows.length > 0) {
+        try {
+          const vr = await tenantClient.query(
+            `SELECT ven_cumpremetas FROM vendedores WHERE ven_codusu = $1 LIMIT 1`,
+            [userResult.rows[0].id]
+          );
+          userResult.rows[0].ven_cumpremetas = vr.rows[0]?.ven_cumpremetas ?? null;
+        } catch (promErr: any) {
+          console.warn(`⚠️ [AUTH] lookup ven_cumpremetas falhou (segue sem promotor): ${promErr.message}`);
+          userResult.rows[0].ven_cumpremetas = null;
+        }
+      }
 
     } finally {
       await tenantClient.query('RESET search_path').catch(() => {});
