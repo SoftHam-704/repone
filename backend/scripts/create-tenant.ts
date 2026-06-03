@@ -48,10 +48,37 @@ async function createTenant(schemaName: string): Promise<void> {
     console.log(`📋 Criando tabelas de dados...`);
     await client.query(baseMigration);
 
-    // 5. Registrar a migration como aplicada
+    // 4b. Financeiro + despesas (NÃO estão no 001; rodam sob o MESMO search_path
+    //     do tenant, então todo SERIAL nasce com sequence LOCAL + DEFAULT
+    //     qualificado + OWNED BY automáticos — nunca clonar com LIKE/CREATE SEQUENCE).
+    console.log(`📋 Criando módulo financeiro + despesas...`);
+    const financeiroSchema = readFileSync(
+      join(__dirname, '..', 'src', 'modules', 'financeiro', 'financeiro_schema.sql'),
+      'utf-8'
+    );
+    await client.query(financeiroSchema);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS despesas (
+        desp_id          SERIAL PRIMARY KEY,
+        desp_vendedor    INTEGER NOT NULL,
+        desp_data        DATE NOT NULL,
+        desp_categoria   VARCHAR(50) NOT NULL,  -- 50: cabe "Happy Hour com Cliente/Fornecedor" (ver migration 060)
+        desp_valor       NUMERIC(12,2) NOT NULL,
+        desp_descricao   TEXT,
+        desp_km          INTEGER,
+        desp_comprovante VARCHAR(255),
+        desp_criado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_despesas_vendedor ON despesas (desp_vendedor);
+      CREATE INDEX IF NOT EXISTS idx_despesas_data     ON despesas (desp_data);
+    `);
+
+    // 5. Registrar migrations aplicadas
     await client.query(
-      `INSERT INTO _migrations (name) VALUES ($1)`,
-      ['001_create_base_tables.sql']
+      `INSERT INTO _migrations (name) VALUES ($1), ($2), ($3), ($4)
+       ON CONFLICT (name) DO NOTHING`,
+      ['001_create_base_tables.sql', 'financeiro_schema.sql',
+       '059_create_despesas.sql', '060_widen_desp_categoria.sql']
     );
 
     // 6. Registrar o tenant na tabela de controle (public)

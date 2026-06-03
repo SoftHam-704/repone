@@ -1,5 +1,16 @@
-
+/**
+ * ⛔ DEPRECADO p/ provisionar tenant. ⛔
+ * Usa `CREATE TABLE ... (LIKE public.x INCLUDING ALL)` + `CREATE SEQUENCE` manual,
+ * mesmo vício do clone-schema-forecast.ts: o DEFAULT serial copiado aponta p/ a
+ * sequence do public e as sequences criadas não ficam OWNED BY a coluna.
+ * Caminho correto: tenant:create -> tenant:migrate -> pgadmin_provision_tenant_financeiro_despesas.sql.
+ */
 import { pool } from '../src/config/database';
+
+if (process.env.ALLOW_BROKEN_CLONE !== '1') {
+  console.error('⛔ sync-tenant-complete.ts DEPRECADO (sequences de PK tortas). Use tenant:create + tenant:migrate. (ALLOW_BROKEN_CLONE=1 p/ forçar)');
+  process.exit(1);
+}
 
 async function syncTenantComplete(targetSchema: string) {
     const client = await pool.connect();
