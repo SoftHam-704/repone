@@ -4,6 +4,15 @@ import * as path from 'path';
 import multer from 'multer';
 import { getLinkedSellerId } from '../../shared/permissions';
 
+// Converte valor monetário pt-BR para number. Aceita "1.234,56", "1234,56",
+// "1234.56" e "1234". Se houver vírgula, ela é o separador decimal e os pontos
+// são milhares.
+function parseValorBR(raw: any): number {
+  let s = String(raw ?? '').trim().replace(/[^\d.,]/g, '');
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  return parseFloat(s);
+}
+
 // ─── Upload do comprovante (disco, por schema) ───────────────────────────────
 const storage = multer.diskStorage({
   destination: (req: Request, _file, cb) => {
@@ -17,7 +26,10 @@ const storage = multer.diskStorage({
 export const uploadComprovante = multer({
   storage,
   limits: { fileSize: 8 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+  fileFilter: (_req, file, cb) => {
+    if (/^image\//.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Somente imagens são aceitas como comprovante.'));
+  },
 });
 
 // ─── GET /api/despesas ───────────────────────────────────────────────────────
@@ -57,6 +69,11 @@ export async function createDespesaHandler(req: Request, res: Response): Promise
       res.status(400).json({ success: false, message: 'Data, categoria e valor são obrigatórios.' });
       return;
     }
+    const valorNum = parseValorBR(desp_valor);
+    if (!Number.isFinite(valorNum) || valorNum <= 0) {
+      res.status(400).json({ success: false, message: 'Valor inválido.' });
+      return;
+    }
     const sellerId = await getLinkedSellerId(db, req.user?.userId);
     const venId = sellerId !== null ? sellerId : (desp_vendedor ? parseInt(String(desp_vendedor)) : null);
     if (venId === null) {
@@ -68,7 +85,7 @@ export async function createDespesaHandler(req: Request, res: Response): Promise
       `INSERT INTO despesas
          (desp_vendedor, desp_data, desp_categoria, desp_valor, desp_descricao, desp_km, desp_comprovante)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING desp_id`,
-      [venId, desp_data, desp_categoria, parseFloat(String(desp_valor).replace(',', '.')),
+      [venId, desp_data, desp_categoria, valorNum,
        desp_descricao || null, desp_km ? parseInt(String(desp_km)) : null, comprovante]
     );
     res.json({ success: true, message: 'Despesa lançada.', id: result.rows[0].desp_id });
@@ -97,6 +114,7 @@ export async function deleteDespesaHandler(req: Request, res: Response): Promise
     }
     res.json({ success: true, message: 'Despesa removida.' });
   } catch (error: any) {
+    console.error('❌ [DESPESAS] delete:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 }
@@ -137,7 +155,12 @@ export async function comprovanteHandler(req: Request, res: Response): Promise<v
     const ok = await db.query(q, params);
     if (!ok.rows.length) { res.status(404).json({ success: false, message: 'Comprovante não encontrado.' }); return; }
     const fp = path.join(process.cwd(), 'uploads', 'despesas', req.schema || 'public', arquivo);
-    if (!fs.existsSync(fp)) { res.status(404).json({ success: false, message: 'Arquivo ausente.' }); return; }
+    try {
+      await fs.promises.access(fp);
+    } catch {
+      res.status(404).json({ success: false, message: 'Arquivo ausente.' });
+      return;
+    }
     res.sendFile(fp);
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
