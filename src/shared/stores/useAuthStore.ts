@@ -17,6 +17,7 @@ export interface User {
   crmRepEnabled: boolean;
   portalLojistaEnabled: boolean;
   iaPlanLevel: string;
+  isPromotor?: boolean;
 }
 
 export interface TenantConfig {
