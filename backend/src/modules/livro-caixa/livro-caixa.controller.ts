@@ -212,3 +212,81 @@ export async function createLancamentoHandler(req: Request, res: Response): Prom
     res.json({ success: true, message: 'Lançamento registrado.', id: r.rows[0].id });
   } catch (e) { err(res, e, 'create lancamento'); }
 }
+
+// PUT /lancamentos/:id — só lançamento MANUAL pode ser editado
+export async function updateLancamentoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { id } = req.params;
+    const { conta_id, data, historico, tipo, valor, id_plano_contas, id_centro_custo, documento } = req.body;
+    const valorNum = Number(valor);
+    if (tipo !== 'C' && tipo !== 'D') { res.status(400).json({ success: false, message: 'Tipo deve ser C ou D.' }); return; }
+    if (!Number.isFinite(valorNum) || valorNum <= 0) { res.status(400).json({ success: false, message: 'Valor inválido.' }); return; }
+
+    const cur = await db.query('SELECT origem FROM livro_caixa_lancamentos WHERE id=$1', [id]);
+    if (!cur.rows.length) { res.status(404).json({ success: false, message: 'Lançamento não encontrado.' }); return; }
+    if (cur.rows[0].origem !== 'MA') {
+      res.status(400).json({ success: false, message: 'Lançamento de baixa/transferência não pode ser editado aqui. Use a conta a pagar/receber.' }); return;
+    }
+    await db.query(`
+      UPDATE livro_caixa_lancamentos
+      SET conta_id=$1, data=$2, historico=$3, tipo=$4, valor=$5, id_plano_contas=$6, id_centro_custo=$7, documento=$8
+      WHERE id=$9
+    `, [conta_id, data, String(historico).trim(), tipo, valorNum, id_plano_contas || null, id_centro_custo || null, documento || null, id]);
+    res.json({ success: true, message: 'Lançamento atualizado.' });
+  } catch (e) { err(res, e, 'update lancamento'); }
+}
+
+// DELETE /lancamentos/:id — manual: exclui; transferência: exclui o par; CP/CR: bloqueia
+export async function deleteLancamentoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { id } = req.params;
+    const cur = await db.query('SELECT origem, id_transferencia FROM livro_caixa_lancamentos WHERE id=$1', [id]);
+    if (!cur.rows.length) { res.status(404).json({ success: false, message: 'Lançamento não encontrado.' }); return; }
+    const { origem, id_transferencia } = cur.rows[0];
+    if (origem === 'CP' || origem === 'CR') {
+      res.status(400).json({ success: false, message: 'Lançamento de baixa: estorne pela conta a pagar/receber.' }); return;
+    }
+    if (origem === 'TR' && id_transferencia) {
+      await db.query('DELETE FROM livro_caixa_lancamentos WHERE id_transferencia=$1', [id_transferencia]);
+    } else {
+      await db.query('DELETE FROM livro_caixa_lancamentos WHERE id=$1', [id]);
+    }
+    res.json({ success: true, message: 'Lançamento excluído.' });
+  } catch (e) { err(res, e, 'delete lancamento'); }
+}
+
+// POST /transferencia — par vinculado (D na origem + C no destino)
+export async function transferenciaHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { conta_origem, conta_destino, valor, data, historico } = req.body;
+    const valorNum = Number(valor);
+    if (!conta_origem || !conta_destino) { res.status(400).json({ success: false, message: 'Contas de origem e destino são obrigatórias.' }); return; }
+    if (conta_origem === conta_destino) { res.status(400).json({ success: false, message: 'Origem e destino devem ser diferentes.' }); return; }
+    if (!data) { res.status(400).json({ success: false, message: 'Data é obrigatória.' }); return; }
+    if (!Number.isFinite(valorNum) || valorNum <= 0) { res.status(400).json({ success: false, message: 'Valor inválido.' }); return; }
+    const hist = (historico && String(historico).trim()) || 'Transferência entre contas';
+
+    // Sem retroativo nas duas contas (checa antes da transação para devolver 400 limpo).
+    for (const cid of [Number(conta_origem), Number(conta_destino)]) {
+      const piso = await checkRetroativo(db, cid, data);
+      if (piso) { res.status(400).json({ success: false, message: `Transferência retroativa não permitida (anterior a ${piso}).` }); return; }
+    }
+
+    await db.transaction(async (client: any) => {
+      const deb = await client.query(`
+        INSERT INTO livro_caixa_lancamentos (conta_id, data, historico, tipo, valor, origem)
+        VALUES ($1,$2,$3,'D',$4,'TR') RETURNING id
+      `, [conta_origem, data, hist, valorNum]);
+      const tid = deb.rows[0].id;
+      const cred = await client.query(`
+        INSERT INTO livro_caixa_lancamentos (conta_id, data, historico, tipo, valor, origem, id_transferencia)
+        VALUES ($1,$2,$3,'C',$4,'TR',$5) RETURNING id
+      `, [conta_destino, data, hist, valorNum, tid]);
+      await client.query('UPDATE livro_caixa_lancamentos SET id_transferencia=$1 WHERE id IN ($2,$3)', [tid, tid, cred.rows[0].id]);
+    });
+    res.json({ success: true, message: 'Transferência registrada.' });
+  } catch (e) { err(res, e, 'transferencia'); }
+}
