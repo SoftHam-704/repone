@@ -60,6 +60,7 @@ import reportsRoutes      from './modules/reports/reports.routes';
 import adminRoutes        from './modules/admin/admin.routes';
 import trainingRoutes     from './modules/training/training.routes';
 import portalPubRoutes   from './modules/portal-pub/portal-pub.routes';
+import despesasRoutes       from './modules/despesas/despesas.routes';
 
 app.use('/api/auth',      authRoutes);
 app.use('/api/aux',       auxiliaryRoutes);
@@ -105,6 +106,7 @@ app.use('/api/reports',        reportsRoutes);
 app.use('/api/admin',          adminRoutes);
 app.use('/api/training',       trainingRoutes);
 app.use('/api/portal-pub',     portalPubRoutes);
+app.use('/api/despesas',       despesasRoutes);
 // Webhook público — sem prefixo /api (Evolution API chama /webhook/evolution)
 app.use('/webhook',            webhookRouter);
 
