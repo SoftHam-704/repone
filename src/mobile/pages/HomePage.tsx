@@ -3,11 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ShoppingCart, CalendarDays, Users, Package, BarChart3,
-  Target, Sparkles, Wifi, WifiOff, ArrowUpRight,
+  Target, Sparkles, Wifi, WifiOff, ArrowUpRight, Wrench, Route,
   AlertTriangle, Shield, ChevronRight, Zap, LogOut, Loader2,
 } from 'lucide-react';
 import { api }           from '@/shared/lib/api';
-import { useAuthStore }  from '@/shared/stores/useAuthStore';
+import { useAuthStore, useIaEnabled }  from '@/shared/stores/useAuthStore';
 import { useOffline }    from '../hooks/useOffline';
 import { useSync }       from '../hooks/useSync';
 import { SyncButton }    from '../components/SyncButton';
@@ -705,7 +705,8 @@ const ACTIONS = [
   { icon: Target,       label: 'Campanhas',   bg: '#dc2626', path: '/mobile/campanhas' },
   { icon: Sparkles,     label: 'Smart Mix',   bg: '#d97706', path: '#' },
   { icon: BarChart3,    label: 'BI',          bg: '#6b7280', path: '/mobile/bi' },
-  { icon: Sparkles,     label: 'Soon',        bg: '#9ca3af', path: '#' },
+  { icon: Route,        label: 'Rotas',       bg: '#1d4ed8', path: '/mobile/rotas' },
+  { icon: Wrench,       label: 'Aftermarket', bg: '#0f766e', path: '/mobile/aftermarket' },
 ];
 
 function QuickActions() {
@@ -901,6 +902,7 @@ export default function HomePage() {
   const [loading,       setLoading]       = useState(true);
 
   const { user }    = useAuthStore();
+  const iaEnabled   = useIaEnabled();
   const { isOnline } = useOffline();
   const { sync, syncing, progress, queueCount } = useSync();
   const { lastSync } = useOffline();
@@ -972,13 +974,19 @@ export default function HomePage() {
 
         {stats ? (
           <>
-            <IndustriasMeta rows={stats.industrias_meta ?? []} year={selectedYear} month={selectedMonth} />
-            <AnalyticsCard stats={stats} year={selectedYear} month={selectedMonth} />
+            {/* Metas + Performance só pra Gerência/Master/SuperAdmin — usuário ativo (role='user') não vê */}
+            {user?.role !== 'user' && (
+              <>
+                <IndustriasMeta rows={stats.industrias_meta ?? []} year={selectedYear} month={selectedMonth} />
+                <AnalyticsCard stats={stats} year={selectedYear} month={selectedMonth} />
+              </>
+            )}
             <QuickActions />
-            <SmartInsights insights={stats.insights} />
-            <RiskInsights churnCount={stats.churn_count} />
+            {/* SmartInsights/RiskInsights/PortfolioIris só com IRIS ligada */}
+            {iaEnabled && <SmartInsights insights={stats.insights} />}
+            {iaEnabled && <RiskInsights churnCount={stats.churn_count} />}
             <RecentOrders orders={stats.recent_orders} />
-            <PortfolioIris />
+            {iaEnabled && <PortfolioIris />}
           </>
         ) : (
           <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--navy-muted)' }}>

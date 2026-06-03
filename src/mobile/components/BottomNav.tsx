@@ -1,12 +1,13 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Users, ShoppingCart, TrendingUp, BarChart2 } from 'lucide-react';
+import { Home, Users, ShoppingCart, TrendingUp, BarChart2, Route } from 'lucide-react';
 
 const TABS = [
-  { path: '/mobile/home',    icon: Home,         label: 'Home'     },
-  { path: '/mobile/clientes',icon: Users,        label: 'Clientes' },
-  { path: '/mobile/pedidos', icon: ShoppingCart, label: 'Pedidos'  },
-  { path: '/mobile/sellout', icon: TrendingUp,   label: 'Sell-Out' },
-  { path: '/mobile/bi',      icon: BarChart2,    label: 'BI'       },
+  { path: '/mobile/home',        icon: Home,         label: 'Home'     },
+  { path: '/mobile/clientes',    icon: Users,        label: 'Clientes' },
+  { path: '/mobile/pedidos',     icon: ShoppingCart, label: 'Pedidos'  },
+  { path: '/mobile/rotas',       icon: Route,        label: 'Rotas'    },
+  { path: '/mobile/sellout',     icon: TrendingUp,   label: 'Sell-Out' },
+  { path: '/mobile/bi',          icon: BarChart2,    label: 'BI'       },
 ] as const;
 
 export function BottomNav() {

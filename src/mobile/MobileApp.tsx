@@ -17,6 +17,9 @@ const SellOutPage      = lazy(() => import('./pages/SellOutPage'));
 const CampanhasPage    = lazy(() => import('./pages/CampanhasPage'));
 const AgendaPage       = lazy(() => import('./pages/AgendaPage'));
 const BIPage           = lazy(() => import('./pages/BIPage'));
+const AftermarketPage  = lazy(() => import('./pages/AftermarketPage'));
+const RotasPage        = lazy(() => import('./pages/RotasPage'));
+const RotaMapaPage     = lazy(() => import('./pages/RotaMapaPage'));
 
 function AuthRequired({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore(s => s.isAuthenticated);
@@ -57,6 +60,9 @@ export default function MobileApp() {
           <Route path="campanhas"    element={<CampanhasPage />} />
           <Route path="agenda"       element={<AgendaPage />} />
           <Route path="bi"           element={<BIPage />} />
+          <Route path="aftermarket"  element={<AftermarketPage />} />
+          <Route path="rotas"        element={<RotasPage />} />
+          <Route path="rotas/:id"    element={<RotaMapaPage />} />
         </Route>
         <Route path="*" element={<Navigate to="home" replace />} />
       </Routes>
