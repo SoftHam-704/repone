@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { MapPin, Plus, Trash2, GripVertical, ChevronRight, X, Navigation, Route, Users, HelpCircle } from 'lucide-react';
+import { MapPin, Plus, Trash2, GripVertical, ChevronRight, X, Navigation, Route, Users, Info, Smartphone, Check } from 'lucide-react';
 import { api } from '@/shared/lib/api';
 import { G } from '@/shared/components/layout/CadastroShell';
 
@@ -355,12 +355,13 @@ export default function ItinerariosPage() {
             </div>
             <button
               onClick={() => setShowHelp(true)}
-              title="Como usar"
-              style={{ background: 'transparent', border: `1px solid ${G.border}`, borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: G.textSec, flexShrink: 0 }}
+              title="Sobre os itinerários de visita"
+              style={{ background: 'transparent', border: `1px solid ${G.border}`, borderRadius: 8, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: G.textSec, flexShrink: 0, fontSize: 12, fontWeight: 800, lineHeight: 1 }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = G.mustard; e.currentTarget.style.color = G.text; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = G.border; e.currentTarget.style.color = G.textSec; }}
             >
-              <HelpCircle size={13} />
+              <Info size={14} />
+              Sobre
             </button>
           </div>
           <button
@@ -701,8 +702,8 @@ export default function ItinerariosPage() {
             {/* Header do modal */}
             <div style={{ padding: '20px 24px 16px', borderBottom: `1px solid ${G.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 900, color: G.text }}>Como usar — Itinerários de Visita</div>
-                <div style={{ fontSize: 11, color: G.textSec, marginTop: 2 }}>Monte e gerencie rotas de visita para seus vendedores</div>
+                <div style={{ fontSize: 15, fontWeight: 900, color: G.text }}>Itinerários de Visita</div>
+                <div style={{ fontSize: 11, color: G.textSec, marginTop: 2 }}>Planeje as rotas de visita dos vendedores — e leve-as direto para o celular</div>
               </div>
               <button onClick={() => setShowHelp(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: G.textMuted, display: 'flex', alignItems: 'center' }}>
                 <X size={18} />
@@ -712,31 +713,67 @@ export default function ItinerariosPage() {
             {/* Conteúdo */}
             <div style={{ padding: '20px 24px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
+              {/* O que é */}
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: G.text, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>O que é um itinerário</div>
+                <div style={{ fontSize: 12.5, color: G.textSec, lineHeight: 1.7 }}>
+                  É a <b style={{ color: G.text }}>rota de visitas planejada</b> de um vendedor: um conjunto de clientes
+                  organizados numa sequência lógica, normalmente por região e dia da semana. Em vez de atender a
+                  carteira no improviso, o vendedor segue um roteiro que <b style={{ color: G.text }}>cobre todos os
+                  clientes</b>, reduz a quilometragem e cria um ritmo previsível de atendimento.
+                </div>
+              </div>
+
+              {/* Por que usar */}
+              <div style={{ background: G.bg, borderRadius: 10, padding: '14px 16px' }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: G.text, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>Por que usar</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  {[
+                    ['Cobertura da carteira', 'nenhum cliente fica esquecido — cada um tem seu lugar na rota.'],
+                    ['Menos estrada, mais visita', 'a sequência bem montada reduz os km rodados e rende mais atendimentos por dia.'],
+                    ['Previsibilidade', 'o cliente passa a saber quando será visitado e a gestão acompanha a frequência.'],
+                    ['Direto no celular', 'a rota vai automaticamente para o app do vendedor (veja abaixo).'],
+                  ].map(([t, d]) => (
+                    <div key={t} style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+                      <div style={{ width: 18, height: 18, borderRadius: '50%', background: G.mustard, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                        <Check size={12} strokeWidth={3} color={G.text} />
+                      </div>
+                      <div style={{ fontSize: 12, color: G.textSec, lineHeight: 1.55 }}>
+                        <b style={{ color: G.text }}>{t}</b> — {d}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Passo a passo */}
+              <div style={{ fontSize: 11, fontWeight: 800, color: G.text, textTransform: 'uppercase', letterSpacing: 0.8 }}>Passo a passo</div>
+
               {[
                 {
                   step: '1',
                   title: 'Crie um itinerário',
-                  desc: 'Clique em "+ Novo Itinerário" e defina o nome, vendedor responsável, região e o dia da semana em que a rota é percorrida.',
+                  desc: 'Clique em "+ Novo Itinerário". Dê um nome que identifique a rota (ex.: "Segunda — Centro"), escolha o vendedor responsável, a região e a frequência com que ela é percorrida (semanal, quinzenal…). A frequência ajuda a planejar quantas vezes por mês cada carteira é visitada.',
                 },
                 {
                   step: '2',
                   title: 'Selecione o itinerário na lista',
-                  desc: 'Clique sobre um itinerário à esquerda para abrir o planejador. O mapa centraliza automaticamente na região configurada.',
+                  desc: 'Clique sobre um itinerário na coluna da esquerda para abrir o planejador. O mapa centraliza na região configurada e já mostra as paradas existentes.',
                 },
                 {
                   step: '3',
-                  title: 'Filtre e adicione clientes',
-                  desc: 'Use os filtros à direita (região, setor, cidade, busca) para localizar os clientes. Clique sobre um cliente para adicioná-lo à rota. Clientes já adicionados aparecem esmaecidos com ✓ verde.',
+                  title: 'Filtre e adicione os clientes',
+                  desc: 'No painel da direita, use os filtros (região, setor, cidade ou busca por nome) para encontrar os clientes da carteira. Clique sobre um cliente para incluí-lo na rota. Os já adicionados ficam esmaecidos com um ✓ verde, então não tem como duplicar.',
                 },
                 {
                   step: '4',
-                  title: 'Reordene as paradas',
-                  desc: 'Arraste as paradas pelo ícone ⠿ no painel central para definir a sequência ideal da rota. A distância estimada é calculada automaticamente.',
+                  title: 'Defina a ordem das paradas',
+                  desc: 'Arraste as paradas pelo ícone ⠿ no painel central para montar a melhor sequência — em geral, da mais próxima à mais distante. A cada mudança, a quilometragem estimada é recalculada na hora.',
                 },
                 {
                   step: '5',
-                  title: 'Visualize no mapa',
-                  desc: 'Os marcadores numerados mostram a ordem das paradas. A linha tracejada indica o trajeto entre elas e o total de km estimados aparece no canto inferior.',
+                  title: 'Confira no mapa',
+                  desc: 'Os marcadores numerados mostram a ordem da visita; a linha tracejada liga as paradas na sequência; e o total de km estimados aparece no canto do mapa. Use isso para enxugar desvios antes de mandar a rota para a rua.',
                 },
               ].map(item => (
                 <div key={item.step} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
@@ -773,6 +810,40 @@ export default function ItinerariosPage() {
                       <b>Sem coordenada</b> — <span style={{ color: G.textSec }}>cliente não aparece no mapa</span>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* No celular do vendedor */}
+              <div style={{ background: G.text, borderRadius: 12, padding: '16px 18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <Smartphone size={16} color={G.mustard} />
+                  <div style={{ fontSize: 12, fontWeight: 900, color: '#fff', textTransform: 'uppercase', letterSpacing: 0.6 }}>No celular do vendedor</div>
+                </div>
+                <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.82)', lineHeight: 1.7 }}>
+                  As rotas criadas aqui aparecem <b style={{ color: '#fff' }}>automaticamente no app</b>, no botão
+                  <b style={{ color: G.mustard }}> Rotas</b>. Em campo, o vendedor toca na rota e vê todos os clientes
+                  no mapa com os km previstos. A partir daí ele pode <b style={{ color: '#fff' }}>abrir a rota inteira
+                  no Google Maps</b> (todas as paradas na ordem) ou <b style={{ color: '#fff' }}>navegar cliente por
+                  cliente</b>. O cadastro e a ordenação continuam sendo feitos aqui no sistema web — o celular é só
+                  para consultar e rodar a rota.
+                </div>
+              </div>
+
+              {/* Boas práticas */}
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: G.text, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>Boas práticas</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  {[
+                    'Nomeie o itinerário pelo dia + região ("Quarta — Zona Norte") para localizar rápido na lista.',
+                    'A quilometragem é estimada (distância em linha reta com fator de correção). O trânsito real pode variar.',
+                    'Cliente sem coordenada não aparece no mapa. Cadastre o endereço/CEP dele, ou colete o GPS em campo pelo app, para posicioná-lo. Sem GPS, o sistema usa o centro da cidade como aproximação.',
+                    'Revise a ordem das paradas sempre que a carteira mudar — a quilometragem se ajusta sozinha.',
+                  ].map((t, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+                      <div style={{ width: 5, height: 5, borderRadius: '50%', background: G.mustard, flexShrink: 0, marginTop: 7 }} />
+                      <div style={{ fontSize: 12, color: G.textSec, lineHeight: 1.6 }}>{t}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
