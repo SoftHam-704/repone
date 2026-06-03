@@ -1350,6 +1350,14 @@ git commit -m "feat(livro-caixa): baixa CP/CR escolhe caixa; CP com split/aviso 
 
 ---
 
+## ⚠️ GATE DE DEPLOY (crítico — produção viva)
+
+A baixa (CP/CR) passou a **exigir `id_conta_caixa`** (400 se faltar). O frontend que envia esse campo
+é a **Task 10**. Portanto: **NUNCA suba o backend do Task 6/7 sem subir o frontend do Task 10 junto**
+(o `dist/` com os modais de baixa atualizados). Subir o backend sozinho **trava 100% das baixas** dos
+30 reps. Ordem segura: rodar migrations 063-065 → subir `dist/` (frontend) + os `.js` do backend
+**na mesma janela**. Também rodar as migrations ANTES (senão a baixa quebra ao inserir no caixa).
+
 ## Verificação manual (após Hamilton rodar as migrations 063-065 e fazer deploy)
 
 Smoke test end-to-end (não automatizável aqui — depende de banco vivo):
