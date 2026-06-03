@@ -7,6 +7,7 @@ export interface User {
   empresa_id: number;
   nome: string;
   sobrenome: string;
+  iniciais?: string;
   role: string;
   empresa: string;
   cnpj: string;
@@ -64,3 +65,18 @@ export const useAuthStore = create<AuthState>()(
     }
   )
 );
+
+// ─── Helper: kill switch da IRIS ────────────────────────────────────────────
+// Convenção: empresas.plano_ia_nivel = 'NONE' → IRIS DESLIGADA em TUDO
+// (Magic Load/Import, InsightNarrative, IrisTerminal, IrisPanel, SmartInsights,
+// RiskInsights, PortfolioIris, página nexus-ia, etc).
+// Qualquer outro valor (ex.: 'ATIVO') = ligada.
+//
+// Uso:
+//   const iaEnabled = useIaEnabled();
+//   if (!iaEnabled) return null;
+//   // ou: {iaEnabled && <IrisPanel ... />}
+export function useIaEnabled(): boolean {
+  const planLevel = useAuthStore(s => s.user?.iaPlanLevel);
+  return String(planLevel || 'ATIVO').toUpperCase() !== 'NONE';
+}

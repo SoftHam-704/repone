@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { masterPool, getTenantPool, registerTenantPool, resolvePoolForEmpresa } from '../../config/database';
 import { env } from '../../config/env';
+import { invalidateSessionCache } from '../../middleware/auth';
 
 // Dev fallback CNPJ (SoftHam Sistemas - ambiente de testes)
 const CNPJ_DEV_FALLBACK = '17504829000124';
@@ -32,7 +33,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
              COALESCE(modulo_bi_ativo, false) as modulo_bi_ativo,
              COALESCE(modulo_whatsapp_ativo, false) as modulo_whatsapp_ativo,
              COALESCE(modulo_crmrep_ativo, false) as modulo_crmrep_ativo,
-             COALESCE(plano_ia_nivel, 'BASIC') as plano_ia_nivel
+             COALESCE(plano_ia_nivel, 'ATIVO') as plano_ia_nivel
       FROM empresas
       WHERE regexp_replace(cnpj, '[^0-9]', '', 'g') = $1 AND status = 'ATIVO'
     `, [rawCnpj]);
@@ -62,7 +63,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
         modulo_bi_ativo: true,
         modulo_whatsapp_ativo: false,
         modulo_crmrep_ativo: false,
-        plano_ia_nivel: 'BASIC',
+        plano_ia_nivel: 'ATIVO',
       };
     }
 
@@ -82,27 +83,10 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // ─── 2. CONTROLE DE SESSÕES SIMULTÂNEAS ───
+    // Constantes do controle de sessão (movidas pra cá; verificação real
+    // acontece depois de validar usuário/senha, na seção 4.5)
     const SESSION_TIMEOUT_MINUTES = 15;
-    try {
-      const countResult = await masterClient.query(`
-        SELECT COUNT(*) as qtd FROM sessoes_ativas
-        WHERE empresa_id = $1 AND ativo = true
-          AND ultima_atividade > NOW() - INTERVAL '${SESSION_TIMEOUT_MINUTES} minutes'
-      `, [empresa.id]);
-      const activeSessions = parseInt(countResult.rows[0].qtd);
-
-      if (empresa.bloqueio_ativo === 'S' && activeSessions >= empresa.limite_sessoes) {
-        res.status(403).json({
-          success: false,
-          message: `Limite de conexões simultâneas atingido (${empresa.limite_sessoes}).`,
-        });
-        return;
-      }
-    } catch (sessionCountErr: any) {
-      // Não bloqueia o login se a tabela sessoes_ativas não existir ainda
-      console.warn(`⚠️ [AUTH] Session count failed: ${sessionCountErr.message}`);
-    }
+    const SESSION_LIMIT_PER_USER  = 2; // web + mobile. 3ª sessão pede pra derrubar.
 
     // ─── 3. REDIRECIONAR PARA O SCHEMA/BANCO DO TENANT ───
     let targetHost = empresa.db_host;
@@ -140,7 +124,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
       // ─── 4. VALIDAR USUÁRIO NO TENANT ───
       userResult = await tenantClient.query(`
         SELECT codigo as id, nome, sobrenome, usuario,
-               master as e_admin, gerencia
+               master as e_admin, gerencia, iniciais
         FROM user_nomes
         WHERE LOWER(nome) = LOWER($1)
           AND LOWER(sobrenome) = LOWER($2)
@@ -162,6 +146,73 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
 
     const user = userResult.rows[0];
 
+    // ─── 4.5. CONTROLE DE SESSÕES POR USUÁRIO ───
+    // Regra comercial (Hamilton 2026-05-26): cada usuário pode ter ATÉ
+    // SESSION_LIMIT_PER_USER sessões ativas em paralelo (web + mobile). Modelo
+    // de cobrança é por usuário (R$ 110/mês), e essa regra evita que um único
+    // login seja compartilhado entre vários funcionários.
+    //
+    // Comportamentos:
+    //   • < limite          → entra silenciosamente (sem modal)
+    //   • >= limite + sem forceLogin  → 409 SESSION_LIMIT_REACHED com lista de
+    //                                   sessões ativas. Frontend mostra modal:
+    //                                   "Você já tem N sessões. Derrubar a mais
+    //                                    antiga pra entrar aqui?"
+    //   • >= limite + forceLogin=true → derruba a sessão mais antiga e prossegue
+    const forceLogin = req.body?.forceLogin === true;
+    try {
+      const activeRes = await masterClient.query(`
+        SELECT id, ip, user_agent, data_login
+        FROM sessoes_ativas
+        WHERE empresa_id = $1 AND tenant_user_id = $2 AND ativo = true
+          AND ultima_atividade > NOW() - INTERVAL '${SESSION_TIMEOUT_MINUTES} minutes'
+        ORDER BY data_login ASC
+      `, [empresa.id, user.id]);
+      const activeOwn = activeRes.rows;
+
+      if (activeOwn.length >= SESSION_LIMIT_PER_USER) {
+        if (!forceLogin) {
+          // Resposta enviada com DOIS códigos pra compatibilidade com versões
+          // anteriores do frontend que esperavam 'EXISTING_SESSION'. Frontend
+          // antigo casa pelo code; frontend novo casa pelo code ou pelo
+          // activeSessions[].
+          const oldest = activeOwn[0];
+          res.status(409).json({
+            success: false,
+            code: 'SESSION_LIMIT_REACHED',
+            // Aliases para compatibilidade com frontend antigo:
+            legacyCode: 'EXISTING_SESSION',
+            existingSession: oldest ? {
+              ip: oldest.ip,
+              userAgent: oldest.user_agent,
+              dataLogin: oldest.data_login,
+            } : null,
+            message: `Você já tem ${activeOwn.length} sessões ativas (limite ${SESSION_LIMIT_PER_USER}). Deseja desconectar e entrar aqui?`,
+            limit: SESSION_LIMIT_PER_USER,
+            activeSessions: activeOwn.map(s => ({
+              ip: s.ip,
+              userAgent: s.user_agent,
+              dataLogin: s.data_login,
+            })),
+          });
+          return;
+        }
+
+        // forceLogin=true → derruba TODAS as sessões ativas do usuário. É mais
+        // robusto que derrubar só a mais antiga: garante que o frontend antigo
+        // (que esperava esse comportamento) não entre em loop, e o frontend
+        // novo entrega o que o user clicou em "entrar aqui agora".
+        await masterClient.query(`
+          UPDATE sessoes_ativas SET ativo = false
+          WHERE empresa_id = $1 AND tenant_user_id = $2 AND ativo = true
+        `, [empresa.id, user.id]);
+        console.log(`🔁 [AUTH] forceLogin: ${user.nome} derrubou ${activeOwn.length} sessão(ões) anterior(es)`);
+      }
+    } catch (existingErr: any) {
+      // Não bloqueia se a tabela sessoes_ativas estiver indisponível
+      console.warn(`⚠️ [AUTH] Verificação de sessões do usuário falhou: ${existingErr.message}`);
+    }
+
     // ─── 5. DETERMINAR ROLE ───
     const isHamilton = (user.usuario?.toLowerCase()?.includes('hamilton')) ||
                        (user.nome?.toLowerCase()?.includes('hamilton'));
@@ -176,22 +227,28 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
       {
         userId: user.id,
         username: user.usuario || `${user.nome} ${user.sobrenome}`,
+        iniciais: user.iniciais,
+        role,
         schema,
         name: `${user.nome} ${user.sobrenome}`,
         empresaId: empresa.id,
         cnpj: empresa.cnpj,
+        iaAtiva: (empresa.plano_ia_nivel || 'INATIVA') !== 'INATIVA',  // toggle "Acesso à IRIS" do ADM — gateia IRIS Dev
       },
       env.JWT_SECRET,
       { expiresIn: env.JWT_EXPIRES_IN as any }
     );
 
-    // ─── 7. REGISTRAR SESSÃO NO MASTER (non-blocking) ───
+    // ─── 7. REGISTRAR SESSÃO NO MASTER (await — middleware vai consultar essa linha) ───
     const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    masterClient.query(`
-      INSERT INTO sessoes_ativas (empresa_id, usuario_id, tenant_user_id, token_sessao, ip, user_agent)
-      VALUES ($1, NULL, $2, $3, $4, $5)
-    `, [empresa.id, user.id, token, clientIp, req.headers['user-agent'] || 'Unknown'])
-      .catch((err: any) => console.warn(`⚠️ [AUTH] Sessão não registrada: ${err.message}`));
+    try {
+      await masterClient.query(`
+        INSERT INTO sessoes_ativas (empresa_id, usuario_id, tenant_user_id, token_sessao, ip, user_agent)
+        VALUES ($1, NULL, $2, $3, $4, $5)
+      `, [empresa.id, user.id, token, clientIp, req.headers['user-agent'] || 'Unknown']);
+    } catch (sessErr: any) {
+      console.warn(`⚠️ [AUTH] Sessão não registrada: ${sessErr.message}`);
+    }
 
     console.log(`✅ [AUTH] Login: ${user.nome} | Schema: ${schema} | Role: ${role}`);
 
@@ -205,6 +262,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
         empresa_id: empresa.id,
         nome: user.nome,
         sobrenome: user.sobrenome,
+        iniciais: user.iniciais,
         role,
         empresa: empresa.nome_fantasia || empresa.razao_social,
         cnpj: empresa.cnpj,
@@ -242,6 +300,7 @@ export async function logoutHandler(req: Request, res: Response): Promise<void> 
   if (token) {
     masterPool.query("UPDATE sessoes_ativas SET ativo = false WHERE token_sessao = $1", [token])
       .catch(() => {});
+    invalidateSessionCache(token);
   }
   res.json({ success: true, message: 'Logout realizado com sucesso' });
 }
