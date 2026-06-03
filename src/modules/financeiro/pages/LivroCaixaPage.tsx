@@ -9,6 +9,11 @@ const G = {
   muted: '#7A8899', navy: '#1E2D3D', mustard: '#FFD200', green: '#059669', red: '#DC2626',
 }
 const fmtBRL = (n: number) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+function fmtDate(d: string) {
+  if (!d) return '—'
+  const [y, m, day] = d.substring(0, 10).split('-')
+  return `${day}/${m}/${y}`
+}
 const todayISO = () => new Date().toISOString().split('T')[0]
 const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 10px', border: `1px solid ${G.border}`, borderRadius: 6, fontSize: 13, color: G.text, background: '#fff', marginTop: 4 }
 const btnPrimary = (c: string): React.CSSProperties => ({ background: c, color: c === G.mustard ? G.text : '#fff', border: 'none', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' })
@@ -155,13 +160,13 @@ export default function LivroCaixaPage() {
             </thead>
             <tbody>
               {loading && <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: G.muted }}>Carregando…</td></tr>}
-              {!loading && lancamentos.length === 0 && <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: G.muted }}>Sem lançamentos neste mês.</td></tr>}
+              {!loading && lancamentos.length === 0 && <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center', color: G.muted }}>Sem lançamentos neste período.</td></tr>}
               {!loading && lancamentos.map(l => {
                 const isBaixa = l.origem === 'CP' || l.origem === 'CR'
                 return (
                   <tr key={l.id} style={{ borderTop: `1px solid ${G.border}`, background: isBaixa ? '#FBFAF6' : '#fff' }}>
                     <td style={{ padding: '8px 12px', color: G.muted, fontVariantNumeric: 'tabular-nums' }}>{l.id}</td>
-                    <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{l.data.split('-').reverse().join('/')}</td>
+                    <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{fmtDate(l.data)}</td>
                     <td style={{ padding: '8px 12px' }}>
                       {l.historico}
                       {isBaixa && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: G.muted, border: `1px solid ${G.border}`, borderRadius: 4, padding: '1px 4px' }}>{l.origem}</span>}
