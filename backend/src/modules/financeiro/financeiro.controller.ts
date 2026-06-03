@@ -303,12 +303,20 @@ export async function getContaPagarHandler(req: Request, res: Response): Promise
 export async function createContaPagarHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
-    const { descricao, id_fornecedor, numero_documento, valor_total, data_emissao, data_vencimento,
+    const { descricao, id_fornecedor, numero_documento, data_emissao, data_vencimento,
             observacoes, id_plano_contas, id_centro_custo,
-            numero_parcelas = 1, intervalo_dias = 30 } = req.body;
+            numero_parcelas = 1, intervalo_dias = 30,
+            parcelas: parcelasExplicitas } = req.body;
+    let { valor_total } = req.body;
     const criado_por = req.user?.userId ?? null;
-    const nParcelas = Number(numero_parcelas) || 1;
+
+    // Se vieram parcelas explícitas do editor, o valor_total é a soma delas
+    const temParcelasExplicitas = Array.isArray(parcelasExplicitas) && parcelasExplicitas.length > 0;
+    if (temParcelasExplicitas) {
+      valor_total = parcelasExplicitas.reduce((s: number, p: any) => s + Number(p.valor), 0);
+    }
     const valorTotalNum = Number(valor_total) || 0;
+    const nParcelas = temParcelasExplicitas ? parcelasExplicitas.length : (Number(numero_parcelas) || 1);
 
     const conta = await db.transaction(async client => {
       const r = await client.query(`
@@ -318,7 +326,14 @@ export async function createContaPagarHandler(req: Request, res: Response): Prom
           observacoes, id_plano_contas || null, id_centro_custo || null, criado_por]);
       const contaId = r.rows[0].id;
 
-      if (nParcelas > 1) {
+      if (temParcelasExplicitas) {
+        for (const p of parcelasExplicitas) {
+          await client.query(
+            `INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
+            [contaId, p.numero_parcela, Number(p.valor), p.data_vencimento]
+          );
+        }
+      } else if (nParcelas > 1) {
         const valorParcela = parseFloat((valorTotalNum / nParcelas).toFixed(2));
         let soma = 0;
         for (let i = 1; i <= nParcelas; i++) {
@@ -346,17 +361,25 @@ export async function createContaPagarHandler(req: Request, res: Response): Prom
 }
 
 // PUT /contas-pagar/:id — edição completa (Hamilton 2026-05-25). Regenera as parcelas
-// a partir do novo valor_total + numero_parcelas. Se a conta tinha pagamentos,
-// estes são RESETADOS (parcelas pagas somem). Frontend mostra aviso antes.
+// a partir do parcelas[] explícitas (editor) ou numero_parcelas+intervalo (fallback).
+// Se a conta tinha pagamentos, estes são RESETADOS. Frontend mostra aviso antes.
 export async function updateContaPagarHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
     const { id } = req.params;
-    const { descricao, id_fornecedor, numero_documento, valor_total, data_emissao, data_vencimento,
+    const { descricao, id_fornecedor, numero_documento, data_emissao, data_vencimento,
             observacoes, id_plano_contas, id_centro_custo,
-            numero_parcelas = 1, intervalo_dias = 30 } = req.body;
-    const nParcelas = Number(numero_parcelas) || 1;
+            numero_parcelas = 1, intervalo_dias = 30,
+            parcelas: parcelasExplicitas } = req.body;
+    let { valor_total } = req.body;
+
+    // Se vieram parcelas explícitas do editor, o valor_total é a soma delas
+    const temParcelasExplicitas = Array.isArray(parcelasExplicitas) && parcelasExplicitas.length > 0;
+    if (temParcelasExplicitas) {
+      valor_total = parcelasExplicitas.reduce((s: number, p: any) => s + Number(p.valor), 0);
+    }
     const valorTotalNum = Number(valor_total) || 0;
+    const nParcelas = temParcelasExplicitas ? parcelasExplicitas.length : (Number(numero_parcelas) || 1);
 
     const updated = await db.transaction(async client => {
       const r = await client.query(`
@@ -370,10 +393,17 @@ export async function updateContaPagarHandler(req: Request, res: Response): Prom
           observacoes, id_plano_contas || null, id_centro_custo || null, id]);
       if (!r.rows.length) return null;
 
-      // Regenera parcelas: apaga todas (inclusive pagas) e cria N novas
+      // Regenera parcelas: apaga todas (inclusive pagas) e cria novas
       await client.query('DELETE FROM fin_parcelas_pagar WHERE id_conta_pagar = $1', [id]);
 
-      if (nParcelas > 1) {
+      if (temParcelasExplicitas) {
+        for (const p of parcelasExplicitas) {
+          await client.query(
+            `INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
+            [id, p.numero_parcela, Number(p.valor), p.data_vencimento]
+          );
+        }
+      } else if (nParcelas > 1) {
         const valorParcela = parseFloat((valorTotalNum / nParcelas).toFixed(2));
         let soma = 0;
         for (let i = 1; i <= nParcelas; i++) {
@@ -520,12 +550,20 @@ export async function getContaReceberHandler(req: Request, res: Response): Promi
 export async function createContaReceberHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
-    const { descricao, id_cliente, numero_documento, valor_total, data_emissao, data_vencimento,
+    const { descricao, id_cliente, numero_documento, data_emissao, data_vencimento,
             observacoes, id_plano_contas, id_centro_custo,
-            numero_parcelas = 1, intervalo_dias = 30 } = req.body;
+            numero_parcelas = 1, intervalo_dias = 30,
+            parcelas: parcelasExplicitas } = req.body;
+    let { valor_total } = req.body;
     const criado_por = req.user?.userId ?? null;
-    const nParcelas = Number(numero_parcelas) || 1;
+
+    // Se vieram parcelas explícitas do editor, o valor_total é a soma delas
+    const temParcelasExplicitas = Array.isArray(parcelasExplicitas) && parcelasExplicitas.length > 0;
+    if (temParcelasExplicitas) {
+      valor_total = parcelasExplicitas.reduce((s: number, p: any) => s + Number(p.valor), 0);
+    }
     const valorTotalNum = Number(valor_total) || 0;
+    const nParcelas = temParcelasExplicitas ? parcelasExplicitas.length : (Number(numero_parcelas) || 1);
 
     const conta = await db.transaction(async client => {
       const r = await client.query(`
@@ -535,7 +573,14 @@ export async function createContaReceberHandler(req: Request, res: Response): Pr
           observacoes, id_plano_contas || null, id_centro_custo || null, criado_por]);
       const contaId = r.rows[0].id;
 
-      if (nParcelas > 1) {
+      if (temParcelasExplicitas) {
+        for (const p of parcelasExplicitas) {
+          await client.query(
+            `INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
+            [contaId, p.numero_parcela, Number(p.valor), p.data_vencimento]
+          );
+        }
+      } else if (nParcelas > 1) {
         const valorParcela = parseFloat((valorTotalNum / nParcelas).toFixed(2));
         let soma = 0;
         for (let i = 1; i <= nParcelas; i++) {
@@ -563,17 +608,25 @@ export async function createContaReceberHandler(req: Request, res: Response): Pr
 }
 
 // PUT /contas-receber/:id — edição completa. Regenera as parcelas
-// a partir do novo valor_total + numero_parcelas. Se a conta tinha recebimentos,
-// estes são RESETADOS (parcelas recebidas somem). Frontend mostra aviso antes.
+// a partir de parcelas[] explícitas (editor) ou numero_parcelas+intervalo (fallback).
+// Se a conta tinha recebimentos, estes são RESETADOS. Frontend mostra aviso antes.
 export async function updateContaReceberHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
     const { id } = req.params;
-    const { descricao, id_cliente, numero_documento, valor_total, data_emissao, data_vencimento,
+    const { descricao, id_cliente, numero_documento, data_emissao, data_vencimento,
             observacoes, id_plano_contas, id_centro_custo,
-            numero_parcelas = 1, intervalo_dias = 30 } = req.body;
-    const nParcelas = Number(numero_parcelas) || 1;
+            numero_parcelas = 1, intervalo_dias = 30,
+            parcelas: parcelasExplicitas } = req.body;
+    let { valor_total } = req.body;
+
+    // Se vieram parcelas explícitas do editor, o valor_total é a soma delas
+    const temParcelasExplicitas = Array.isArray(parcelasExplicitas) && parcelasExplicitas.length > 0;
+    if (temParcelasExplicitas) {
+      valor_total = parcelasExplicitas.reduce((s: number, p: any) => s + Number(p.valor), 0);
+    }
     const valorTotalNum = Number(valor_total) || 0;
+    const nParcelas = temParcelasExplicitas ? parcelasExplicitas.length : (Number(numero_parcelas) || 1);
 
     const updated = await db.transaction(async client => {
       const r = await client.query(`
@@ -587,10 +640,17 @@ export async function updateContaReceberHandler(req: Request, res: Response): Pr
           observacoes, id_plano_contas || null, id_centro_custo || null, id]);
       if (!r.rows.length) return null;
 
-      // Regenera parcelas: apaga todas (inclusive recebidas) e cria N novas
+      // Regenera parcelas: apaga todas (inclusive recebidas) e cria novas
       await client.query('DELETE FROM fin_parcelas_receber WHERE id_conta_receber = $1', [id]);
 
-      if (nParcelas > 1) {
+      if (temParcelasExplicitas) {
+        for (const p of parcelasExplicitas) {
+          await client.query(
+            `INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
+            [id, p.numero_parcela, Number(p.valor), p.data_vencimento]
+          );
+        }
+      } else if (nParcelas > 1) {
         const valorParcela = parseFloat((valorTotalNum / nParcelas).toFixed(2));
         let soma = 0;
         for (let i = 1; i <= nParcelas; i++) {

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, Search, Eye, Check, Trash2, ArrowUpCircle, X, Pencil, Building2, ChevronDown, ChevronUp, Calendar, FileText } from 'lucide-react'
+import { Plus, Search, Eye, Check, Trash2, ArrowUpCircle, X, Pencil, ChevronDown, ChevronUp, FileText } from 'lucide-react'
 import { api } from '@/shared/lib/api'
+import ParcelasEditor, { type ParcelaLinha } from '../components/ParcelasEditor'
 
 const G = {
   bg:      '#E8E1D4',
@@ -343,14 +344,15 @@ function NovaContaModal({ onClose, onSaved, fornecedores, planoContas, centrosCu
   const [form, setForm] = useState({
     descricao: '', id_fornecedor: '', numero_documento: '',
     valor_total: '', data_emissao: todayISO(), data_vencimento: todayISO(),
-    observacoes: '', id_plano_contas: '', id_centro_custo: '', numero_parcelas: '1', intervalo_dias: '30',
+    observacoes: '', id_plano_contas: '', id_centro_custo: '',
   })
+  const [parcelasGrid, setParcelasGrid] = useState<ParcelaLinha[]>([])
   const [saving, setSaving]     = useState(false)
   const [loading, setLoading]   = useState(isEdit)
   const [hasPago, setHasPago]   = useState(false)
   const [error, setError]       = useState('')
   const [hoveredBtn, setHoveredBtn] = useState<string | null>(null)
-  
+
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => {
@@ -358,15 +360,7 @@ function NovaContaModal({ onClose, onSaved, fornecedores, planoContas, centrosCu
     api.get(`/financeiro/contas-pagar/${editingId}`).then(r => {
       if (!r.data.success) return
       const c = r.data.data
-      const parcelas = c.parcelas ?? []
-      // Infere intervalo a partir das 2 primeiras parcelas
-      let intervalo = 30
-      if (parcelas.length >= 2) {
-        const d0 = new Date(parcelas[0].data_vencimento)
-        const d1 = new Date(parcelas[1].data_vencimento)
-        const diff = Math.round((d1.getTime() - d0.getTime()) / 86_400_000)
-        if (diff > 0) intervalo = diff
-      }
+      const parcelas: any[] = c.parcelas ?? []
       // valor_total no estado = string de centavos (dígitos)
       const cents = Math.round(Number(c.valor_total) * 100).toString()
       setForm({
@@ -379,9 +373,15 @@ function NovaContaModal({ onClose, onSaved, fornecedores, planoContas, centrosCu
         observacoes: c.observacoes ?? '',
         id_plano_contas: c.id_plano_contas ? String(c.id_plano_contas) : '',
         id_centro_custo: c.id_centro_custo ? String(c.id_centro_custo) : '',
-        numero_parcelas: String(parcelas.length || 1),
-        intervalo_dias: String(intervalo),
       })
+      // Inicializa a grade a partir das parcelas existentes
+      if (parcelas.length > 0) {
+        setParcelasGrid(parcelas.map(p => ({
+          numero_parcela: p.numero_parcela,
+          data_vencimento: (p.data_vencimento ?? '').substring(0, 10),
+          valor: Number(p.valor),
+        })))
+      }
       setHasPago(Number(c.valor_pago) > 0)
     }).catch(() => setError('Falha ao carregar conta.')).finally(() => setLoading(false))
   }, [editingId, isEdit])
@@ -390,14 +390,15 @@ function NovaContaModal({ onClose, onSaved, fornecedores, planoContas, centrosCu
     e.preventDefault()
     const valorReais = digitsToReais(form.valor_total)
     if (!form.descricao || valorReais <= 0 || !form.data_vencimento) { setError('Preencha os campos obrigatórios.'); return }
+    if (parcelasGrid.length === 0) { setError('Calcule as parcelas antes de salvar.'); return }
     if (isEdit && hasPago && !confirm('Esta conta já tem pagamentos registrados. Editar irá APAGAR todas as parcelas (inclusive as pagas) e regenerar. Continuar?')) return
     setSaving(true); setError('')
     try {
       const payload = {
         ...form,
         valor_total: valorReais,
-        numero_parcelas: parseInt(form.numero_parcelas),
-        intervalo_dias: parseInt(form.intervalo_dias),
+        numero_parcelas: parcelasGrid.length,
+        parcelas: parcelasGrid,
         id_fornecedor:  form.id_fornecedor || null,
         id_plano_contas: form.id_plano_contas || null,
         id_centro_custo: form.id_centro_custo || null,
@@ -510,24 +511,14 @@ function NovaContaModal({ onClose, onSaved, fornecedores, planoContas, centrosCu
             placeholder="— Selecionar Centro de Custo —"
           />
 
-          {/* N° Parcelas & Intervalo */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <FormInput
-              type="number"
-              label="N° Parcelas"
-              value={form.numero_parcelas}
-              onChange={e => set('numero_parcelas', e.target.value)}
-              min="1"
-              max="60"
-            />
-            <FormInput
-              type="number"
-              label="Intervalo (dias)"
-              value={form.intervalo_dias}
-              onChange={e => set('intervalo_dias', e.target.value)}
-              min="1"
-            />
-          </div>
+          {/* Parcelas — gerador com prévia editável */}
+          <ParcelasEditor
+            valorTotal={digitsToReais(form.valor_total)}
+            dataVencimentoInicial={form.data_vencimento}
+            accent={G.red}
+            value={parcelasGrid}
+            onChange={setParcelasGrid}
+          />
 
           {/* Observações */}
           <FormTextarea
