@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, Eraser, AlertCircle, Save, ShieldCheck } from 'lucide-react';
+import { LogIn, Eraser, AlertCircle, Save, ShieldCheck, RotateCw } from 'lucide-react';
 import { api } from '@/shared/lib/api';
 import { useAuthStore } from '@/shared/stores/useAuthStore';
 
@@ -32,6 +32,7 @@ export default function LoginPage() {
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState('');
   const [existingSession, setExistingSession] = useState<null | { info?: { ip?: string; userAgent?: string; dataLogin?: string } }>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const navigate = useNavigate();
   const { login } = useAuthStore();
@@ -101,6 +102,27 @@ export default function LoginPage() {
   const confirmForceLogin = async () => {
     setExistingSession(null);
     await doLogin(true);
+  };
+
+  // Hard refresh: limpa service worker + caches e recarrega pra pegar a versão nova
+  // (igual ao botão do web). NÃO limpa o IndexedDB — preserva a fila de sync offline.
+  const handleHardRefresh = async () => {
+    if (refreshing) return;
+    if (!window.confirm('Atualizar para a versão mais recente do RepOne? O app vai recarregar.')) return;
+    setRefreshing(true);
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister().catch(() => false)));
+      }
+    } catch (e) { console.warn('[REFRESH] unregister SW falhou:', e); }
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k).catch(() => false)));
+      }
+    } catch (e) { console.warn('[REFRESH] clear caches falhou:', e); }
+    window.location.reload();
   };
 
   const s: Record<string, React.CSSProperties> = {
@@ -263,6 +285,14 @@ export default function LoginPage() {
           </button>
         </div>
       </form>
+
+      <button type="button" onClick={handleHardRefresh} disabled={refreshing}
+        style={{ position: 'absolute', bottom: 44, display: 'flex', alignItems: 'center', gap: 6,
+          background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 12,
+          fontWeight: 600, cursor: 'pointer', zIndex: 1, padding: 6 }}>
+        <RotateCw size={13} style={{ animation: refreshing ? 'spin 0.8s linear infinite' : 'none' }} />
+        {refreshing ? 'Atualizando...' : 'Atualizar versão'}
+      </button>
 
       <p style={{ position: 'absolute', bottom: 20, fontSize: 11, color: 'rgba(255,255,255,0.3)', zIndex: 1 }}>
         © 2026 RepOne. Todos os direitos reservados.
