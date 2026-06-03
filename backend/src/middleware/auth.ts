@@ -13,6 +13,7 @@ export interface JwtPayload {
   empresaId?: number;
   cnpj?: string;
   iaAtiva?: boolean;      // plano_ia_nivel != INATIVA no master — toggle "Acesso à IRIS" (gateia IRIS Dev)
+  isPromotor?: boolean;   // promotor de vendas (ven_cumpremetas='N' + role user)
 }
 
 // Estende o Request do Express para incluir user e schema

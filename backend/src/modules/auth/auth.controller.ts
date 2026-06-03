@@ -124,8 +124,9 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
       // ─── 4. VALIDAR USUÁRIO NO TENANT ───
       userResult = await tenantClient.query(`
         SELECT codigo as id, nome, sobrenome, usuario,
-               master as e_admin, gerencia, iniciais
-        FROM user_nomes
+               master as e_admin, gerencia, iniciais,
+               (SELECT ven_cumpremetas FROM vendedores WHERE ven_codusu = un.codigo LIMIT 1) AS ven_cumpremetas
+        FROM user_nomes un
         WHERE LOWER(nome) = LOWER($1)
           AND LOWER(sobrenome) = LOWER($2)
           AND senha = $3
@@ -222,6 +223,12 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
     else if (user.e_admin === true || user.e_admin === 'S') role = 'admin';
     else if (user.gerencia === true || user.gerencia === 'S') role = 'manager';
 
+    // ─── 5.5. PERFIL PROMOTOR ───
+    // Promotor = vendedor com ven_cumpremetas='N' (fora das metas de venda) E role 'user'.
+    // role!='user' (gerente/admin) nunca é promotor, mesmo com cumpremetas='N'.
+    const isPromotor = role === 'user' &&
+      String(user.ven_cumpremetas ?? 'S').toUpperCase() === 'N';
+
     // ─── 6. GERAR JWT ───
     const token = jwt.sign(
       {
@@ -234,6 +241,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
         empresaId: empresa.id,
         cnpj: empresa.cnpj,
         iaAtiva: (empresa.plano_ia_nivel || 'INATIVA') !== 'INATIVA',  // toggle "Acesso à IRIS" do ADM — gateia IRIS Dev
+        isPromotor,  // promotor de vendas: esconde opções de venda no mobile
       },
       env.JWT_SECRET,
       { expiresIn: env.JWT_EXPIRES_IN as any }
@@ -272,6 +280,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
         crmRepEnabled: empresa.modulo_crmrep_ativo === true,
         portalLojistaEnabled: empresa.ios_enabled === 'S',
         iaPlanLevel: empresa.plano_ia_nivel,
+        isPromotor,
       },
       tenantConfig: {
         cnpj: empresa.cnpj,
