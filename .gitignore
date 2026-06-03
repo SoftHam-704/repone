@@ -33,12 +33,12 @@ dist-ssr
 .claude/
 .superpowers/
 
-# Scratch / junk
-scratch/
-space-invaders/
-frontend/
-mobile/
-Imagens/
+# Scratch / junk (ancorados na raiz para não casar src/mobile, etc.)
+/scratch/
+/space-invaders/
+/frontend/
+/mobile/
+/Imagens/
 
 # Lock files
 package-lock.json
