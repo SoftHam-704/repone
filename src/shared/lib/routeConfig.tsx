@@ -48,6 +48,7 @@ const FluxoCaixaPage           = lazy(() => import('@/modules/financeiro/pages/F
 const DREPage                  = lazy(() => import('@/modules/financeiro/pages/DREPage'))
 const PlanoContasPage          = lazy(() => import('@/modules/financeiro/pages/PlanoContasPage'))
 const CentroCustoPage          = lazy(() => import('@/modules/financeiro/pages/CentroCustoPage'))
+const LivroCaixaPage           = lazy(() => import('@/modules/financeiro/pages/LivroCaixaPage'))
 const FinClientesPage          = lazy(() => import('@/modules/financeiro/pages/FinClientesPage'))
 const FinFornecedoresPage      = lazy(() => import('@/modules/financeiro/pages/FinFornecedoresPage'))
 const CarteiraRadarPage        = lazy(() => import('@/modules/crm/pages/CarteiraRadarPage'))
@@ -111,6 +112,7 @@ export const ROUTE_CONFIG: Record<string, RouteItem> = {
   '/financeiro/dashboard':              { id: 'fin-dashboard', label: 'Dashboard Financeiro',  path: '/financeiro/dashboard',              icon: Wallet,       element: <FinanceiroDashboardPage /> },
   '/financeiro/receber':               { id: 'fin-receber',   label: 'Contas a Receber',       path: '/financeiro/receber',                icon: DollarSign,   element: <ContasReceberPage /> },
   '/financeiro/pagar':                 { id: 'fin-pagar',     label: 'Contas a Pagar',         path: '/financeiro/pagar',                  icon: DollarSign,   element: <ContasPagarPage /> },
+  '/financeiro/livro-caixa':           { id: 'fin-livro-caixa', label: 'Livro Caixa', path: '/financeiro/livro-caixa', icon: BookOpen, element: <LivroCaixaPage /> },
   '/financeiro/relatorios/fluxo-caixa':{ id: 'fin-fluxo',     label: 'Fluxo de Caixa',         path: '/financeiro/relatorios/fluxo-caixa', icon: TrendingUp,   element: <FluxoCaixaPage /> },
   '/financeiro/relatorios/dre':        { id: 'fin-dre',       label: 'DRE Gerencial',           path: '/financeiro/relatorios/dre',         icon: PieChart,     element: <DREPage /> },
   '/financeiro/plano-contas':          { id: 'fin-plano',     label: 'Plano de Contas',         path: '/financeiro/plano-contas',           icon: Settings,     element: <PlanoContasPage /> },

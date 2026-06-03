@@ -101,6 +101,7 @@ const GROUPS: NavGroup[] = [
       { label: 'Dashboard Hub',    path: '/financeiro/dashboard',              icon: LayoutDashboard, minLevel: 3 },
       { label: 'Contas a Receber', path: '/financeiro/receber',                icon: DollarSign,      minLevel: 2 },
       { label: 'Contas a Pagar',   path: '/financeiro/pagar',                  icon: DollarSign,      minLevel: 2 },
+      { label: 'Livro Caixa',      path: '/financeiro/livro-caixa',            icon: BookOpen,        minLevel: 2 },
       { label: 'Fluxo de Caixa',   path: '/financeiro/relatorios/fluxo-caixa', icon: TrendingUp,      minLevel: 3 },
       { label: 'DRE Gerencial',    path: '/financeiro/relatorios/dre',         icon: PieChart,        minLevel: 3 },
       { label: 'Plano de Contas',  path: '/financeiro/plano-contas',           icon: Settings,        minLevel: 2 },
