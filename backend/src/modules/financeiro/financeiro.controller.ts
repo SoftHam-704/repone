@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { lancarBaixaNoCaixa } from '../livro-caixa/livro-caixa.controller';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 function err(res: Response, e: any, ctx = '') {
@@ -435,7 +436,8 @@ export async function baixaContaPagarHandler(req: Request, res: Response): Promi
   try {
     const db = req.db!;
     const { id } = req.params;
-    const { id_parcela, data_pagamento, valor_pago, juros = 0, desconto = 0, observacoes, gerar_residuo = true } = req.body;
+    const { id_parcela, data_pagamento, valor_pago, juros = 0, desconto = 0, observacoes, gerar_residuo = true, id_conta_caixa } = req.body;
+    if (!id_conta_caixa) { res.status(400).json({ success: false, message: 'Informe a conta de caixa do pagamento.' }); return; }
 
     await db.transaction(async client => {
       await client.query(`
@@ -468,6 +470,21 @@ export async function baixaContaPagarHandler(req: Request, res: Response): Promi
           data_pagamento = CASE WHEN $2::varchar='PAGO' THEN $3::date ELSE NULL END
         WHERE id=$4
       `, [total_pago, novStatus, data_pagamento, id]);
+
+      // Espelha o pagamento no Livro Caixa (débito). Dinheiro que saiu = valor_pago + juros.
+      const cab = await client.query(
+        'SELECT descricao, numero_documento, id_plano_contas, id_centro_custo FROM fin_contas_pagar WHERE id=$1', [id]);
+      const c = cab.rows[0] || {};
+      const histDoc = c.numero_documento ? ` • Doc ${c.numero_documento}` : '';
+      await lancarBaixaNoCaixa(client, {
+        conta_id: Number(id_conta_caixa),
+        data: data_pagamento,
+        valor: Number(valor_pago) + Number(juros),
+        tipo: 'D', origem: 'CP', id_parcela_origem: Number(id_parcela),
+        historico: `Pagto: ${c.descricao ?? 'conta a pagar'}${histDoc}`,
+        id_plano_contas: c.id_plano_contas, id_centro_custo: c.id_centro_custo,
+        documento: c.numero_documento ?? null,
+      });
     });
 
     res.json({ success: true, message: 'Pagamento registrado com sucesso' });
@@ -682,7 +699,8 @@ export async function baixaContaReceberHandler(req: Request, res: Response): Pro
   try {
     const db = req.db!;
     const { id } = req.params;
-    const { id_parcela, data_recebimento, valor_recebido, juros = 0, desconto = 0, observacoes, gerar_residuo = true } = req.body;
+    const { id_parcela, data_recebimento, valor_recebido, juros = 0, desconto = 0, observacoes, gerar_residuo = true, id_conta_caixa } = req.body;
+    if (!id_conta_caixa) { res.status(400).json({ success: false, message: 'Informe a conta de caixa do recebimento.' }); return; }
 
     await db.transaction(async client => {
       await client.query(`
@@ -715,6 +733,20 @@ export async function baixaContaReceberHandler(req: Request, res: Response): Pro
           data_recebimento = CASE WHEN $2::varchar='RECEBIDO' THEN $3::date ELSE NULL END
         WHERE id=$4
       `, [total_recebido, novStatus, data_recebimento, id]);
+
+      const cab = await client.query(
+        'SELECT descricao, numero_documento, id_plano_contas, id_centro_custo FROM fin_contas_receber WHERE id=$1', [id]);
+      const c = cab.rows[0] || {};
+      const histDoc = c.numero_documento ? ` • Doc ${c.numero_documento}` : '';
+      await lancarBaixaNoCaixa(client, {
+        conta_id: Number(id_conta_caixa),
+        data: data_recebimento,
+        valor: Number(valor_recebido) + Number(juros),
+        tipo: 'C', origem: 'CR', id_parcela_origem: Number(id_parcela),
+        historico: `Receb: ${c.descricao ?? 'conta a receber'}${histDoc}`,
+        id_plano_contas: c.id_plano_contas, id_centro_custo: c.id_centro_custo,
+        documento: c.numero_documento ?? null,
+      });
     });
 
     res.json({ success: true, message: 'Recebimento registrado com sucesso' });
