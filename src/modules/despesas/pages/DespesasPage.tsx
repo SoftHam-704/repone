@@ -59,13 +59,18 @@ export default function DespesasPage() {
   }, [filtered]);
 
   function exportCSV() {
+    // Sanitiza contra CSV-injection no Excel (descrição/vendedor vêm de input do REP).
+    const safe = (v: any) => {
+      const s = String(v ?? '').replace(/;/g, ',');
+      return /^[=+\-@]/.test(s) ? `'${s}` : s;
+    };
     const head = ['Data', 'Vendedor', 'Categoria', 'Valor', 'Descrição'];
     const lines = filtered.map(d => [
       new Date(d.desp_data + 'T00:00:00').toLocaleDateString('pt-BR'),
-      d.vendedor_nome || d.desp_vendedor,
+      safe(d.vendedor_nome || d.desp_vendedor),
       d.desp_categoria,
       String(Number(d.desp_valor).toFixed(2)).replace('.', ','),
-      (d.desp_descricao || '').replace(/;/g, ','),
+      safe(d.desp_descricao || ''),
     ].join(';'));
     const csv = [head.join(';'), ...lines].join('\n');
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
@@ -73,6 +78,7 @@ export default function DespesasPage() {
     a.href = URL.createObjectURL(blob);
     a.download = 'despesas.csv';
     a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 100);
   }
 
   function abrirComprovante(arq: string) {
@@ -80,7 +86,11 @@ export default function DespesasPage() {
       headers: { Authorization: `Bearer ${localStorage.getItem('sm_token') || ''}` },
     })
       .then(r => r.blob())
-      .then(b => window.open(URL.createObjectURL(b), '_blank'));
+      .then(b => {
+        const url = URL.createObjectURL(b);
+        window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      });
   }
 
   const selSt: React.CSSProperties = {
