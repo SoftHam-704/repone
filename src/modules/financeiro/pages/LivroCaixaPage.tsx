@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, ArrowLeftRight, X, BookOpen, Wallet, Landmark, Trash2 } from 'lucide-react'
 import { api } from '@/shared/lib/api'
+import { apenasAnaliticas } from '../utils/planoContas'
 
 // ── tokens (espelha PlanoContasPage.tsx — Areia+Navy) ───────────────────────
 const G = {
@@ -319,7 +320,7 @@ function NovoLancamentoModal({ contas, contaInicial, onClose, onSaved }: {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <label style={lblStyle}>Plano de Contas
             <select value={form.id_plano_contas} onChange={e => set('id_plano_contas', e.target.value)} style={inputStyle}>
-              <option value="">—</option>{planos.map(p => <option key={p.id} value={p.id}>{p.codigo} {p.descricao}</option>)}
+              <option value="">—</option>{apenasAnaliticas(planos).map((p: any) => <option key={p.id} value={p.id}>{p.codigo} {p.descricao}</option>)}
             </select>
           </label>
           <label style={lblStyle}>Centro de Custo

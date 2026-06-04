@@ -8,6 +8,7 @@ import ParcelasEditor, {
   distribuirValor,
 } from './ParcelasEditor'
 import SearchCombobox from '@/shared/components/ui/SearchCombobox'
+import { analiticasPorTipo } from '../utils/planoContas'
 
 // ── Design tokens (consistent with Areia+Navy system) ────────────────────────
 const G = {
@@ -208,8 +209,7 @@ export default function LancamentoLoteModal({ isOpen, onClose, onSaved, rotinaPa
     nome: x.nome_razao,
   }))
 
-  const planoOptions = planoContas
-    .filter(p => p.tipo === (rotina === 'RECEITAS' ? 'R' : 'D'))
+  const planoOptions = analiticasPorTipo(planoContas, rotina === 'RECEITAS' ? 'R' : 'D')
     .map(p => ({
       id: p.id,
       nome: `${p.codigo} - ${p.descricao}`,

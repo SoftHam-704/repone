@@ -3,6 +3,7 @@ import { Plus, Search, Eye, Check, Trash2, ArrowDownCircle, X, Pencil, ChevronDo
 import { api } from '@/shared/lib/api'
 import ParcelasEditor, { type ParcelaLinha } from '../components/ParcelasEditor'
 import LancamentoLoteModal from '../components/LancamentoLoteModal'
+import { analiticasPorTipo } from '../utils/planoContas'
 
 const G = {
   bg:      '#E8E1D4',
@@ -412,7 +413,7 @@ function NovaContaModal({ onClose, onSaved, clientes, planoContas, centrosCusto,
 
   // Prepara opções dos comboboxes
   const clienteOpts = clientes.map(c => ({ value: String(c.id), label: c.nome_razao }))
-  const planoOpts = planoContas.filter(p => p.tipo === 'R').map(p => ({ value: String(p.id), label: p.descricao, sublabel: p.codigo }))
+  const planoOpts = analiticasPorTipo(planoContas, 'R').map(p => ({ value: String(p.id), label: p.descricao, sublabel: p.codigo }))
   const centroOpts = centrosCusto.filter(c => c.ativo !== false).map(c => ({ value: String(c.id), label: c.descricao, sublabel: c.codigo || undefined }))
 
   return (
