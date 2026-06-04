@@ -130,6 +130,15 @@ function IndustriaAccordion({ nome, rows, detalhada, color }: {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={{ background: `${color}12`, borderTop: `2px solid ${color}55` }}>
+                  <td colSpan={detalhada ? 3 : 2} style={{ padding: '9px 14px', fontSize: 10, fontWeight: 900, color, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    Subtotal {nome}
+                  </td>
+                  <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 900, color: G.text, fontVariantNumeric: 'tabular-nums' }}>{fmtN(totalQtd)}</td>
+                  <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 900, color: '#16A34A', fontVariantNumeric: 'tabular-nums' }}>{fmtR$(totalValor)}</td>
+                </tr>
+              </tfoot>
             </table>
           </motion.div>
         )}
@@ -188,15 +197,52 @@ export default function MapaCliIndustria({ dataInicio, dataFim }: { dataInicio: 
 
   const exportExcel = () => {
     if (!rawData.length) return;
-    const rows = rawData.map(r => ({
-      'Indústria': r.industria,
-      ...(detalhada ? { 'Pedido': r.pedido } : {}),
-      'Cliente': r.cliente,
-      'Referência': detalhada ? fmtDate(r.data) : r.mes_ref,
-      'Quantidade': r.qtd,
-      'Valor': r.valor,
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
+
+    const header = [
+      'Indústria',
+      ...(detalhada ? ['Pedido'] : []),
+      'Cliente',
+      'Referência',
+      'Quantidade',
+      'Valor',
+    ];
+    const aoa: any[][] = [header];
+    let grandQtd = 0, grandValor = 0;
+
+    // Agrupado por indústria (mesma ordem da tela) — cada bloco fecha com um SUBTOTAL.
+    grouped.forEach(([nome, rows]) => {
+      rows.forEach(r => {
+        aoa.push([
+          nome,
+          ...(detalhada ? [r.pedido] : []),
+          r.cliente,
+          detalhada ? fmtDate(r.data) : r.mes_ref,
+          r.qtd,
+          r.valor,
+        ]);
+      });
+      const subQtd   = rows.reduce((s, r) => s + r.qtd,   0);
+      const subValor = rows.reduce((s, r) => s + r.valor, 0);
+      grandQtd += subQtd; grandValor += subValor;
+      aoa.push([
+        `SUBTOTAL ${nome}`,
+        ...(detalhada ? [''] : []),
+        '', '',
+        subQtd, subValor,
+      ]);
+      aoa.push([]); // linha em branco separando indústrias
+    });
+
+    aoa.push([
+      'TOTAL GERAL',
+      ...(detalhada ? [''] : []),
+      '', '',
+      grandQtd, grandValor,
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = header.map(h =>
+      ({ wch: h === 'Cliente' ? 32 : h === 'Indústria' ? 22 : h === 'Valor' ? 16 : 12 }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Mapa_CLI_Industria');
     XLSX.writeFile(wb, `Mapa_CLI_Industria_${dataInicio}_${dataFim}.xlsx`);
