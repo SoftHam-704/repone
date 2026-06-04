@@ -84,6 +84,7 @@ export default function PedidoPage() {
   const [search,      setSearch]      = useState('');
   const [allProds,    setAllProds]    = useState<MobileProduct[]>([]);
   const [priceMap,    setPriceMap]    = useState<Record<string, number>>({});
+  const [priceInfo,   setPriceInfo]   = useState<Record<string, { bruto: number; liq: number; imp: number }>>({});
   const [politica,    setPolitica]    = useState<{ tem: boolean; tabelaExclusiva: boolean; descontos: number[] } | null>(null);
   const [items,       setItems]       = useState<OrderItem[]>([]);
   const [suggestions,  setSuggestions]  = useState<Suggestion[]>([]);
@@ -173,10 +174,18 @@ export default function PedidoPage() {
       api.get(`/products/prices-for-order?${qs}`)
         .then(r => {
           const map: Record<string, number> = {};
+          const info: Record<string, { bruto: number; liq: number; imp: number }> = {};
           for (const item of (r.data.data || [])) {
-            map[String(item.pro_codprod)] = item.preco;
+            const cod = String(item.pro_codprod);
+            map[cod] = item.preco;
+            info[cod] = {
+              bruto: Number(item.preco_bruto) || 0,
+              liq:   Number(item.preco) || 0,
+              imp:   Number(item.preco_com_imposto) || Number(item.preco) || 0,
+            };
           }
           setPriceMap(map);
+          setPriceInfo(info);
           const meta = r.data.meta;
           if (meta?.tem_politica) {
             setPolitica({
@@ -197,6 +206,7 @@ export default function PedidoPage() {
           if (String(p.tabela_id) === selTabela) map[p.pro_codprod] = p.preco;
         }
         setPriceMap(map);
+        setPriceInfo({}); // offline: só o líquido (db.prices não tem bruto/impostos)
       }).catch(() => {});
     }
   }, [selectedInd, selTabela, clienteId, isOnline]);
@@ -659,15 +669,40 @@ export default function PedidoPage() {
                           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {p.pro_nome}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
-                          <span style={{ fontSize: 10, color: 'var(--navy-muted)', fontWeight: 600 }}>{p.unidade}</span>
-                          {price != null && price > 0 ? (
-                            <span style={{ fontSize: 14, fontWeight: 800, color: '#059669', fontFamily: 'monospace' }}>
-                              {fmtBRL(price)}
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: 11, color: '#94A3B8', fontStyle: 'italic' }}>sem preço</span>
-                          )}
+                        <div style={{ marginTop: 4 }}>
+                          {(() => {
+                            const info = priceInfo[p.pro_codprod];
+                            if (info && (info.bruto > 0 || info.liq > 0)) {
+                              return (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '2px 12px' }}>
+                                  <span style={{ fontSize: 10, color: 'var(--navy-muted)', fontWeight: 600 }}>{p.unidade}</span>
+                                  {info.bruto > 0 && (
+                                    <span style={{ fontSize: 11, color: 'var(--navy-muted)', fontFamily: 'monospace' }}>
+                                      Bruto <b style={{ color: 'var(--navy)' }}>{fmtBRL(info.bruto)}</b>
+                                    </span>
+                                  )}
+                                  <span style={{ fontSize: 13.5, fontWeight: 800, color: '#059669', fontFamily: 'monospace' }}>
+                                    Líq. <b>{fmtBRL(info.liq)}</b>
+                                  </span>
+                                  {info.imp > 0 && (
+                                    <span style={{ fontSize: 11, color: '#B45309', fontFamily: 'monospace', fontWeight: 600 }}>
+                                      c/ imp. {fmtBRL(info.imp)}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            }
+                            return (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 10, color: 'var(--navy-muted)', fontWeight: 600 }}>{p.unidade}</span>
+                                {price != null && price > 0 ? (
+                                  <span style={{ fontSize: 14, fontWeight: 800, color: '#059669', fontFamily: 'monospace' }}>{fmtBRL(price)}</span>
+                                ) : (
+                                  <span style={{ fontSize: 11, color: '#94A3B8', fontStyle: 'italic' }}>sem preço</span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                       {inOrder ? (

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { getLinkedSellerId, buildIndustryFilterClause } from '../../shared/permissions';
 import { pool } from '../../config/database';
+import { resolverPrecoFinal, carregarDescontosPorGrupo } from '../../shared/utils/preco-resolver';
 
 function cleanInd(v: string | number | string[]): number {
   const s = String(Array.isArray(v) ? v[0] : v);
@@ -84,6 +85,7 @@ export async function getProductDetailHandler(req: Request, res: Response): Prom
         p.pro_linhaleve, p.pro_linhapesada, p.pro_linhaagricola,
         p.pro_linhautilitarios, p.pro_motocicletas, p.pro_offroad,
         p.pro_codigonormalizado, p.pro_setor, p.pro_linha, p.pro_ciclo,
+        p.pro_origem,
         t.itab_idprod, t.itab_tabela, t.itab_idindustria,
         t.itab_precobruto, t.itab_precopromo, t.itab_precoespecial,
         t.itab_ipi, t.itab_st, t.itab_descontoadd,
@@ -120,6 +122,8 @@ export async function getPricesForOrderHandler(req: Request, res: Response): Pro
     let effectiveTabela = tabela;
     const descontos: number[] = new Array(11).fill(0);
     let isDistribuidor = false;
+    let descontosPorGrupoCliente: Record<number, number[]> = {};
+    let descontosPorGrupoTabela:  Record<number, number[]> = {};
 
     if (cliente > 0) {
       const cliRes = await db.query(
@@ -139,17 +143,26 @@ export async function getPricesForOrderHandler(req: Request, res: Response): Pro
         }
         isDistribuidor = String(row.cli_canal || 'varejo') === 'distribuidor';
       }
+      // Carrega maps de Prio 1 (cli_descpro) e Prio 2 (grupo_desc).
+      const maps = await carregarDescontosPorGrupo(db, cliente, industria);
+      descontosPorGrupoCliente = maps.descontosPorGrupoCliente;
+      descontosPorGrupoTabela  = maps.descontosPorGrupoTabela;
     }
 
     const result = await db.query(
       `SELECT p.pro_codprod,
+              p.pro_grupo,
+              t.itab_grupodesconto,
               COALESCE(t.itab_precobruto,    0) AS preco_bruto,
               COALESCE(t.itab_precopromo,    0) AS preco_promo,
-              COALESCE(t.itab_precoespecial, 0) AS preco_especial
+              COALESCE(t.itab_precoespecial, 0) AS preco_especial,
+              COALESCE(t.itab_ipi, 0) AS ipi,
+              COALESCE(t.itab_st,  0) AS st
        FROM cad_tabelaspre t
        JOIN cad_prod p ON p.pro_id = t.itab_idprod
        WHERE t.itab_idindustria = $1
          AND TRIM(t.itab_tabela) = TRIM($2)
+         AND COALESCE(t.itab_status, true) = true
          AND (COALESCE(t.itab_precobruto, 0) > 0
               OR COALESCE(t.itab_precopromo, 0) > 0
               OR COALESCE(t.itab_precoespecial, 0) > 0)`,
@@ -159,21 +172,39 @@ export async function getPricesForOrderHandler(req: Request, res: Response): Pro
     const descontosAtivos = descontos.filter(d => d > 0);
     const tabelaExclusiva = effectiveTabela !== tabela;
 
+    // Resolução via helper canônico — única fonte da verdade de fórmula de preço.
+    // Política agora inclui Prio 1 (cli_descpro) e Prio 2 (grupo_desc).
+    const politica = {
+      canal: isDistribuidor ? 'distribuidor' as const : 'varejo' as const,
+      descontos,
+      descontosPorGrupoCliente,
+      descontosPorGrupoTabela,
+    };
+
     const data = result.rows.map((row: any) => {
-      let precoBase: number;
-      if (isDistribuidor) {
-        const promo    = parseFloat(row.preco_promo)    || 0;
-        const especial = parseFloat(row.preco_especial) || 0;
-        const bruto    = parseFloat(row.preco_bruto)    || 0;
-        precoBase = promo > 0 ? promo : (especial > 0 ? especial : bruto);
-      } else {
-        precoBase = parseFloat(row.preco_bruto) || 0;
-      }
-      let preco = precoBase;
-      for (const d of descontos) {
-        if (d > 0) preco = preco * (1 - d / 100);
-      }
-      return { pro_codprod: String(row.pro_codprod), preco: Math.round(preco * 100) / 100 };
+      const r = resolverPrecoFinal(
+        {
+          precoBruto:    parseFloat(row.preco_bruto)    || 0,
+          precoPromo:    parseFloat(row.preco_promo)    || 0,
+          precoEspecial: parseFloat(row.preco_especial) || 0,
+        },
+        politica,
+        {
+          proGrupo:          row.pro_grupo,
+          itabGrupoDesconto: row.itab_grupodesconto,
+        },
+      );
+      // 3 preços unitários: bruto (tabela), líquido (política do cliente) e com impostos.
+      // Com impostos = líquido × (1 + IPI%) × (1 + ST%) — fórmula canônica (estatisticas).
+      const ipi = parseFloat(row.ipi) || 0;
+      const st  = parseFloat(row.st)  || 0;
+      const precoComImposto = Math.round(r.preco * (1 + ipi / 100) * (1 + st / 100) * 100) / 100;
+      return {
+        pro_codprod:       String(row.pro_codprod),
+        preco:             r.preco,                       // líquido (usado no pedido)
+        preco_bruto:       parseFloat(row.preco_bruto) || 0,
+        preco_com_imposto: precoComImposto,
+      };
     });
 
     res.json({
@@ -269,8 +300,13 @@ export async function saveProductHandler(req: Request, res: Response): Promise<v
       industria, tabela, precobruto, precopromo, precoespecial,
       ipi, st, descontoadd, grupodesconto, prepeso,
       linhaleve, linhapesada, linhaagricola, linhautilitarios,
-      motocicletas, offroad, linhaamarela, ciclo, replicate,
+      motocicletas, offroad, linhaamarela, ciclo, origem, replicate,
     } = req.body;
+
+    // Origem (CST/SEFAZ): aceita '0'..'8' (1 char) ou vazio → NULL
+    const origemNorm = (typeof origem === 'string' && /^[0-8]$/.test(origem.trim()))
+      ? origem.trim()
+      : null;
 
     const cleanId = cleanInd(industria);
     const today = new Date().toISOString().split('T')[0];
@@ -290,7 +326,7 @@ export async function saveProductHandler(req: Request, res: Response): Promise<v
         null,          // setor
         null,          // linha
         ncm || '',
-        null,          // origem
+        origemNorm,    // pro_origem (CST SEFAZ: '0' Nacional, '1' Estrangeira, etc.)
         aplicacao || '',
         codigoBarras || '',
         conversao || '',
@@ -327,21 +363,38 @@ export async function saveProductHandler(req: Request, res: Response): Promise<v
         tables.push(tabela);
       }
 
+      // Distinção semântica entre PREÇO e IMPOSTO:
+      //   - PREÇO (bruto/promo/especial): campo vazio = "quero zerar"
+      //     Ex: usuário acabou a promoção e apagou o campo → tem que ir 0.
+      //   - IMPOSTO/EXTRA (ipi/st/grupodesconto/descontoadd/prepeso): vazio = "não mexer"
+      //     Ex: usuário edita só o preço e não toca em IPI → tem que preservar.
+      // (Antes tudo era `?? 0` e apagava IPI quando ajustava preço — memória 2026-05-XX.
+      //  Depois tudo virou safeFloat → null e o usuário não conseguia mais zerar promoção.)
+      const priceZero = (v: any): number => {
+        if (v === null || v === undefined || v === '') return 0;
+        const n = parseFloat(String(v).replace(',', '.'));
+        return isNaN(n) ? 0 : n;
+      };
+
       for (const t of tables) {
+        // $3::varchar força resolver o overload pra fn_upsert_preco(varchar).
+        // Sem o cast, string JS vira `text` no PG e pode resolver pra uma
+        // public.fn_upsert_preco(text) zumbi com lógica NULLIF que impede
+        // zerar precopromo. Drop dela está na migration 060.
         await client.query(
-          `SELECT fn_upsert_preco($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          `SELECT fn_upsert_preco($1,$2,$3::varchar,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
           [
             proId, cleanId, t,
-            safeFloat(precobruto) ?? 0,
-            safeFloat(precopromo),
-            safeFloat(precoespecial),
-            safeFloat(ipi) ?? 0,
-            safeFloat(st) ?? 0,
-            safeInt(grupodesconto),
-            safeFloat(descontoadd) ?? 0,
+            priceZero(precobruto),     // PREÇO: vazio → 0
+            priceZero(precopromo),     // PREÇO: vazio → 0  (resolve o bug)
+            priceZero(precoespecial),  // PREÇO: vazio → 0
+            safeFloat(ipi),            // IMPOSTO: vazio → null (preserva)
+            safeFloat(st),             // IMPOSTO: vazio → null (preserva)
+            safeInt(grupodesconto),    // EXTRA: vazio → null (preserva)
+            safeFloat(descontoadd),    // EXTRA: vazio → null (preserva)
             today,
             null,
-            safeFloat(prepeso) ?? 0,
+            safeFloat(prepeso),        // EXTRA: vazio → null (preserva)
           ]
         );
       }
