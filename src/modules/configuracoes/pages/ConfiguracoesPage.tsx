@@ -15,6 +15,8 @@ interface EmpresaData {
   emp_inscricao: string;
   emp_fones: string;
   emp_logotipo: string;
+  emp_mapas_modo_vendedor: '1x1' | '1xN';
+  emp_carteira_por_vendedor: boolean;
 }
 
 const inp: React.CSSProperties = {
@@ -190,6 +192,65 @@ export default function ConfiguracoesPage() {
               <img src={data.emp_logotipo} alt="Logo" style={{ height: 60, borderRadius: 8, border: `1px solid ${G.border}`, objectFit: 'contain', background: '#fff', padding: 4 }} />
             )}
           </div>
+        </Field>
+
+        {/* Modo de vendedor nos mapas estatísticos */}
+        <Field label="Atendimento por vendedor (mapas estatísticos)">
+          <div style={{ display: 'flex', gap: 8 }}>
+            {([
+              { v: '1x1', t: '1 vendedor por cliente', d: 'O cliente tem um titular único (campo Vendedor no cadastro do cliente).' },
+              { v: '1xN', t: 'Vários vendedores por cliente', d: 'Cada vendedor atende indústrias específicas (configuradas em Vendedor × Indústrias).' },
+            ] as const).map(opt => {
+              const active = (data.emp_mapas_modo_vendedor || '1x1') === opt.v;
+              return (
+                <button key={opt.v} type="button" onClick={() => set('emp_mapas_modo_vendedor', opt.v)}
+                  style={{
+                    flex: 1, textAlign: 'left', cursor: 'pointer',
+                    border: `2px solid ${active ? G.mustard : G.border}`,
+                    background: active ? `${G.mustard}18` : G.bg,
+                    borderRadius: 10, padding: '10px 14px',
+                  }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: G.text }}>{opt.t}</div>
+                  <div style={{ fontSize: 11, color: G.textMuted, marginTop: 2, lineHeight: 1.4 }}>{opt.d}</div>
+                </button>
+              );
+            })}
+          </div>
+          {(data.emp_mapas_modo_vendedor || '1x1') === '1xN' && (
+            <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: '#FFF7ED', border: '1px solid #FED7AA', fontSize: 11, color: '#9A3412', lineHeight: 1.5 }}>
+              <strong>Atenção:</strong> no modo "vários vendedores", o filtro de vendedor dos mapas usa a tabela <strong>Vendedor × Indústrias</strong> (mesma do controle de acesso). Cadastre as indústrias de cada vendedor lá, senão os mapas sairão vazios ao filtrar por vendedor.
+            </div>
+          )}
+        </Field>
+
+        {/* Visibilidade da carteira — quem cada vendedor/promotor enxerga */}
+        <Field label="Visibilidade da carteira (vendedores e promotores)">
+          <div style={{ display: 'flex', gap: 8 }}>
+            {([
+              { v: true,  t: 'Cada um vê a sua carteira', d: 'O vendedor/promotor enxerga apenas os clientes da própria carteira (titular).' },
+              { v: false, t: 'Todos atendem todos',       d: 'Todos enxergam e atendem todos os clientes da empresa, sem divisão de carteira (ex.: equipe compartilhada).' },
+            ] as const).map(opt => {
+              const current = data.emp_carteira_por_vendedor !== false; // default = true
+              const active = current === opt.v;
+              return (
+                <button key={String(opt.v)} type="button" onClick={() => setData(prev => ({ ...prev, emp_carteira_por_vendedor: opt.v }))}
+                  style={{
+                    flex: 1, textAlign: 'left', cursor: 'pointer',
+                    border: `2px solid ${active ? G.mustard : G.border}`,
+                    background: active ? `${G.mustard}18` : G.bg,
+                    borderRadius: 10, padding: '10px 14px',
+                  }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: G.text }}>{opt.t}</div>
+                  <div style={{ fontSize: 11, color: G.textMuted, marginTop: 2, lineHeight: 1.4 }}>{opt.d}</div>
+                </button>
+              );
+            })}
+          </div>
+          {data.emp_carteira_por_vendedor === false && (
+            <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: '#FFF7ED', border: '1px solid #FED7AA', fontSize: 11, color: '#9A3412', lineHeight: 1.5 }}>
+              <strong>Todos atendem todos:</strong> qualquer vendedor ou promotor vê e atende qualquer cliente. Use quando a equipe é compartilhada (sem titular fixo) — como na damarep.
+            </div>
+          )}
         </Field>
 
         {/* Feedback */}
