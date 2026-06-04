@@ -16,7 +16,9 @@ interface Row {
   pct_acumulado:  string;
   curva:          'A' | 'B' | 'C';
   valor_total:    string;
+  qtd_total:      string;
 }
+type Metrica = 'valor' | 'quantidade';
 interface IndOpt { id: number; nome: string; }
 interface VenOpt { id: number; nome: string; }
 interface CliOpt { value: number; label: string; }
@@ -29,9 +31,9 @@ const fmtQtd = (v: any) =>
 const fmtPct = (v: any) => `${parseFloat(v || 0).toFixed(2).replace('.', ',')}%`;
 
 const CURVA_CONFIG = {
-  A: { bg: '#DCFCE7', text: '#16A34A', border: '#BBF7D0', label: 'A — 80% do faturamento' },
-  B: { bg: '#DBEAFE', text: '#1D4ED8', border: '#BFDBFE', label: 'B — 15% do faturamento' },
-  C: { bg: '#FEF3C7', text: '#B45309', border: '#FDE68A', label: 'C — 5% do faturamento' },
+  A: { bg: '#DCFCE7', text: '#16A34A', border: '#BBF7D0', band: '80%' },
+  B: { bg: '#DBEAFE', text: '#1D4ED8', border: '#BFDBFE', band: '15%' },
+  C: { bg: '#FEF3C7', text: '#B45309', border: '#FDE68A', band: '5%' },
 };
 
 function CurvaChip({ curva }: { curva: 'A' | 'B' | 'C' }) {
@@ -64,6 +66,7 @@ export default function CurvaABC({ dataInicio, dataFim }: Props) {
   const [vendedor,   setVendedor]   = useState('ALL');
   const [cliente,    setCliente]    = useState('ALL');
   const [redeloja,   setRedeloja]   = useState('ALL');
+  const [metrica,    setMetrica]    = useState<Metrica>('valor');
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState('');
   const [processed,  setProcessed]  = useState(false);
@@ -95,6 +98,7 @@ export default function CurvaABC({ dataInicio, dataFim }: Props) {
         vendedor,
         cliente,
         redeloja,
+        metrica,
       });
       const r = await api.get(`/estatisticas/curva-abc-produtos?${params}`);
       setRows(r.data.data || []);
@@ -104,7 +108,13 @@ export default function CurvaABC({ dataInicio, dataFim }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [dataInicio, dataFim, industria, vendedor, cliente, redeloja]);
+  }, [dataInicio, dataFim, industria, vendedor, cliente, redeloja, metrica]);
+
+  // Trocar a métrica recomputa a curva na hora (só após o 1º processamento)
+  useEffect(() => {
+    if (processed) processar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metrica]);
 
   const exportExcel = () => {
     const data = rows.map(r => ({
@@ -134,9 +144,14 @@ export default function CurvaABC({ dataInicio, dataFim }: Props) {
       cls,
       count: subset.length,
       valor: subset.reduce((s, r) => s + parseFloat(r.valor || '0'), 0),
+      qtd:   subset.reduce((s, r) => s + parseFloat(r.qtd   || '0'), 0),
     };
   });
-  const valorTotal = rows.length > 0 ? parseFloat(rows[0].valor_total || '0') : 0;
+  const valorTotal  = rows.length > 0 ? parseFloat(rows[0].valor_total || '0') : 0;
+  const qtdTotal    = rows.length > 0 ? parseFloat(rows[0].qtd_total   || '0') : 0;
+  const isValor     = metrica === 'valor';
+  const metricTotal = isValor ? valorTotal : qtdTotal;
+  const metricSufixo = isValor ? 'do faturamento' : 'da quantidade';
 
   return (
     <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
@@ -173,6 +188,13 @@ export default function CurvaABC({ dataInicio, dataFim }: Props) {
           <select style={{ ...sel, minWidth: 200 }} value={cliente} onChange={e => { setCliente(e.target.value); setRedeloja('ALL'); }}>
             <option value="ALL">Todos</option>
             {clientes.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+          </select>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: G.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 }}>Ordenar por</span>
+          <select style={{ ...sel, minWidth: 160 }} value={metrica} onChange={e => setMetrica(e.target.value as Metrica)}>
+            <option value="valor">Valor (faturamento)</option>
+            <option value="quantidade">Quantidade</option>
           </select>
         </div>
 
@@ -224,7 +246,8 @@ export default function CurvaABC({ dataInicio, dataFim }: Props) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
           {summary.map(s => {
             const c = CURVA_CONFIG[s.cls];
-            const pct = valorTotal > 0 ? ((s.valor / valorTotal) * 100).toFixed(1) : '0';
+            const metricVal = isValor ? s.valor : s.qtd;
+            const pct = metricTotal > 0 ? ((metricVal / metricTotal) * 100).toFixed(1) : '0';
             return (
               <div key={s.cls} style={{
                 background: c.bg, border: `1px solid ${c.border}`,
@@ -233,8 +256,10 @@ export default function CurvaABC({ dataInicio, dataFim }: Props) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                   <span style={{ fontSize: 22, fontWeight: 900, color: c.text }}>Curva {s.cls}</span>
                 </div>
-                <div style={{ fontSize: 11, color: c.text, opacity: 0.8, marginBottom: 10 }}>{c.label}</div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: c.text }}>{fmtVal(s.valor)}</div>
+                <div style={{ fontSize: 11, color: c.text, opacity: 0.8, marginBottom: 10 }}>{c.band} {metricSufixo}</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: c.text }}>
+                  {isValor ? fmtVal(s.valor) : `${fmtQtd(s.qtd)} un.`}
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: c.text }}>{s.count} SKUs</span>
                   <span style={{ fontSize: 11, fontWeight: 700, color: c.text }}>{pct}% do total</span>
@@ -255,17 +280,20 @@ export default function CurvaABC({ dataInicio, dataFim }: Props) {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['#', 'Código', 'Produto', 'Qtd.', 'Faturamento', '% Indiv.', '% Acum.', 'Curva'].map(h => (
+                  {['#', 'Código', 'Produto', 'Qtd.', 'Faturamento', '% Indiv.', '% Acum.', 'Curva'].map(h => {
+                    const isSort = (h === 'Qtd.' && !isValor) || (h === 'Faturamento' && isValor);
+                    return (
                     <th key={h} style={{
                       padding: '10px 14px', textAlign: h === 'Faturamento' || h === '% Indiv.' || h === '% Acum.' || h === 'Qtd.' ? 'right' : 'left',
-                      fontSize: 10, fontWeight: 800, color: G.textMuted,
+                      fontSize: 10, fontWeight: isSort ? 900 : 800, color: isSort ? G.text : G.textMuted,
                       textTransform: 'uppercase', letterSpacing: 0.9,
                       borderBottom: `1px solid ${G.border}`, background: G.cardHi,
                       position: 'sticky', top: 0, zIndex: 1,
                     }}>
-                      {h}
+                      {h}{isSort ? ' ▾' : ''}
                     </th>
-                  ))}
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>

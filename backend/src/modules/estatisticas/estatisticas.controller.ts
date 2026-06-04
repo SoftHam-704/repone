@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import { getModoVendedor, vendedorFilterSQL } from '../../shared/permissions';
+import { excluiInativoSQL } from '../../shared/utils/cliente-ativo';
 
 // GET /api/estatisticas/client-insight
 export async function clientInsightHandler(req: Request | any, res: Response) {
@@ -43,6 +45,7 @@ export async function clientInsightHandler(req: Request | any, res: Response) {
       LEFT JOIN vendedores v ON c.cli_vendedor = v.ven_codigo
       LEFT JOIN vendas_resumo vr ON c.cli_codigo = vr.v_cliente
       LEFT JOIN mix_produtos mp ON c.cli_codigo = mp.m_cliente
+      WHERE ${excluiInativoSQL('c')}
       ORDER BY total_faturado DESC
     `);
 
@@ -176,7 +179,10 @@ export async function mapaCliIndustriaHandler(req: Request | any, res: Response)
       conditions.push(`p.ped_industria = $${pc}`); params.push(Number(industria)); pc++;
     }
     if (vendedor && vendedor !== 'ALL') {
-      conditions.push(`p.ped_vendedor = $${pc}`); params.push(Number(vendedor)); pc++;
+      // Modo do tenant: 1x1 → cli_vendedor (titular); 1xN → indústrias do vendedor (vendedor_ind)
+      const modo = await getModoVendedor(db);
+      const vcl = vendedorFilterSQL(modo, Number(vendedor), { cliAlias: 'c', pedAlias: 'p' });
+      if (vcl) conditions.push(vcl);
     }
     if (cliente && cliente !== 'ALL') {
       if (grupoFlag) {
@@ -318,7 +324,7 @@ export async function vendaMensalIndustriaHandler(req: Request | any, res: Respo
     ];
 
     if (industria && industria !== 'ALL') { conditions.push(`p.ped_industria = $${pc}`); params.push(Number(industria)); pc++; }
-    if (vendedor  && vendedor  !== 'ALL') { conditions.push(`p.ped_vendedor  = $${pc}`); params.push(Number(vendedor));  pc++; }
+    if (vendedor  && vendedor  !== 'ALL') { conditions.push(`p.ped_vendedor = $${pc}`); params.push(Number(vendedor)); pc++; }
     if (cliente   && cliente   !== 'ALL') {
       if (grupoFlag) conditions.push(`c.cli_redeloja = (SELECT cli_redeloja FROM clientes WHERE cli_codigo = $${pc})`);
       else           conditions.push(`p.ped_cliente = $${pc}`);
@@ -437,23 +443,41 @@ export async function prodUnicaCompraHandler(req: Request | any, res: Response) 
       return res.status(400).json({ success: false, error: 'Indústria obrigatória' });
     }
 
+    // Agrega sem JOIN em cad_prod para evitar dobra quando há duplicatas
+    // de pro_codprod com formatações distintas (mas mesmo pro_codigonormalizado).
     const result = await db.query(`
+      WITH agg AS (
+        SELECT
+          c.cli_codigo,
+          COALESCE(c.cli_nomred, 'EXCLUÍDO') AS cliente_nome,
+          TRIM(i.ite_produto)                AS produto_codigo,
+          i.ite_codigonormalizado            AS cod_norm,
+          p.ped_industria                    AS industria,
+          SUM(i.ite_quant)::NUMERIC          AS quantidade
+        FROM pedidos p
+        JOIN itens_ped i ON TRIM(p.ped_pedido) = TRIM(i.ite_pedido)
+        JOIN clientes c  ON p.ped_cliente = c.cli_codigo
+        WHERE p.ped_data BETWEEN $1::date AND $2::date
+          AND p.ped_industria = $3
+          AND p.ped_situacao IN ('P','F')
+          AND ${excluiInativoSQL('c')}
+        GROUP BY c.cli_codigo, c.cli_nomred, TRIM(i.ite_produto),
+                 i.ite_codigonormalizado, p.ped_industria
+        HAVING COUNT(DISTINCT TRIM(p.ped_pedido)) = 1
+      )
       SELECT
-        COALESCE(c.cli_nomred, 'EXCLUÍDO')                        AS cliente_nome,
-        TRIM(i.ite_produto)                                        AS produto_codigo,
-        COALESCE(pr.pro_nome, i.ite_produto)                      AS produto_desc,
-        SUM(i.ite_quant)::NUMERIC                                  AS quantidade
-      FROM pedidos p
-      JOIN itens_ped i ON TRIM(p.ped_pedido) = TRIM(i.ite_pedido)
-      JOIN clientes c ON p.ped_cliente = c.cli_codigo
-      LEFT JOIN cad_prod pr ON TRIM(pr.pro_codprod) = TRIM(i.ite_produto)
-                            AND pr.pro_industria = p.ped_industria
-      WHERE p.ped_data BETWEEN $1::date AND $2::date
-        AND p.ped_industria = $3
-        AND p.ped_situacao IN ('P','F')
-      GROUP BY c.cli_codigo, c.cli_nomred, TRIM(i.ite_produto), COALESCE(pr.pro_nome, i.ite_produto)
-      HAVING COUNT(DISTINCT TRIM(p.ped_pedido)) = 1
-      ORDER BY c.cli_nomred, TRIM(i.ite_produto)
+        a.cliente_nome,
+        a.produto_codigo,
+        COALESCE((
+          SELECT pr.pro_nome
+          FROM cad_prod pr
+          WHERE pr.pro_industria = a.industria
+            AND pr.pro_codigonormalizado = a.cod_norm
+          LIMIT 1
+        ), a.produto_codigo) AS produto_desc,
+        a.quantidade
+      FROM agg a
+      ORDER BY a.cliente_nome, a.produto_codigo
     `, [dataInicial, dataFinal, Number(industria)]);
 
     const data = result.rows.map((r: any) => ({
@@ -490,7 +514,8 @@ export async function clientesInativosHandler(req: Request | any, res: Response)
 
     const indFilter  = forInt ? `AND p.ped_industria  = ${forInt}` : '';
     const indFilter2 = forInt ? `AND p2.ped_industria = ${forInt}` : '';
-    const venFilter  = venInt  ? `AND c.cli_vendedor   = ${venInt}` : '';
+    const vcl        = vendedorFilterSQL(await getModoVendedor(db), venInt, { cliAlias: 'c', clienteScoped: true });
+    const venFilter  = vcl ? `AND ${vcl}` : '';
 
     let whereExtra = '';
     if (periodoNum === 0) {
@@ -560,6 +585,7 @@ export async function clientesInativosHandler(req: Request | any, res: Response)
       LEFT JOIN vendedores v ON c.cli_vendedor = v.ven_codigo
       LEFT JOIN historico h ON c.cli_codigo = h.cli
       WHERE c.cli_tipopes = 'A'
+        AND ${excluiInativoSQL('c')}   -- exclui Filial de Rede + clientes marcados p/ ignorar
         ${venFilter}
         ${whereExtra}
       ORDER BY receita_potencial DESC NULLS LAST, dias_inativo DESC NULLS LAST
@@ -607,6 +633,7 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
 
     const grupoFlag = String(grupo) === 'true';
     const modoUlt   = String(modo)  === 'ultima';
+    const modoVend  = await getModoVendedor(db);
 
     // Para grupo=true, mantém comportamento original (somente clientes com compras)
     if (grupoFlag) {
@@ -617,7 +644,10 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
         `p.ped_situacao IN ('P','F')`,
       ];
       if (industria && industria !== 'ALL') { conditions.push(`p.ped_industria = $${pc}`); params.push(Number(industria)); pc++; }
-      if (vendedor  && vendedor  !== 'ALL') { conditions.push(`p.ped_vendedor = $${pc}`);  params.push(Number(vendedor));  pc++; }
+      if (vendedor  && vendedor  !== 'ALL') {
+        const vcl = vendedorFilterSQL(modoVend, Number(vendedor), { cliAlias: 'c', pedAlias: 'p' });
+        if (vcl) conditions.push(vcl);
+      }
       if (cliente   && cliente   !== 'ALL') {
         conditions.push(`c.cli_redeloja = (SELECT cli_redeloja FROM clientes WHERE cli_codigo = $${pc})`);
         params.push(Number(cliente)); pc++;
@@ -626,8 +656,8 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
       const cliExpr = `COALESCE(NULLIF(c.cli_redeloja,''), c.cli_nomred)`;
       const where = conditions.join(' AND ');
       const query = modoUlt
-        ? `SELECT DISTINCT ON (${cliExpr}, f.for_nomered) ${cliExpr} AS cliente, COALESCE(cid.cid_uf, c.cli_uf, '') AS estado, f.for_nomered AS industria, COALESCE(v.ven_nome, '—') AS vendedor_nome, p.ped_totliq::NUMERIC AS valor, (SELECT SUM(ip2.ite_quant) FROM itens_ped ip2 WHERE TRIM(ip2.ite_pedido) = TRIM(p.ped_pedido))::NUMERIC AS qtd, p.ped_data AS data_ultima, (CURRENT_DATE - p.ped_data::date)::INTEGER AS dias FROM pedidos p LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo WHERE ${where} ORDER BY ${cliExpr}, f.for_nomered, p.ped_data DESC`
-        : `SELECT ${cliExpr} AS cliente, MAX(COALESCE(cid.cid_uf, c.cli_uf, '')) AS estado, f.for_nomered AS industria, MAX(COALESCE(v.ven_nome, '—')) AS vendedor_nome, SUM(p.ped_totliq)::NUMERIC AS valor, COALESCE(SUM(iq.qtd), 0)::NUMERIC AS qtd, MAX(p.ped_data) AS data_ultima, (CURRENT_DATE - MAX(p.ped_data)::date)::INTEGER AS dias FROM pedidos p LEFT JOIN (SELECT TRIM(ip.ite_pedido) AS ped_id, SUM(ip.ite_quant) AS qtd FROM itens_ped ip GROUP BY TRIM(ip.ite_pedido)) iq ON TRIM(p.ped_pedido) = iq.ped_id LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo WHERE ${where} GROUP BY ${cliExpr}, f.for_nomered`;
+        ? `SELECT DISTINCT ON (${cliExpr}, f.for_nomered) ${cliExpr} AS cliente, COALESCE(cid.cid_uf, c.cli_uf, '') AS estado, f.for_nomered AS industria, COALESCE(v.ven_nome, '—') AS vendedor_nome, p.ped_totliq::NUMERIC AS valor, (SELECT SUM(ip2.ite_quant) FROM itens_ped ip2 WHERE TRIM(ip2.ite_pedido) = TRIM(p.ped_pedido))::NUMERIC AS qtd, p.ped_data AS data_ultima, (CURRENT_DATE - p.ped_data::date)::INTEGER AS dias FROM pedidos p LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON c.cli_vendedor = v.ven_codigo WHERE ${where} ORDER BY ${cliExpr}, f.for_nomered, p.ped_data DESC`
+        : `SELECT ${cliExpr} AS cliente, MAX(COALESCE(cid.cid_uf, c.cli_uf, '')) AS estado, f.for_nomered AS industria, MAX(COALESCE(v.ven_nome, '—')) AS vendedor_nome, SUM(p.ped_totliq)::NUMERIC AS valor, COALESCE(SUM(iq.qtd), 0)::NUMERIC AS qtd, MAX(p.ped_data) AS data_ultima, (CURRENT_DATE - MAX(p.ped_data)::date)::INTEGER AS dias FROM pedidos p LEFT JOIN (SELECT TRIM(ip.ite_pedido) AS ped_id, SUM(ip.ite_quant) AS qtd FROM itens_ped ip GROUP BY TRIM(ip.ite_pedido)) iq ON TRIM(p.ped_pedido) = iq.ped_id LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON c.cli_vendedor = v.ven_codigo WHERE ${where} GROUP BY ${cliExpr}, f.for_nomered`;
       const result = await db.query(`SELECT * FROM (${query}) sub ORDER BY dias ASC, cliente`, params);
       const data = result.rows.map((r: any) => ({ cliente: r.cliente, estado: r.estado || '', industria: r.industria, vendedor_nome: r.vendedor_nome || '—', valor: parseFloat(r.valor) || 0, qtd: parseFloat(r.qtd) || 0, data_ultima: r.data_ultima, dias: Number(r.dias) || 0 }));
       return res.json({ success: true, data, total: data.length });
@@ -641,13 +671,18 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
       `p.ped_situacao IN ('P','F')`,
     ];
     if (industria && industria !== 'ALL') { pedConds.push(`p.ped_industria = $${pedPc}`); pedParams.push(Number(industria)); pedPc++; }
-    if (vendedor  && vendedor  !== 'ALL') { pedConds.push(`p.ped_vendedor = $${pedPc}`);  pedParams.push(Number(vendedor));  pedPc++; }
+    if (vendedor  && vendedor  !== 'ALL') {
+      const vcl = vendedorFilterSQL(modoVend, Number(vendedor), { cliAlias: 'cli', pedAlias: 'p' });
+      if (vcl) pedConds.push(vcl);
+    }
 
     const baseParams: any[] = [...pedParams];
     let basePc = pedPc;
-    const baseConds: string[] = [`c.cli_tipopes = 'A'`];
+    const baseConds: string[] = [`c.cli_tipopes = 'A'`, excluiInativoSQL('c')];
     if (cliente && cliente !== 'ALL') { baseConds.push(`c.cli_codigo = $${basePc}`); baseParams.push(Number(cliente)); basePc++; }
 
+    // CTE compras: JOIN com clientes cli pra trazer cli_vendedor (titular da carteira)
+    // — vendedor exibido = titular do cliente, não digitador do pedido.
     const comprasCTE = modoUlt
       ? `
         WITH compras AS (
@@ -661,7 +696,8 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
             p.ped_data AS data_ultima
           FROM pedidos p
           JOIN fornecedores f ON p.ped_industria = f.for_codigo
-          LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo
+          LEFT JOIN clientes cli ON cli.cli_codigo = p.ped_cliente
+          LEFT JOIN vendedores v ON cli.cli_vendedor = v.ven_codigo
           WHERE ${pedConds.join(' AND ')}
           ORDER BY p.ped_cliente, p.ped_industria, p.ped_data DESC
         )
@@ -681,7 +717,8 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
             FROM itens_ped ip GROUP BY TRIM(ip.ite_pedido)
           ) iq ON TRIM(p.ped_pedido) = iq.ped_id
           JOIN fornecedores f ON p.ped_industria = f.for_codigo
-          LEFT JOIN vendedores v ON p.ped_vendedor = v.ven_codigo
+          LEFT JOIN clientes cli ON cli.cli_codigo = p.ped_cliente
+          LEFT JOIN vendedores v ON cli.cli_vendedor = v.ven_codigo
           WHERE ${pedConds.join(' AND ')}
           GROUP BY p.ped_cliente, f.for_nomered
         )
@@ -900,22 +937,22 @@ export async function comparativoClientesHandler(req: Request | any, res: Respon
 
     const modoFlag = String(modo).toUpperCase() === 'FULL' ? 'FULL' : 'GAP';
 
+    // Agrega sem JOIN em cad_prod (evita dobra por duplicatas de pro_codprod).
+    // Nome do produto resolvido depois via subquery escalar por código normalizado.
     const result = await db.query(`
       WITH ref AS (
         SELECT
-          TRIM(ip.ite_produto)           AS codigo,
-          MAX(COALESCE(pr.pro_nome, ip.ite_produto)) AS descricao,
-          SUM(ip.ite_quant)::NUMERIC     AS qtd,
+          TRIM(ip.ite_produto)            AS codigo,
+          ip.ite_codigonormalizado        AS cod_norm,
+          SUM(ip.ite_quant)::NUMERIC      AS qtd,
           SUM(ip.ite_totliquido)::NUMERIC AS val
         FROM itens_ped ip
         JOIN pedidos p ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
-        LEFT JOIN cad_prod pr ON TRIM(pr.pro_codprod) = TRIM(ip.ite_produto)
-                              AND pr.pro_industria = p.ped_industria
         WHERE p.ped_industria  = $3
           AND p.ped_cliente    = $4
           AND p.ped_situacao  IN ('P','F')
           AND p.ped_data BETWEEN $1::date AND $2::date
-        GROUP BY TRIM(ip.ite_produto)
+        GROUP BY TRIM(ip.ite_produto), ip.ite_codigonormalizado
       ),
       alvo AS (
         SELECT
@@ -932,7 +969,13 @@ export async function comparativoClientesHandler(req: Request | any, res: Respon
       )
       SELECT
         r.codigo,
-        r.descricao,
+        COALESCE((
+          SELECT pr.pro_nome
+          FROM cad_prod pr
+          WHERE pr.pro_industria = $3
+            AND pr.pro_codigonormalizado = r.cod_norm
+          LIMIT 1
+        ), r.codigo) AS descricao,
         r.qtd  AS qtd_ref,
         r.val  AS val_ref,
         COALESCE(a.qtd, 0) AS qtd_alvo,
@@ -940,7 +983,7 @@ export async function comparativoClientesHandler(req: Request | any, res: Respon
       FROM ref r
       ${modoFlag === 'FULL' ? 'INNER JOIN alvo a ON a.codigo = r.codigo' : 'LEFT JOIN alvo a ON a.codigo = r.codigo'}
       ${modoFlag === 'GAP'  ? 'WHERE COALESCE(a.qtd, 0) = 0' : ''}
-      ORDER BY r.descricao
+      ORDER BY descricao
     `, [dataInicial, dataFinal, Number(industria), Number(clienteRef), Number(clienteAlvo)]);
 
     const data = result.rows.map((r: any) => ({
@@ -997,21 +1040,40 @@ export async function mapaMensalItensHandler(req: Request | any, res: Response) 
       params.push(`%${String(itemCode).trim()}%`); pc++;
     }
 
+    // Agrega primeiro SEM tocar em cad_prod; o nome é resolvido via subquery
+    // escalar com LIMIT 1 depois — assim duplicatas em cad_prod (pro_codprod
+    // com formatações distintas mas mesmo pro_codigonormalizado) não dobram qtd.
     const result = await db.query(`
+      WITH itens AS (
+        SELECT
+          TRIM(ip.ite_produto)            AS codigo,
+          ip.ite_codigonormalizado        AS cod_norm,
+          p.ped_industria                 AS industria,
+          TO_CHAR(p.ped_data, 'MM/YYYY')  AS mes,
+          SUM(ip.ite_quant)::NUMERIC      AS qtd
+        FROM itens_ped ip
+        JOIN pedidos p ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
+        LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo
+        WHERE ${conditions.join(' AND ')}
+        GROUP BY TRIM(ip.ite_produto),
+                 ip.ite_codigonormalizado,
+                 p.ped_industria,
+                 TO_CHAR(p.ped_data, 'MM/YYYY')
+        HAVING SUM(ip.ite_quant) > 0
+      )
       SELECT
-        TRIM(ip.ite_produto)                              AS codigo,
-        MAX(COALESCE(pr.pro_nome, ip.ite_produto))        AS descricao,
-        TO_CHAR(p.ped_data, 'MM/YYYY')                    AS mes,
-        SUM(ip.ite_quant)::NUMERIC                        AS qtd
-      FROM itens_ped ip
-      JOIN pedidos p ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
-      LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo
-      LEFT JOIN cad_prod pr ON TRIM(pr.pro_codprod) = TRIM(ip.ite_produto)
-                            AND pr.pro_industria = p.ped_industria
-      WHERE ${conditions.join(' AND ')}
-      GROUP BY TRIM(ip.ite_produto), TO_CHAR(p.ped_data, 'MM/YYYY')
-      HAVING SUM(ip.ite_quant) > 0
-      ORDER BY TRIM(ip.ite_produto), TO_CHAR(p.ped_data, 'MM/YYYY')
+        i.codigo,
+        COALESCE((
+          SELECT pr.pro_nome
+          FROM cad_prod pr
+          WHERE pr.pro_industria = i.industria
+            AND pr.pro_codigonormalizado = i.cod_norm
+          LIMIT 1
+        ), i.codigo) AS descricao,
+        i.mes,
+        i.qtd
+      FROM itens i
+      ORDER BY i.codigo, i.mes
     `, params);
 
     const data = result.rows.map((r: any) => ({
@@ -1022,6 +1084,77 @@ export async function mapaMensalItensHandler(req: Request | any, res: Response) 
     res.json({ success: true, data, total: data.length });
   } catch (err: any) {
     console.error('[mapaMensalItensHandler]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// GET /api/estatisticas/mapa-itens-cliente
+// Matriz item × cliente de UMA indústria no período (quantidade vendida por peça por cliente).
+// Retorna: codigo, descricao, cliente_nome, qtd  → o front pivota (linhas=itens, colunas=clientes).
+export async function mapaItensClienteHandler(req: Request | any, res: Response) {
+  try {
+    const db = req.db!;
+    const { dataInicial, dataFinal, industria, itemCode, grupo } = req.query;
+
+    if (!dataInicial || !dataFinal) {
+      return res.status(400).json({ success: false, error: 'Período obrigatório' });
+    }
+    if (!industria || industria === 'ALL') {
+      return res.status(400).json({ success: false, error: 'Indústria é obrigatória' });
+    }
+
+    const grupoFlag = String(grupo) === 'true';
+    const params: any[] = [dataInicial, dataFinal, Number(industria)];
+    let pc = 4;
+    const conditions: string[] = [
+      `p.ped_data BETWEEN $1::date AND $2::date`,
+      `p.ped_situacao IN ('P', 'F')`,
+      `p.ped_industria = $3`,
+    ];
+    if (itemCode && String(itemCode).trim()) {
+      conditions.push(`UPPER(TRIM(ip.ite_produto)) LIKE UPPER($${pc})`);
+      params.push(`%${String(itemCode).trim()}%`); pc++;
+    }
+    if (grupoFlag) {
+      conditions.push(`c.cli_redeloja IS NOT NULL AND TRIM(c.cli_redeloja) <> ''`);
+    }
+
+    // Nome do cliente (ou rede, no modo grupo). Cliente sem cadastro → fallback pelo código.
+    const clienteCol = grupoFlag
+      ? `c.cli_redeloja`
+      : `COALESCE(NULLIF(TRIM(c.cli_nomred),''), c.cli_nome, 'CLIENTE ' || p.ped_cliente)`;
+
+    const result = await db.query(`
+      WITH itens AS (
+        SELECT
+          TRIM(ip.ite_produto)        AS codigo,
+          ip.ite_codigonormalizado    AS cod_norm,
+          p.ped_industria             AS industria,
+          ${clienteCol}               AS cliente_nome,
+          SUM(ip.ite_quant)::NUMERIC  AS qtd
+        FROM itens_ped ip
+        JOIN pedidos p ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
+        LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo
+        WHERE ${conditions.join(' AND ')}
+        GROUP BY TRIM(ip.ite_produto), ip.ite_codigonormalizado, p.ped_industria, ${clienteCol}
+        HAVING SUM(ip.ite_quant) > 0
+      )
+      SELECT
+        i.codigo,
+        COALESCE((
+          SELECT pr.pro_nome FROM cad_prod pr
+          WHERE pr.pro_industria = i.industria AND pr.pro_codigonormalizado = i.cod_norm
+          LIMIT 1
+        ), i.codigo) AS descricao,
+        i.cliente_nome,
+        i.qtd
+      FROM itens i
+      ORDER BY i.codigo, i.cliente_nome
+    `, params);
+
+    res.json({ success: true, data: result.rows });
+  } catch (err: any) {
+    console.error('[mapaItensClienteHandler]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 }
@@ -1052,7 +1185,6 @@ export async function mapaVendasHandler(req: Request | any, res: Response) {
       paramCount++;
     }
 
-    // Vendedor
     if (vendedor && vendedor !== 'ALL') {
       conditions.push(`p.ped_vendedor = $${paramCount}`);
       params.push(Number(vendedor));
@@ -1186,6 +1318,9 @@ export async function curvaAbcProdutosHandler(req: Request | any, res: Response)
       return res.status(400).json({ success: false, error: 'Período obrigatório' });
     }
 
+    // Métrica de classificação da curva (Pareto): faturamento (valor) ou quantidade
+    const mCol = String(req.query.metrica || 'valor') === 'quantidade' ? 'qtd' : 'valor';
+
     const params: any[] = [dataInicial, dataFinal];
     let pc = 3;
     const filters: string[] = [
@@ -1206,8 +1341,9 @@ export async function curvaAbcProdutosHandler(req: Request | any, res: Response)
       params.push(Number(cliente));
     }
 
-    const needsCliJoin = redeloja && redeloja !== 'ALL';
-    if (needsCliJoin) {
+    // JOIN cli_join necessário só p/ filtro de rede
+    const needsCliJoin = !!(redeloja && redeloja !== 'ALL');
+    if (redeloja && redeloja !== 'ALL') {
       filters.push(`cli_join.cli_redeloja = $${pc++}`);
       params.push(String(redeloja));
     }
@@ -1236,9 +1372,11 @@ export async function curvaAbcProdutosHandler(req: Request | any, res: Response)
       ),
       ranked AS (
         SELECT *,
-          ROW_NUMBER() OVER (ORDER BY valor DESC)       AS ranking,
-          SUM(valor)   OVER ()                          AS grand_total,
-          SUM(valor)   OVER (ORDER BY valor DESC
+          ROW_NUMBER() OVER (ORDER BY ${mCol} DESC)     AS ranking,
+          SUM(${mCol}) OVER ()                          AS grand_total,
+          SUM(valor)   OVER ()                          AS valor_total_all,
+          SUM(qtd)     OVER ()                          AS qtd_total_all,
+          SUM(${mCol}) OVER (ORDER BY ${mCol} DESC
                              ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS acumulado
         FROM vendas
       )
@@ -1248,14 +1386,15 @@ export async function curvaAbcProdutosHandler(req: Request | any, res: Response)
         nome,
         qtd,
         valor,
-        ROUND((valor / NULLIF(grand_total, 0)) * 100, 2)       AS pct_individual,
+        ROUND((${mCol} / NULLIF(grand_total, 0)) * 100, 2)     AS pct_individual,
         ROUND((acumulado / NULLIF(grand_total, 0)) * 100, 2)   AS pct_acumulado,
         CASE
           WHEN acumulado / NULLIF(grand_total, 0) <= 0.80 THEN 'A'
           WHEN acumulado / NULLIF(grand_total, 0) <= 0.95 THEN 'B'
           ELSE 'C'
         END AS curva,
-        ROUND(grand_total::NUMERIC, 2) AS valor_total
+        ROUND(valor_total_all::NUMERIC, 2) AS valor_total,
+        ROUND(qtd_total_all::NUMERIC, 2)   AS qtd_total
       FROM ranked
       ORDER BY ranking
     `, params);
@@ -1504,6 +1643,738 @@ export async function mapaIndustriaHandler(req: Request | any, res: Response) {
     res.json({ success: true, data });
   } catch (err: any) {
     console.error('[mapaIndustriaHandler]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// MISSÃO 1 — MAPA PORTFÓLIO POR INDÚSTRIA (Hamilton 2026-05-26)
+// ════════════════════════════════════════════════════════════════════
+// Fluxo:
+//   1. Usuário escolhe a indústria
+//   2. Grid esquerda mostra portfólio de itens já vendidos dessa indústria
+//   3. Ao clicar em um item, grid direita mostra os clientes que compraram
+
+// GET /estatisticas/portfolio-industria/itens?dataInicial&dataFinal&industria
+// Retorna a lista de produtos vendidos da indústria no período, com totais.
+export async function portfolioIndustriaItensHandler(req: Request | any, res: Response) {
+  try {
+    const db = req.db!;
+    const { dataInicial, dataFinal, industria } = req.query;
+
+    if (!dataInicial || !dataFinal) {
+      return res.status(400).json({ success: false, error: 'Período obrigatório' });
+    }
+    if (!industria || industria === 'ALL') {
+      return res.status(400).json({ success: false, error: 'Indústria obrigatória' });
+    }
+
+    const indId = Number(industria);
+
+    const result = await db.query(`
+      WITH vendidos AS (
+        SELECT
+          COALESCE(NULLIF(TRIM(ip.ite_codigonormalizado),''), TRIM(ip.ite_produto)) AS cod,
+          SUM(ip.ite_quant)::NUMERIC                                                 AS qtd_total,
+          SUM(ip.ite_totliquido)::NUMERIC                                            AS valor_total,
+          COUNT(DISTINCT p.ped_cliente)::INTEGER                                     AS qtd_clientes,
+          COUNT(DISTINCT TRIM(p.ped_pedido))::INTEGER                                AS qtd_pedidos,
+          MAX(p.ped_data)                                                            AS ultima_venda
+        FROM itens_ped ip
+        JOIN pedidos p ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
+        WHERE p.ped_industria = $1
+          AND p.ped_data BETWEEN $2::date AND $3::date
+          AND p.ped_situacao IN ('P', 'F')
+        GROUP BY 1
+      )
+      SELECT
+        v.cod                                                       AS codigo,
+        COALESCE(cp.pro_nome, v.cod)                                AS descricao,
+        COALESCE(g.gru_nome, 'SEM GRUPO')                           AS familia,
+        v.qtd_total,
+        v.valor_total,
+        v.qtd_clientes,
+        v.qtd_pedidos,
+        v.ultima_venda
+      FROM vendidos v
+      LEFT JOIN cad_prod cp ON COALESCE(NULLIF(TRIM(cp.pro_codigonormalizado),''), TRIM(cp.pro_codprod)) = v.cod
+                            AND cp.pro_industria = $1
+      LEFT JOIN grupos g    ON g.gru_codigo = cp.pro_grupo
+      ORDER BY v.qtd_total DESC, v.valor_total DESC
+    `, [indId, dataInicial, dataFinal]);
+
+    const data = result.rows.map((r: any) => ({
+      codigo:       r.codigo,
+      descricao:    r.descricao,
+      familia:      r.familia,
+      qtd_total:    parseFloat(r.qtd_total)    || 0,
+      valor_total:  parseFloat(r.valor_total)  || 0,
+      qtd_clientes: Number(r.qtd_clientes)     || 0,
+      qtd_pedidos:  Number(r.qtd_pedidos)      || 0,
+      ultima_venda: r.ultima_venda,
+    }));
+
+    res.json({ success: true, data, total: data.length });
+  } catch (err: any) {
+    console.error('[portfolioIndustriaItensHandler]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// GET /estatisticas/portfolio-industria/clientes?dataInicial&dataFinal&industria&codigo
+// Retorna os clientes que compraram o item selecionado no período.
+export async function portfolioIndustriaClientesHandler(req: Request | any, res: Response) {
+  try {
+    const db = req.db!;
+    const { dataInicial, dataFinal, industria, codigo } = req.query;
+
+    if (!dataInicial || !dataFinal) {
+      return res.status(400).json({ success: false, error: 'Período obrigatório' });
+    }
+    if (!industria || industria === 'ALL') {
+      return res.status(400).json({ success: false, error: 'Indústria obrigatória' });
+    }
+    if (!codigo) {
+      return res.status(400).json({ success: false, error: 'Código do item obrigatório' });
+    }
+
+    const indId = Number(industria);
+    const codNorm = String(codigo).trim();
+
+    const result = await db.query(`
+      SELECT
+        c.cli_codigo                              AS cli_codigo,
+        c.cli_nomred                              AS cli_nomred,
+        COALESCE(c.cli_nome, c.cli_nomred)        AS cli_nome,
+        COALESCE(c.cli_uf, '')                    AS uf,
+        COALESCE(ci.cid_nome, '')                 AS cidade,
+        SUM(ip.ite_quant)::NUMERIC                AS qtd_total,
+        SUM(ip.ite_totliquido)::NUMERIC           AS valor_total,
+        COUNT(DISTINCT TRIM(p.ped_pedido))::INTEGER AS qtd_pedidos,
+        MIN(p.ped_data)                           AS primeira_compra,
+        MAX(p.ped_data)                           AS ultima_compra
+      FROM itens_ped ip
+      JOIN pedidos p   ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
+      JOIN clientes c  ON c.cli_codigo = p.ped_cliente
+      LEFT JOIN cidades ci ON ci.cid_codigo = c.cli_idcidade
+      WHERE p.ped_industria = $1
+        AND p.ped_data BETWEEN $2::date AND $3::date
+        AND p.ped_situacao IN ('P', 'F')
+        AND COALESCE(NULLIF(TRIM(ip.ite_codigonormalizado),''), TRIM(ip.ite_produto)) = $4
+      GROUP BY c.cli_codigo, c.cli_nomred, c.cli_nome, c.cli_uf, ci.cid_nome
+      ORDER BY valor_total DESC
+    `, [indId, dataInicial, dataFinal, codNorm]);
+
+    const data = result.rows.map((r: any) => ({
+      cli_codigo:      Number(r.cli_codigo),
+      cli_nomred:      r.cli_nomred,
+      cli_nome:        r.cli_nome,
+      uf:              r.uf,
+      cidade:          r.cidade,
+      qtd_total:       parseFloat(r.qtd_total)    || 0,
+      valor_total:     parseFloat(r.valor_total)  || 0,
+      qtd_pedidos:     Number(r.qtd_pedidos)      || 0,
+      primeira_compra: r.primeira_compra,
+      ultima_compra:   r.ultima_compra,
+    }));
+
+    res.json({ success: true, data, total: data.length });
+  } catch (err: any) {
+    console.error('[portfolioIndustriaClientesHandler]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// MISSÃO 2 — VENDAS NO PERÍODO + CHURN TRIMESTRAL (Hamilton 2026-05-26)
+// ════════════════════════════════════════════════════════════════════
+// Fluxo:
+//   Lado esquerdo: pedidos do período atual (pedido a pedido)
+//   Lado direito: clientes que compraram nos 3 meses imediatamente
+//   anteriores ao período atual MAS não compraram dentro do período atual
+
+// GET /estatisticas/vendas-periodo?dataInicial&dataFinal&industria&vendedor
+// Pedidos do período atual.
+export async function vendasPeriodoHandler(req: Request | any, res: Response) {
+  try {
+    const db = req.db!;
+    const { dataInicial, dataFinal, industria, vendedor } = req.query;
+
+    if (!dataInicial || !dataFinal) {
+      return res.status(400).json({ success: false, error: 'Período obrigatório' });
+    }
+
+    const params: any[] = [dataInicial, dataFinal];
+    let paramCount = 3;
+    const conditions: string[] = [
+      `p.ped_data BETWEEN $1::date AND $2::date`,
+      `p.ped_situacao IN ('P', 'F')`,
+    ];
+
+    if (industria && industria !== 'ALL') {
+      conditions.push(`p.ped_industria = $${paramCount++}`);
+      params.push(Number(industria));
+    }
+    if (vendedor && vendedor !== 'ALL') {
+      conditions.push(`p.ped_vendedor = $${paramCount++}`);
+      params.push(Number(vendedor));
+    }
+
+    const result = await db.query(`
+      SELECT
+        TRIM(p.ped_pedido)                         AS pedido,
+        p.ped_data                                 AS data,
+        p.ped_situacao                             AS situacao,
+        COALESCE(p.ped_totliq, 0)::NUMERIC         AS valor,
+        c.cli_codigo                               AS cli_codigo,
+        c.cli_nomred                               AS cli_nomred,
+        COALESCE(c.cli_uf, '')                     AS uf,
+        f.for_codigo                               AS for_codigo,
+        f.for_nomered                              AS industria_nome,
+        COALESCE(v.ven_nome, '')                   AS vendedor_nome,
+        (SELECT COUNT(*) FROM itens_ped ip WHERE TRIM(ip.ite_pedido) = TRIM(p.ped_pedido))::INTEGER AS qtd_itens
+      FROM pedidos p
+      LEFT JOIN clientes c     ON c.cli_codigo = p.ped_cliente
+      LEFT JOIN fornecedores f ON f.for_codigo = p.ped_industria
+      LEFT JOIN vendedores v   ON v.ven_codigo = p.ped_vendedor
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY p.ped_data DESC, p.ped_pedido DESC
+    `, params);
+
+    const data = result.rows.map((r: any) => ({
+      pedido:         r.pedido,
+      data:           r.data,
+      situacao:       r.situacao,
+      valor:          parseFloat(r.valor) || 0,
+      cli_codigo:     Number(r.cli_codigo) || 0,
+      cli_nomred:     r.cli_nomred || '',
+      uf:             r.uf,
+      for_codigo:     Number(r.for_codigo) || 0,
+      industria_nome: r.industria_nome || '',
+      vendedor_nome:  r.vendedor_nome,
+      qtd_itens:      Number(r.qtd_itens) || 0,
+    }));
+
+    res.json({ success: true, data, total: data.length });
+  } catch (err: any) {
+    console.error('[vendasPeriodoHandler]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// GET /estatisticas/clientes-churn-trimestral?dataInicial&dataFinal&industria&vendedor
+// Clientes que compraram no TRIMESTRE ANTERIOR ao período atual (3 meses imediatamente
+// anteriores a dataInicial) mas NÃO compraram dentro do período atual.
+export async function clientesChurnTrimestralHandler(req: Request | any, res: Response) {
+  try {
+    const db = req.db!;
+    const { dataInicial, dataFinal, industria, vendedor } = req.query;
+
+    if (!dataInicial || !dataFinal) {
+      return res.status(400).json({ success: false, error: 'Período obrigatório' });
+    }
+
+    const params: any[] = [dataInicial, dataFinal];
+    let paramCount = 3;
+    const extraConditions: string[] = [`p2.ped_situacao IN ('P', 'F')`];
+    const extraConditionsAtual: string[] = [`p3.ped_situacao IN ('P', 'F')`];
+
+    if (industria && industria !== 'ALL') {
+      extraConditions.push(`p2.ped_industria = $${paramCount}`);
+      extraConditionsAtual.push(`p3.ped_industria = $${paramCount}`);
+      params.push(Number(industria));
+      paramCount++;
+    }
+    // Filtro de vendedor: 1x1 → cli_vendedor (exige JOIN clientes); 1xN → indústrias
+    // do vendedor (vendedor_ind), direto em p2/p3.ped_industria (sem JOIN).
+    const hasVendedor = !!(vendedor && vendedor !== 'ALL');
+    let join2 = '', join3 = '';
+    if (hasVendedor) {
+      const modoVend = await getModoVendedor(db);
+      const vcl2 = vendedorFilterSQL(modoVend, Number(vendedor), { cliAlias: 'cli2', pedAlias: 'p2' });
+      const vcl3 = vendedorFilterSQL(modoVend, Number(vendedor), { cliAlias: 'cli3', pedAlias: 'p3' });
+      if (vcl2) extraConditions.push(vcl2);
+      if (vcl3) extraConditionsAtual.push(vcl3);
+      if (modoVend === '1x1') {
+        join2 = `JOIN clientes cli2 ON cli2.cli_codigo = p2.ped_cliente`;
+        join3 = `JOIN clientes cli3 ON cli3.cli_codigo = p3.ped_cliente`;
+      }
+    }
+
+    const result = await db.query(`
+      WITH trimestre_anterior AS (
+        -- Clientes que compraram nos 3 meses imediatamente anteriores ao período atual
+        SELECT DISTINCT p2.ped_cliente
+        FROM pedidos p2
+        ${join2}
+        WHERE p2.ped_data >= ($1::date - INTERVAL '3 months')
+          AND p2.ped_data <  $1::date
+          AND ${extraConditions.join(' AND ')}
+      ),
+      periodo_atual AS (
+        -- Clientes que compraram dentro do período atual
+        SELECT DISTINCT p3.ped_cliente
+        FROM pedidos p3
+        ${join3}
+        WHERE p3.ped_data BETWEEN $1::date AND $2::date
+          AND ${extraConditionsAtual.join(' AND ')}
+      ),
+      churn AS (
+        SELECT ta.ped_cliente
+        FROM trimestre_anterior ta
+        WHERE NOT EXISTS (SELECT 1 FROM periodo_atual pa WHERE pa.ped_cliente = ta.ped_cliente)
+      ),
+      ultima_compra AS (
+        SELECT p.ped_cliente,
+               MAX(p.ped_data)                      AS dt_ultima,
+               COUNT(DISTINCT TRIM(p.ped_pedido))   AS pedidos_trimestre,
+               SUM(COALESCE(p.ped_totliq,0))::NUMERIC AS valor_trimestre
+        FROM pedidos p
+        WHERE p.ped_cliente IN (SELECT ped_cliente FROM churn)
+          AND p.ped_data >= ($1::date - INTERVAL '3 months')
+          AND p.ped_data <  $1::date
+          AND p.ped_situacao IN ('P', 'F')
+        GROUP BY p.ped_cliente
+      )
+      SELECT
+        c.cli_codigo                            AS cli_codigo,
+        c.cli_nomred                            AS cli_nomred,
+        COALESCE(c.cli_nome, c.cli_nomred)      AS cli_nome,
+        COALESCE(c.cli_uf, '')                  AS uf,
+        COALESCE(ci.cid_nome, '')               AS cidade,
+        COALESCE(v.ven_nome, '')                AS vendedor_nome,
+        u.dt_ultima                             AS data_ultima_compra,
+        u.pedidos_trimestre,
+        u.valor_trimestre,
+        (CURRENT_DATE - u.dt_ultima::date)::INTEGER AS dias_sem_comprar
+      FROM ultima_compra u
+      JOIN clientes c       ON c.cli_codigo = u.ped_cliente
+      LEFT JOIN cidades ci  ON ci.cid_codigo = c.cli_idcidade
+      LEFT JOIN vendedores v ON v.ven_codigo = c.cli_vendedor
+      WHERE ${excluiInativoSQL('c')}
+      ORDER BY u.valor_trimestre DESC
+    `, params);
+
+    const data = result.rows.map((r: any) => ({
+      cli_codigo:         Number(r.cli_codigo) || 0,
+      cli_nomred:         r.cli_nomred || '',
+      cli_nome:           r.cli_nome,
+      uf:                 r.uf,
+      cidade:             r.cidade,
+      vendedor_nome:      r.vendedor_nome,
+      data_ultima_compra: r.data_ultima_compra,
+      pedidos_trimestre:  Number(r.pedidos_trimestre) || 0,
+      valor_trimestre:    parseFloat(r.valor_trimestre) || 0,
+      dias_sem_comprar:   Number(r.dias_sem_comprar) || 0,
+    }));
+
+    res.json({ success: true, data, total: data.length });
+  } catch (err: any) {
+    console.error('[clientesChurnTrimestralHandler]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// MISSÃO 3 — GAP DE CATÁLOGO (cross-sell ABC) (Hamilton 2026-05-26)
+// ════════════════════════════════════════════════════════════════════
+// Fluxo:
+//   Usuário escolhe indústria + cliente. Sistema lista itens da indústria
+//   já vendidos no mercado (no período), classifica curva ABC pelo
+//   faturamento de mercado, e FILTRA mostrando APENAS os itens que esse
+//   cliente NUNCA comprou (histórico completo).
+
+// GET /estatisticas/gap-catalogo?industria&cliente&dataInicial&dataFinal
+export async function gapCatalogoHandler(req: Request | any, res: Response) {
+  try {
+    const db = req.db!;
+    const { industria, cliente, dataInicial, dataFinal } = req.query;
+
+    if (!industria || industria === 'ALL') {
+      return res.status(400).json({ success: false, error: 'Indústria obrigatória' });
+    }
+    if (!cliente || cliente === 'ALL') {
+      return res.status(400).json({ success: false, error: 'Cliente obrigatório' });
+    }
+    if (!dataInicial || !dataFinal) {
+      return res.status(400).json({ success: false, error: 'Período obrigatório' });
+    }
+
+    const indId = Number(industria);
+    const cliId = Number(cliente);
+
+    const result = await db.query(`
+      WITH mercado AS (
+        -- Itens da indústria vendidos no período (qualquer cliente)
+        SELECT
+          COALESCE(NULLIF(TRIM(ip.ite_codigonormalizado),''), TRIM(ip.ite_produto)) AS cod,
+          SUM(ip.ite_totliquido)::NUMERIC AS valor_mercado,
+          SUM(ip.ite_quant)::NUMERIC      AS qtd_mercado,
+          COUNT(DISTINCT p.ped_cliente)::INTEGER AS pontos_venda
+        FROM itens_ped ip
+        JOIN pedidos p ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
+        WHERE p.ped_industria = $1
+          AND p.ped_data BETWEEN $2::date AND $3::date
+          AND p.ped_situacao IN ('P', 'F')
+        GROUP BY 1
+      ),
+      cliente_historico AS (
+        -- Tudo que o cliente JÁ COMPROU da indústria, em qualquer época
+        SELECT DISTINCT COALESCE(NULLIF(TRIM(ip.ite_codigonormalizado),''), TRIM(ip.ite_produto)) AS cod
+        FROM itens_ped ip
+        JOIN pedidos p ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
+        WHERE p.ped_industria = $1
+          AND p.ped_cliente   = $4
+          AND p.ped_situacao IN ('P', 'F')
+      ),
+      gap AS (
+        -- Itens que o mercado compra mas o cliente NUNCA comprou
+        SELECT m.cod, m.valor_mercado, m.qtd_mercado, m.pontos_venda
+        FROM mercado m
+        WHERE NOT EXISTS (SELECT 1 FROM cliente_historico ch WHERE ch.cod = m.cod)
+      ),
+      total AS (
+        SELECT SUM(valor_mercado) AS valor_total FROM gap
+      ),
+      ranked AS (
+        SELECT
+          g.cod,
+          g.valor_mercado,
+          g.qtd_mercado,
+          g.pontos_venda,
+          SUM(g.valor_mercado) OVER (ORDER BY g.valor_mercado DESC, g.cod
+                                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)::NUMERIC AS valor_acum,
+          (SELECT valor_total FROM total) AS total_geral
+        FROM gap g
+      )
+      SELECT
+        r.cod                                                       AS codigo,
+        COALESCE(cp.pro_nome, r.cod)                                AS descricao,
+        COALESCE(g.gru_nome, 'SEM GRUPO')                           AS familia,
+        r.valor_mercado,
+        r.qtd_mercado,
+        r.pontos_venda,
+        CASE
+          WHEN r.total_geral > 0 THEN ROUND((r.valor_acum / r.total_geral) * 100, 2)
+          ELSE 0
+        END                                                         AS pct_acumulado,
+        CASE
+          WHEN r.total_geral = 0 THEN 'C'
+          WHEN (r.valor_acum / r.total_geral) <= 0.80 THEN 'A'
+          WHEN (r.valor_acum / r.total_geral) <= 0.95 THEN 'B'
+          ELSE 'C'
+        END                                                         AS curva_abc
+      FROM ranked r
+      LEFT JOIN cad_prod cp ON COALESCE(NULLIF(TRIM(cp.pro_codigonormalizado),''), TRIM(cp.pro_codprod)) = r.cod
+                            AND cp.pro_industria = $1
+      LEFT JOIN grupos g    ON g.gru_codigo = cp.pro_grupo
+      ORDER BY r.valor_mercado DESC
+    `, [indId, dataInicial, dataFinal, cliId]);
+
+    const data = result.rows.map((r: any) => ({
+      codigo:        r.codigo,
+      descricao:     r.descricao,
+      familia:       r.familia,
+      valor_mercado: parseFloat(r.valor_mercado) || 0,
+      qtd_mercado:   parseFloat(r.qtd_mercado)   || 0,
+      pontos_venda:  Number(r.pontos_venda)      || 0,
+      pct_acumulado: parseFloat(r.pct_acumulado) || 0,
+      curva_abc:     r.curva_abc,
+    }));
+
+    const kpis = {
+      total:        data.length,
+      curvaA:       data.filter((d: any) => d.curva_abc === 'A').length,
+      curvaB:       data.filter((d: any) => d.curva_abc === 'B').length,
+      curvaC:       data.filter((d: any) => d.curva_abc === 'C').length,
+      valorMercado: data.reduce((s: number, d: any) => s + d.valor_mercado, 0),
+    };
+
+    res.json({ success: true, data, total: data.length, kpis });
+  } catch (err: any) {
+    console.error('[gapCatalogoHandler]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// 4ª MISSÃO — INDÚSTRIAS ADORMECIDAS (Fábio/borcatorep, 2026-05-26)
+// ════════════════════════════════════════════════════════════════════
+// Conceito: cliente PODE estar ativo na carteira (ainda compra alguma
+// coisa) mas parou de comprar de indústrias que historicamente comprava.
+// É insight diferente de "Clientes Inativos" (cliente parou tudo) e de
+// "Churn Trimestral" (comparação curta).
+//
+// Fluxo:
+//   1. Lista clientes que TÊM pelo menos 1 indústria adormecida no histórico
+//   2. Ao clicar num cliente, mostra TODAS as indústrias compradas + status
+//      ATIVA (compra recente) ou ADORMECIDA (parou há mais de X dias).
+
+// GET /estatisticas/industrias-adormecidas/clientes?dataInicial&dataFinal&diasSilencio&industria&vendedor
+// Lista clientes com indústrias dormindo. dataInicial/dataFinal recortam o
+// histórico considerado — clientes que só compravam fora desse período não
+// entram (ex: parou tudo em 2018, não interessa olhar agora).
+export async function industriasAdormecidasClientesHandler(req: Request | any, res: Response) {
+  try {
+    const db = req.db!;
+    let { dataInicial, dataFinal, diasSilencio, industria, vendedor } = req.query;
+
+    // Default: último 1 ano quando o front não envia (compat com frontend antigo
+    // que ainda não foi deployado com os params novos).
+    if (!dataInicial || !dataFinal) {
+      const hoje = new Date();
+      const umAnoAtras = new Date(hoje); umAnoAtras.setFullYear(hoje.getFullYear() - 1);
+      dataFinal = dataFinal || hoje.toISOString().slice(0, 10);
+      dataInicial = dataInicial || umAnoAtras.toISOString().slice(0, 10);
+    }
+
+    const dias = Math.max(1, parseInt(String(diasSilencio || '90'), 10));
+
+    // $1=dias_silencio, $2=dataInicial, $3=dataFinal, depois opcionais
+    const params: any[] = [dias, dataInicial, dataFinal];
+    let pc = 4;
+    const industriaFilter = (industria && industria !== 'ALL')
+      ? (params.push(Number(industria)), `AND p.ped_industria = $${pc++}`)
+      : '';
+    // 1x1: cli_vendedor (titular); 1xN: indústrias do vendedor (vendedor_ind)
+    const vclAd = (vendedor && vendedor !== 'ALL')
+      ? vendedorFilterSQL(await getModoVendedor(db), Number(vendedor), { cliAlias: 'c', pedAlias: 'p' })
+      : '';
+    const vendedorFilter = vclAd ? `AND ${vclAd}` : '';
+
+    const result = await db.query(`
+      WITH compras_cli_ind AS (
+        -- Para cada (cliente, indústria) comprado DENTRO do período recortado,
+        -- calcula a última data e o valor acumulado.
+        SELECT
+          p.ped_cliente,
+          p.ped_industria,
+          f.for_nomered                              AS industria_nome,
+          MAX(p.ped_data)                            AS ultima_compra,
+          SUM(COALESCE(p.ped_totliq, 0))::NUMERIC    AS valor_historico,
+          COUNT(DISTINCT TRIM(p.ped_pedido))::INTEGER AS qtd_pedidos_historico,
+          (CURRENT_DATE - MAX(p.ped_data)::date)::INTEGER AS dias_sem_comprar
+        FROM pedidos p
+        JOIN fornecedores f ON f.for_codigo = p.ped_industria
+        LEFT JOIN clientes c ON c.cli_codigo = p.ped_cliente
+        WHERE p.ped_situacao IN ('P', 'F')
+          AND p.ped_data BETWEEN $2::date AND $3::date
+          ${industriaFilter}
+          ${vendedorFilter}
+        GROUP BY p.ped_cliente, p.ped_industria, f.for_nomered
+      ),
+      adormecidas_por_cliente AS (
+        -- Apenas pares com silêncio > N dias (a "adormecida")
+        SELECT ped_cliente,
+               COUNT(*)::INTEGER                  AS qtd_adormecidas,
+               SUM(valor_historico)::NUMERIC      AS valor_adormecido,
+               MAX(dias_sem_comprar)::INTEGER     AS max_dias_silencio
+        FROM compras_cli_ind
+        WHERE dias_sem_comprar > $1
+        GROUP BY ped_cliente
+      ),
+      ultima_geral AS (
+        -- Última compra de qualquer indústria DENTRO do período
+        SELECT p.ped_cliente,
+               MAX(p.ped_data)::date AS ultima_geral
+        FROM pedidos p
+        LEFT JOIN clientes c ON c.cli_codigo = p.ped_cliente
+        WHERE p.ped_situacao IN ('P', 'F')
+          AND p.ped_data BETWEEN $2::date AND $3::date
+          ${vendedorFilter}
+        GROUP BY p.ped_cliente
+      )
+      SELECT
+        c.cli_codigo                                       AS cli_codigo,
+        c.cli_nomred                                       AS cli_nomred,
+        COALESCE(c.cli_uf, '')                             AS uf,
+        COALESCE(ci.cid_nome, '')                          AS cidade,
+        COALESCE(v.ven_nome, '')                           AS vendedor_nome,
+        a.qtd_adormecidas,
+        a.valor_adormecido,
+        a.max_dias_silencio,
+        u.ultima_geral                                     AS ultima_compra_geral,
+        (CURRENT_DATE - u.ultima_geral)::INTEGER           AS dias_desde_ultima_geral
+      FROM adormecidas_por_cliente a
+      JOIN clientes c        ON c.cli_codigo = a.ped_cliente
+      LEFT JOIN cidades ci   ON ci.cid_codigo = c.cli_idcidade
+      LEFT JOIN vendedores v ON v.ven_codigo = c.cli_vendedor
+      LEFT JOIN ultima_geral u ON u.ped_cliente = a.ped_cliente
+      WHERE c.cli_tipopes = 'A'
+        AND ${excluiInativoSQL('c')}
+      ORDER BY a.valor_adormecido DESC
+    `, params);
+
+    const data = result.rows.map((r: any) => ({
+      cli_codigo:              Number(r.cli_codigo) || 0,
+      cli_nomred:              r.cli_nomred || '',
+      uf:                      r.uf,
+      cidade:                  r.cidade,
+      vendedor_nome:           r.vendedor_nome,
+      qtd_adormecidas:         Number(r.qtd_adormecidas) || 0,
+      valor_adormecido:        parseFloat(r.valor_adormecido) || 0,
+      max_dias_silencio:       Number(r.max_dias_silencio) || 0,
+      ultima_compra_geral:     r.ultima_compra_geral,
+      dias_desde_ultima_geral: Number(r.dias_desde_ultima_geral) || 0,
+    }));
+
+    res.json({ success: true, data, total: data.length });
+  } catch (err: any) {
+    console.error('[industriasAdormecidasClientesHandler]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// GET /estatisticas/industrias-adormecidas/export?dataInicial&dataFinal&diasSilencio&industria&vendedor
+// Retorna LISTA PLANA de pares (cliente × indústria adormecida) pra exportação
+// Excel. Cada linha é um par único — o usuário pode pivotar/filtrar no Excel.
+export async function industriasAdormecidasExportHandler(req: Request | any, res: Response) {
+  try {
+    const db = req.db!;
+    let { dataInicial, dataFinal, diasSilencio, industria, vendedor } = req.query;
+
+    if (!dataInicial || !dataFinal) {
+      const hoje = new Date();
+      const umAnoAtras = new Date(hoje); umAnoAtras.setFullYear(hoje.getFullYear() - 1);
+      dataFinal = dataFinal || hoje.toISOString().slice(0, 10);
+      dataInicial = dataInicial || umAnoAtras.toISOString().slice(0, 10);
+    }
+
+    const dias = Math.max(1, parseInt(String(diasSilencio || '90'), 10));
+    const params: any[] = [dias, dataInicial, dataFinal];
+    let pc = 4;
+    const industriaFilter = (industria && industria !== 'ALL')
+      ? (params.push(Number(industria)), `AND p.ped_industria = $${pc++}`)
+      : '';
+    // 1x1: cli_vendedor (titular); 1xN: indústrias do vendedor (vendedor_ind)
+    const vclAd = (vendedor && vendedor !== 'ALL')
+      ? vendedorFilterSQL(await getModoVendedor(db), Number(vendedor), { cliAlias: 'c', pedAlias: 'p' })
+      : '';
+    const vendedorFilter = vclAd ? `AND ${vclAd}` : '';
+
+    const result = await db.query(`
+      WITH pares AS (
+        SELECT
+          p.ped_cliente,
+          p.ped_industria,
+          f.for_nomered                              AS industria_nome,
+          MAX(p.ped_data)                            AS ultima_compra,
+          (CURRENT_DATE - MAX(p.ped_data)::date)::INTEGER AS dias_sem_comprar,
+          SUM(COALESCE(p.ped_totliq, 0))::NUMERIC    AS valor_historico,
+          COUNT(DISTINCT TRIM(p.ped_pedido))::INTEGER AS qtd_pedidos
+        FROM pedidos p
+        JOIN fornecedores f ON f.for_codigo = p.ped_industria
+        LEFT JOIN clientes c ON c.cli_codigo = p.ped_cliente
+        WHERE p.ped_situacao IN ('P', 'F')
+          AND p.ped_data BETWEEN $2::date AND $3::date
+          ${industriaFilter}
+          ${vendedorFilter}
+        GROUP BY p.ped_cliente, p.ped_industria, f.for_nomered
+        HAVING (CURRENT_DATE - MAX(p.ped_data)::date) > $1
+      )
+      SELECT
+        c.cli_codigo                            AS cli_codigo,
+        c.cli_nomred                            AS cli_nomred,
+        COALESCE(c.cli_uf, '')                  AS uf,
+        COALESCE(ci.cid_nome, '')               AS cidade,
+        COALESCE(v.ven_nome, '')                AS vendedor_nome,
+        pares.industria_nome,
+        pares.ultima_compra,
+        pares.dias_sem_comprar,
+        pares.valor_historico,
+        pares.qtd_pedidos
+      FROM pares
+      JOIN clientes c       ON c.cli_codigo = pares.ped_cliente
+      LEFT JOIN cidades ci  ON ci.cid_codigo = c.cli_idcidade
+      LEFT JOIN vendedores v ON v.ven_codigo = c.cli_vendedor
+      WHERE c.cli_tipopes = 'A'
+        AND ${excluiInativoSQL('c')}
+      ORDER BY c.cli_nomred, pares.dias_sem_comprar DESC
+    `, params);
+
+    const data = result.rows.map((r: any) => ({
+      cli_codigo:       Number(r.cli_codigo) || 0,
+      cli_nomred:       r.cli_nomred || '',
+      uf:               r.uf,
+      cidade:           r.cidade,
+      vendedor_nome:    r.vendedor_nome,
+      industria_nome:   r.industria_nome,
+      ultima_compra:    r.ultima_compra,
+      dias_sem_comprar: Number(r.dias_sem_comprar) || 0,
+      valor_historico:  parseFloat(r.valor_historico) || 0,
+      qtd_pedidos:      Number(r.qtd_pedidos) || 0,
+    }));
+
+    res.json({ success: true, data, total: data.length });
+  } catch (err: any) {
+    console.error('[industriasAdormecidasExportHandler]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// GET /estatisticas/industrias-adormecidas/detalhe?cliId&dataInicial&dataFinal&diasSilencio
+// Pra um cliente específico, lista todas as indústrias compradas DENTRO do
+// período recortado + status (ATIVA / ADORMECIDA) + última compra + valor.
+export async function industriasAdormecidasDetalheHandler(req: Request | any, res: Response) {
+  try {
+    const db = req.db!;
+    let { cliId, dataInicial, dataFinal, diasSilencio } = req.query;
+    if (!cliId) {
+      return res.status(400).json({ success: false, error: 'cliId obrigatório' });
+    }
+    if (!dataInicial || !dataFinal) {
+      const hoje = new Date();
+      const umAnoAtras = new Date(hoje); umAnoAtras.setFullYear(hoje.getFullYear() - 1);
+      dataFinal = dataFinal || hoje.toISOString().slice(0, 10);
+      dataInicial = dataInicial || umAnoAtras.toISOString().slice(0, 10);
+    }
+    const dias = Math.max(1, parseInt(String(diasSilencio || '90'), 10));
+
+    const result = await db.query(`
+      SELECT
+        p.ped_industria                                   AS for_codigo,
+        f.for_nomered                                     AS industria_nome,
+        MIN(p.ped_data)                                   AS primeira_compra,
+        MAX(p.ped_data)                                   AS ultima_compra,
+        (CURRENT_DATE - MAX(p.ped_data)::date)::INTEGER   AS dias_sem_comprar,
+        SUM(COALESCE(p.ped_totliq, 0))::NUMERIC           AS valor_historico,
+        COUNT(DISTINCT TRIM(p.ped_pedido))::INTEGER       AS qtd_pedidos,
+        CASE
+          WHEN (CURRENT_DATE - MAX(p.ped_data)::date) > $2 THEN 'ADORMECIDA'
+          ELSE 'ATIVA'
+        END                                               AS status
+      FROM pedidos p
+      JOIN fornecedores f ON f.for_codigo = p.ped_industria
+      WHERE p.ped_cliente = $1
+        AND p.ped_situacao IN ('P', 'F')
+        AND p.ped_data BETWEEN $3::date AND $4::date
+      GROUP BY p.ped_industria, f.for_nomered
+      ORDER BY
+        CASE WHEN (CURRENT_DATE - MAX(p.ped_data)::date) > $2 THEN 0 ELSE 1 END,
+        SUM(COALESCE(p.ped_totliq, 0)) DESC
+    `, [Number(cliId), dias, dataInicial, dataFinal]);
+
+    const data = result.rows.map((r: any) => ({
+      for_codigo:       Number(r.for_codigo) || 0,
+      industria_nome:   r.industria_nome || '',
+      primeira_compra:  r.primeira_compra,
+      ultima_compra:    r.ultima_compra,
+      dias_sem_comprar: Number(r.dias_sem_comprar) || 0,
+      valor_historico:  parseFloat(r.valor_historico) || 0,
+      qtd_pedidos:      Number(r.qtd_pedidos) || 0,
+      status:           r.status,
+    }));
+
+    const kpis = {
+      total:        data.length,
+      adormecidas:  data.filter((d: any) => d.status === 'ADORMECIDA').length,
+      ativas:       data.filter((d: any) => d.status === 'ATIVA').length,
+      valor_adormecido: data.filter((d: any) => d.status === 'ADORMECIDA').reduce((s: number, d: any) => s + d.valor_historico, 0),
+    };
+
+    res.json({ success: true, data, total: data.length, kpis });
+  } catch (err: any) {
+    console.error('[industriasAdormecidasDetalheHandler]', err);
     res.status(500).json({ success: false, error: err.message });
   }
 }
