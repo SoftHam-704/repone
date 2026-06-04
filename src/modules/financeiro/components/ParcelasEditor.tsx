@@ -24,6 +24,7 @@ interface Props {
   accent: string                 // G.red (pagar) | G.green (receber)
   value: ParcelaLinha[]          // controlled
   onChange: (parcelas: ParcelaLinha[]) => void
+  hideGenerator?: boolean
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -44,7 +45,7 @@ function toISO(d: Date): string {
 /**
  * Modo Intervalo (dias): data = dataBase + i * intervaloDias
  */
-function calcIntervalo(dataBase: string, n: number, intervalo: number): string[] {
+export function calcIntervalo(dataBase: string, n: number, intervalo: number): string[] {
   const base = new Date(dataBase + 'T12:00:00')
   const datas: string[] = []
   for (let i = 0; i < n; i++) {
@@ -60,7 +61,7 @@ function calcIntervalo(dataBase: string, n: number, intervalo: number): string[]
  * - 1ª parcela = dataVencimentoInicial (exatamente)
  * - Cada seguinte: avança 1 mês e ajusta o dia para min(diaFixo, ultimoDiaDoMes)
  */
-function calcDiaFixo(dataBase: string, n: number, diaFixo: number): string[] {
+export function calcDiaFixo(dataBase: string, n: number, diaFixo: number): string[] {
   const datas: string[] = []
   // Usa T12:00:00 para evitar problemas de DST
   let current = new Date(dataBase + 'T12:00:00')
@@ -79,7 +80,7 @@ function calcDiaFixo(dataBase: string, n: number, diaFixo: number): string[] {
  * Distribui valorTotal em n parcelas com arredondamento 2 casas.
  * Última parcela recebe a sobra exata (total - soma anteriores).
  */
-function distribuirValor(valorTotal: number, n: number): number[] {
+export function distribuirValor(valorTotal: number, n: number): number[] {
   if (n <= 0) return []
   const base = parseFloat((valorTotal / n).toFixed(2))
   const valores: number[] = []
@@ -195,6 +196,7 @@ export default function ParcelasEditor({
   accent,
   value,
   onChange,
+  hideGenerator = false,
 }: Props) {
   const [nParcelas, setNParcelas] = useState(1)
   const [modo, setModo] = useState<'intervalo' | 'dia-fixo'>('intervalo')
@@ -259,96 +261,98 @@ export default function ParcelasEditor({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
       {/* ── Painel de parâmetros ───────────────────────────────────────── */}
-      <div style={{
-        background: G.bg,
-        border: `1px solid ${G.border}`,
-        borderRadius: 10,
-        padding: '14px 16px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-      }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: G.text, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Gerador de Parcelas
-        </span>
+      {!hideGenerator && (
+        <div style={{
+          background: G.bg,
+          border: `1px solid ${G.border}`,
+          borderRadius: 10,
+          padding: '14px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: G.text, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Gerador de Parcelas
+          </span>
 
-        {/* Linha 1: N° Parcelas + Modo */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <label style={labelStyle}>
-            <span style={{ color: G.text }}>N° Parcelas</span>
-            <input
-              type="number"
-              min={1}
-              max={60}
-              value={nParcelas}
-              onChange={e => setNParcelas(Math.max(1, parseInt(e.target.value) || 1))}
-              style={smallInput}
-            />
-          </label>
-          <label style={labelStyle}>
-            <span style={{ color: G.text }}>Modo</span>
-            <select
-              value={modo}
-              onChange={e => setModo(e.target.value as 'intervalo' | 'dia-fixo')}
-              style={smallInput}
-            >
-              <option value="intervalo">Intervalo (dias)</option>
-              <option value="dia-fixo">Dia Fixo</option>
-            </select>
-          </label>
-        </div>
-
-        {/* Linha 2: parâmetro condicional */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          {modo === 'intervalo' ? (
+          {/* Linha 1: N° Parcelas + Modo */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <label style={labelStyle}>
-              <span style={{ color: G.text }}>Intervalo (dias)</span>
+              <span style={{ color: G.text }}>N° Parcelas</span>
               <input
                 type="number"
                 min={1}
-                value={intervalo}
-                onChange={e => setIntervalo(Math.max(1, parseInt(e.target.value) || 1))}
+                max={60}
+                value={nParcelas}
+                onChange={e => setNParcelas(Math.max(1, parseInt(e.target.value) || 1))}
                 style={smallInput}
               />
             </label>
-          ) : (
             <label style={labelStyle}>
-              <span style={{ color: G.text }}>Dia Fixo (1–31)</span>
-              <input
-                type="number"
-                min={1}
-                max={31}
-                value={diaFixo}
-                onChange={e => setDiaFixo(Math.max(1, Math.min(31, parseInt(e.target.value) || 1)))}
+              <span style={{ color: G.text }}>Modo</span>
+              <select
+                value={modo}
+                onChange={e => setModo(e.target.value as 'intervalo' | 'dia-fixo')}
                 style={smallInput}
-              />
+              >
+                <option value="intervalo">Intervalo (dias)</option>
+                <option value="dia-fixo">Dia Fixo</option>
+              </select>
             </label>
-          )}
-          {/* Botão calcular */}
-          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <button
-              type="button"
-              onClick={handleCalcular}
-              disabled={!dataVencimentoInicial || valorTotal <= 0}
-              style={{
-                width: '100%',
-                padding: '9px 14px',
-                background: accent,
-                border: 'none',
-                borderRadius: 7,
-                fontSize: 13,
-                fontWeight: 700,
-                color: '#fff',
-                cursor: (!dataVencimentoInicial || valorTotal <= 0) ? 'not-allowed' : 'pointer',
-                opacity: (!dataVencimentoInicial || valorTotal <= 0) ? 0.5 : 1,
-                transition: 'opacity 0.12s',
-              }}
-            >
-              Calcular Parcelas
-            </button>
+          </div>
+
+          {/* Linha 2: parâmetro condicional */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {modo === 'intervalo' ? (
+              <label style={labelStyle}>
+                <span style={{ color: G.text }}>Intervalo (dias)</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={intervalo}
+                  onChange={e => setIntervalo(Math.max(1, parseInt(e.target.value) || 1))}
+                  style={smallInput}
+                />
+              </label>
+            ) : (
+              <label style={labelStyle}>
+                <span style={{ color: G.text }}>Dia Fixo (1–31)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={diaFixo}
+                  onChange={e => setDiaFixo(Math.max(1, Math.min(31, parseInt(e.target.value) || 1)))}
+                  style={smallInput}
+                />
+              </label>
+            )}
+            {/* Botão calcular */}
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={handleCalcular}
+                disabled={!dataVencimentoInicial || valorTotal <= 0}
+                style={{
+                  width: '100%',
+                  padding: '9px 14px',
+                  background: accent,
+                  border: 'none',
+                  borderRadius: 7,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: '#fff',
+                  cursor: (!dataVencimentoInicial || valorTotal <= 0) ? 'not-allowed' : 'pointer',
+                  opacity: (!dataVencimentoInicial || valorTotal <= 0) ? 0.5 : 1,
+                  transition: 'opacity 0.12s',
+                }}
+              >
+                Calcular Parcelas
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ── Grade editável ─────────────────────────────────────────────── */}
       {value.length > 0 && (

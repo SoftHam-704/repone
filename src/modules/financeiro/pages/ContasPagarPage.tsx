@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, Search, Eye, Check, Trash2, ArrowUpCircle, X, Pencil, ChevronDown, ChevronUp, FileText } from 'lucide-react'
+import { Plus, Search, Eye, Check, Trash2, ArrowUpCircle, X, Pencil, ChevronDown, ChevronUp, FileText, Layers } from 'lucide-react'
 import { api } from '@/shared/lib/api'
 import ParcelasEditor, { type ParcelaLinha } from '../components/ParcelasEditor'
+import LancamentoLoteModal from '../components/LancamentoLoteModal'
 
 const G = {
   bg:      '#E8E1D4',
@@ -772,6 +773,7 @@ export default function ContasPagarPage() {
   })
   const [search, setSearch]         = useState('')
   const [showNova, setShowNova]     = useState(false)
+  const [showLote, setShowLote]     = useState(false)
   const [editingId, setEditingId]   = useState<number | null>(null)
   const [detalhesId, setDetalhesId] = useState<number | null>(null)
   const [baixaData, setBaixaData]   = useState<{ conta: Conta; parcela: Parcela } | null>(null)
@@ -837,9 +839,14 @@ export default function ContasPagarPage() {
               <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,.5)' }}>Controle de despesas e compromissos financeiros</p>
             </div>
           </div>
-          <button onClick={() => setShowNova(true)} style={{ ...btnPrimary(G.red), display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Plus size={15} /> Nova Conta
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setShowLote(true)} style={{ ...btnPrimary(G.navy), border: `1px solid ${G.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Layers size={15} /> Lançamento em Lote
+            </button>
+            <button onClick={() => setShowNova(true)} style={{ ...btnPrimary(G.red), display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Plus size={15} /> Nova Conta
+            </button>
+          </div>
         </div>
       </div>
 
@@ -956,6 +963,10 @@ export default function ContasPagarPage() {
       {showNova && (
         <NovaContaModal onClose={() => setShowNova(false)} onSaved={() => { setShowNova(false); load() }}
           fornecedores={fornecedores} planoContas={planoContas} centrosCusto={centrosCusto} />
+      )}
+      {showLote && (
+        <LancamentoLoteModal isOpen={showLote} onClose={() => setShowLote(false)} onSaved={() => { setShowLote(false); load() }}
+          rotinaPadrao="DESPESAS" />
       )}
       {editingId !== null && (
         <NovaContaModal editingId={editingId}
