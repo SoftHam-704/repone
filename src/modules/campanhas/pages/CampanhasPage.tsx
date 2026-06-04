@@ -395,7 +395,7 @@ function CampanhasHelpModal({ onClose }: { onClose: () => void }) {
             </div>
             <div>
               <div style={{ fontWeight: 900, fontSize: 16, color: '#fff', letterSpacing: 0.3 }}>Guia de Campanhas</div>
-              <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>Como planejar, lançar e acompanhar campanhas</div>
+              <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>Conceito, tipos, base de apuração (sell-out) e acompanhamento</div>
             </div>
           </div>
           <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '6px 8px', color: '#94A3B8', display: 'flex' }}>
@@ -415,8 +415,45 @@ function CampanhasHelpModal({ onClose }: { onClose: () => void }) {
               variedade, frequência ou quantidade — em troca de verbas, premiações ou descontos especiais.
             </p>
             <p style={p}>
-              O sistema calcula o progresso <strong>automaticamente a partir dos pedidos</strong> registrados,
-              sem necessidade de lançamento manual.
+              O progresso é calculado <strong>automaticamente</strong>, sem lançamento manual — a partir do
+              <strong> sell-out</strong> (o que o lojista vendeu) ou do <strong>sell-in</strong> (o que ele comprou),
+              conforme a base que você escolher. É o que explicamos logo abaixo.
+            </p>
+          </div>
+
+          {/* A régua: sell-out × sell-in */}
+          <div style={sec}>
+            <div style={h2}><TrendingUp size={15} color="#1E293B" /> A Régua: Sell-out × Sell-in</div>
+            <p style={p}>
+              Esta é a parte mais importante. Ela responde: <strong>o que conta como "meta atingida"?</strong>
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+              <div style={{ ...tip, borderLeft: '3px solid #059669' }}>
+                <strong style={{ color: '#047857' }}>Sell-out — giro real (recomendado).</strong> Mede o que o lojista
+                <strong> VENDEU para o consumidor</strong> no período. É o objetivo verdadeiro da indústria: girar o
+                produto na ponta. Vem do que é reportado em <strong>Movimentações → Sell-Out</strong>.
+              </div>
+              <div style={{ ...tip, borderLeft: '3px solid #64748B' }}>
+                <strong style={{ color: '#475569' }}>Sell-in — compra.</strong> Mede o que o lojista <strong>COMPROU de
+                você</strong> (os pedidos). É o proxy usado quando não há sell-out reportado — marcado com o selo
+                <em> "giro não confirmado"</em>.
+              </div>
+            </div>
+            <div style={{ ...tip, background: '#FFF7ED', border: '1px solid #FED7AA', color: '#9A3412' }}>
+              <strong>Por que isso importa?</strong> Premiar só a compra incentiva o lojista a <strong>encher o
+              estoque</strong> pra bater meta — e o produto encalha. Ele pode comprar muito e vender pouco: o número
+              fica grande, mas o giro não aconteceu. Por isso a campanha mede, de preferência, o sell-out.
+            </div>
+            <p style={{ ...p, marginTop: 10 }}>No monitoramento você vê sempre os três números lado a lado:</p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <div style={{ flex: 1, ...tip, textAlign: 'center', marginBottom: 0 }}><strong style={{ color: '#475569' }}>Comprou</strong><br />sell-in</div>
+              <div style={{ flex: 1, ...tip, textAlign: 'center', marginBottom: 0 }}><strong style={{ color: '#059669' }}>Vendeu</strong><br />sell-out</div>
+              <div style={{ flex: 1, ...tip, textAlign: 'center', marginBottom: 0 }}><strong style={{ color: '#DC2626' }}>Giro</strong><br />sell-through %</div>
+            </div>
+            <p style={{ ...p, fontSize: 12, color: '#64748B' }}>
+              📌 <strong>Giro (sell-through) = Vendeu ÷ Comprou.</strong> Abaixo de ~80% indica estoque parado na loja.
+              Se a campanha é sell-out e o cliente ainda não reportou o mês, ela mostra <strong>"aguardando reporte"</strong>
+              (não é 0%). <strong>Mix</strong> é sempre por sell-in (o sell-out atual não detalha família).
             </p>
           </div>
 
@@ -461,7 +498,7 @@ function CampanhasHelpModal({ onClose }: { onClose: () => void }) {
                 <Store size={14} color="#D97706" />
                 <span style={{ ...pill('#D97706', '#FFFBEB', '#FCD34D') }}>POSITIVAÇÃO</span>
               </div>
-              <p style={p}><strong>Meta de ativação — meses com pedido.</strong> Use para transformar clientes esporádicos em compradores regulares.</p>
+              <p style={p}><strong>Meta de ativação — meses com movimento.</strong> Use para transformar clientes esporádicos em regulares. Em <strong>sell-out</strong> conta meses com <strong>venda</strong> na ponta; em sell-in, meses com pedido.</p>
               <div style={tip}>
                 <strong>Exemplo:</strong> Um lojista que compra da NTN só em 2-3 meses por ano. A campanha exige que ele compre em pelo menos 5 meses dentro de 6 — garantindo presença do produto na loja.
               </div>
@@ -493,6 +530,7 @@ function CampanhasHelpModal({ onClose }: { onClose: () => void }) {
             {[
               { cor: '#059669', titulo: 'Escolha o tipo', texto: 'Selecione o tipo que melhor representa o objetivo da campanha. Isso define como a meta será medida e acompanhada.' },
               { cor: '#2563EB', titulo: 'Defina parceiro e indústria', texto: 'Selecione o cliente (lojista) e a indústria participante. Ambos são obrigatórios — a meta e o progresso são calculados para esse par específico.' },
+              { cor: '#0EA5E9', titulo: 'Escolha a base de apuração', texto: 'Sell-out (giro real) ou sell-in (compra). O sistema já sugere sell-out quando o cliente reporta sell-out; senão, cai em sell-in com aviso. Mix é sempre sell-in.' },
               { cor: '#D97706', titulo: 'Defina o período da campanha', texto: 'Informe as datas de início e fim. Sem essas datas o monitoramento de atraso não funciona.' },
               { cor: '#7C3AED', titulo: 'Configure a meta', texto: 'Para CRESCIMENTO: use o botão "Calcular Objetivos" — escolha o período histórico de referência e o % de crescimento desejado. Para os demais tipos: informe a meta diretamente no campo correspondente.' },
               { cor: '#059669', titulo: 'Salve e ative', texto: 'Clique em "Criar Campanha". A campanha começa como SIMULAÇÃO. Quando o acordo for firmado, abra-a e mude o status para ATIVA.' },
@@ -520,7 +558,13 @@ function CampanhasHelpModal({ onClose }: { onClose: () => void }) {
                 <strong style={{ color: '#059669' }}>Barra verde</strong> — Campanha no ritmo ou adiantada. Continue assim.
               </div>
               <div style={{ ...tip, borderLeft: '3px solid #EA580C' }}>
-                <strong style={{ color: '#C2410C' }}>⚠ Alerta laranja</strong> — O progresso está abaixo de 75% do tempo decorrido. O lojista precisa acelerar as compras para atingir a meta.
+                <strong style={{ color: '#C2410C' }}>⚠ Alerta laranja</strong> — O progresso está abaixo de 75% do tempo decorrido. O lojista precisa acelerar para atingir a meta.
+              </div>
+              <div style={{ ...tip, borderLeft: '3px solid #2563EB' }}>
+                <strong style={{ color: '#1D4ED8' }}>Aguardando reporte</strong> — campanha por sell-out cujo cliente ainda não reportou a venda do mês. O realizado fica em espera (não é 0%). Cadastre em <strong>Movimentações → Sell-Out</strong>.
+              </div>
+              <div style={{ ...tip, borderLeft: '3px solid #059669' }}>
+                <strong style={{ color: '#047857' }}>Selo da base + trio</strong> — cada campanha mostra se foi medida por <strong>SELL-OUT (giro real)</strong> ou <strong>SELL-IN (giro não confirmado)</strong>, com os números <strong>Comprou · Vendeu · Giro</strong> sempre visíveis.
               </div>
             </div>
             <p style={{ ...p, fontSize: 12, color: '#64748B' }}>
@@ -543,6 +587,25 @@ function CampanhasHelpModal({ onClose }: { onClose: () => void }) {
                 <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', ...tip }}>
                   <CheckCircle2 size={13} color="#10B981" style={{ flexShrink: 0, marginTop: 2 }} />
                   <span>{t}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Glossário */}
+          <div style={sec}>
+            <div style={h2}><HelpCircle size={15} color="#1E293B" /> Glossário Rápido</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[
+                ['Sell-in', 'O que o lojista comprou de você (os pedidos). Mede o estoque que entrou na loja.'],
+                ['Sell-out', 'O que o lojista vendeu para o consumidor final. Mede o giro real na ponta.'],
+                ['Sell-through (giro)', 'Sell-out ÷ sell-in. Quanto do que ele comprou já girou. Baixo = estoque parado.'],
+                ['Positivação', 'Cliente que teve movimento no período (comprou ou vendeu, conforme a base).'],
+                ['Verba', 'O que a indústria banca na campanha (frete, brinde, desconto extra). Diferente da premiação ao cliente.'],
+                ['Base de apuração', 'O critério que mede a campanha: sell-out (giro) ou sell-in (compra). Fica gravado na própria campanha.'],
+              ].map(([t, d], i) => (
+                <div key={i} style={tip}>
+                  <strong style={{ color: '#1E293B' }}>{t}</strong> — {d}
                 </div>
               ))}
             </div>
