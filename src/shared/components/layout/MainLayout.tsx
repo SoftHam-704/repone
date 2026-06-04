@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
 import { TabHeader } from './TabHeader';
 import { useTabStore } from '@/shared/stores/useTabStore';
+import { IrisTerminal } from '@/modules/dashboard/components/IrisTerminal';
 import { IrisModal } from '@/shared/components/iris/IrisModal';
 import { useIrisModal } from '@/shared/stores/useIrisModal';
 import { findRouteByPath } from '@/shared/lib/routeConfig';
@@ -85,9 +86,11 @@ export function MainLayout() {
         </div>
       </div>
 
-      {/* IRIS Dev — modal global (Ctrl+K ou orbe do sidebar). Substitui a antiga
-          barra de rodapé. O monitor de eventos (IrisTerminal) saiu do layout por
-          ora — preservado pra futuramente alimentar o orbe (insight proativo). */}
+      {/* Monitor de eventos (IrisTerminal) — barra de rodapé estilo Delphi.
+          Futuramente esses eventos vão brotar do orbe (insight proativo). */}
+      <IrisTerminal />
+
+      {/* IRIS Dev — modal global (Ctrl+K ou orbe do sidebar), independente da barra. */}
       <IrisModal />
     </div>
   );
