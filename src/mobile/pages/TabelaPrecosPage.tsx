@@ -25,14 +25,18 @@ interface ProdRow {
 const fmtBRL = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-/* bruto × descontos cascata × (1 + IPI) × (1 + ST) */
-function calcLiquido(bruto: number, discounts: string[], ipi: number, st: number): number {
+/* líquido = bruto × descontos em cascata (SEM impostos) */
+function calcLiquido(bruto: number, discounts: string[]): number {
   let p = bruto;
   for (const d of discounts) {
     const pct = parseFloat(d.replace(',', '.'));
     if (pct > 0 && pct < 100) p *= (1 - pct / 100);
   }
-  return p * (1 + ipi / 100) * (1 + st / 100);
+  return p;
+}
+/* com impostos = líquido × (1 + IPI%) × (1 + ST%) */
+function comImpostos(liq: number, ipi: number, st: number): number {
+  return liq * (1 + ipi / 100) * (1 + st / 100);
 }
 
 const fmtDiscount = (v: string): string => {
@@ -78,10 +82,9 @@ function ProductRow({ row, discounts }: { row: ProdRow; discounts: string[] }) {
   const hasDiscount = discounts.some(d => parseFloat(d.replace(',', '.')) > 0);
   const hasImposto  = row.ipi > 0 || row.st > 0;
 
-  /* liquido só para itens sem promo */
-  const liquido = (!isPromo && row.preco_bruto > 0 && (hasDiscount || hasImposto))
-    ? calcLiquido(row.preco_bruto, discounts, row.ipi, row.st)
-    : null;
+  /* líquido = bruto × descontos (sem imposto); com impostos = líquido × (1+IPI) × (1+ST) */
+  const liq    = (!isPromo && row.preco_bruto > 0) ? calcLiquido(row.preco_bruto, discounts) : null;
+  const comImp = (liq !== null && hasImposto) ? comImpostos(liq, row.ipi, row.st) : null;
 
   return (
     <div style={{
@@ -135,40 +138,40 @@ function ProductRow({ row, discounts }: { row: ProdRow; discounts: string[] }) {
               PROMO · LÍQUIDO
             </div>
           </>
+        ) : (!hasDiscount && !hasImposto) ? (
+          /* ── sem desconto e sem imposto: só o bruto ── */
+          <div style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: 14, color: '#059669' }}>
+            {row.preco_bruto > 0 ? fmtBRL(row.preco_bruto) : '—'}
+          </div>
         ) : (
-          /* ── item normal: bruto + líquido calculado ── */
+          /* ── item normal: bruto · líquido · com impostos (detalhado) ── */
           <>
-            {/* bruto — fica muted quando há líquido diferente */}
-            <div style={{
-              fontFamily: 'monospace', fontWeight: liquido ? 600 : 900,
-              fontSize: liquido ? 11 : 14,
-              color: liquido ? 'var(--navy-muted)' : 'var(--navy)',
-              textDecoration: (liquido && hasDiscount) ? 'line-through' : 'none',
-            }}>
-              {row.preco_bruto > 0 ? fmtBRL(row.preco_bruto) : '—'}
+            {/* Bruto (tabela) */}
+            <div style={{ fontFamily: 'monospace', fontSize: 10, color: 'var(--navy-muted)',
+              textDecoration: hasDiscount ? 'line-through' : 'none' }}>
+              <span style={{ fontWeight: 500 }}>Bruto </span>{row.preco_bruto > 0 ? fmtBRL(row.preco_bruto) : '—'}
             </div>
 
-            {/* líquido */}
-            {liquido !== null && (
-              <div style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: 14, color: '#059669' }}>
-                {fmtBRL(liquido)}
+            {/* Líquido (após desconto, SEM imposto) */}
+            {hasDiscount && liq !== null && (
+              <div style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 800,
+                color: hasImposto ? 'var(--navy)' : '#059669' }}>
+                <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--navy-muted)' }}>Líq. </span>{fmtBRL(liq)}
               </div>
             )}
 
-            {/* label LÍQUIDO quando há imposto mas sem desconto */}
-            {liquido !== null && !hasDiscount && (
-              <div style={{ fontSize: 9, color: '#059669', fontWeight: 900, letterSpacing: 0.3 }}>
-                C/ IMPOSTOS
-              </div>
-            )}
-
-            {/* impostos */}
-            {hasImposto && (
-              <div style={{ fontSize: 9, color: '#D97706', fontWeight: 700 }}>
-                {row.ipi > 0 ? `IPI ${row.ipi}%` : ''}
-                {row.ipi > 0 && row.st > 0 ? ' · ' : ''}
-                {row.st > 0 ? `ST ${row.st}%` : ''}
-              </div>
+            {/* Com impostos (valor final) */}
+            {hasImposto && comImp !== null && (
+              <>
+                <div style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 900, color: '#059669' }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: '#D97706' }}>c/ imp. </span>{fmtBRL(comImp)}
+                </div>
+                <div style={{ fontSize: 9, color: '#D97706', fontWeight: 700 }}>
+                  {row.ipi > 0 ? `IPI ${row.ipi}%` : ''}
+                  {row.ipi > 0 && row.st > 0 ? ' · ' : ''}
+                  {row.st > 0 ? `ST ${row.st}%` : ''}
+                </div>
+              </>
             )}
           </>
         )}
