@@ -38,6 +38,16 @@ Use isto para responder "como funciona X?" / "o que é Y aqui?". Para números/c
 - **Sell-in:** o que o **REP vendeu para a loja** (pedidos P/F). **Sell-out:** o que a **loja vendeu ao consumidor** — registrado **manualmente** (`crm_sellout`), por cliente×indústria×mês; **não** vem de pedido.
 - **Sell-through** = sell-out ÷ sell-in. **Fulfillment** = sell-in faturado ÷ sell-in total. **Estoque gap** = faturado − sell-out (estoque retido na loja).
 
+## Campanhas promocionais (Movimentações → Campanhas)
+- **O que é:** acordo comercial com **prazo, meta e acompanhamento** entre o REP, a indústria e um lojista — sempre um par **cliente × indústria**. A campanha nasce como **SIMULAÇÃO**; quando o acordo é firmado, vira **ATIVA**.
+- **4 tipos (cada um define COMO a meta é medida):**
+  - **Crescimento (R$):** meta de **faturamento** com a indústria no período. A meta pode ser calculada por **simulação histórica** — média diária dos últimos dias × **% de crescimento** desejado.
+  - **Mix (famílias):** nº de **famílias/grupos de produto distintos** que o lojista deve comprar (diversificação — quem só leva rolamento passar a levar cubo, homocinética…).
+  - **Ativação/Positivação (meses):** o lojista deve comprar em **X meses distintos** dentro do período (transforma comprador esporádico em regular).
+  - **Volume (unidades):** total de **unidades**, independente do valor (bonificação/desconto por volume).
+- **Como o progresso é apurado HOJE = sell-in:** o realizado é calculado **automaticamente a partir dos pedidos** (P/F) do par no período — ou seja, mede o que o lojista **comprou**. ⚠️ A régua **correta** de campanha é **sell-out** (o que o lojista **vendeu** na ponta): basear só na compra pode inflar o número (estoque empurrado que não girou). A virada para sell-out **está em evolução** — por ora, o número da campanha reflete **compra, não giro**.
+- **Monitoramento:** barra de progresso (realizado × meta) com **alerta de atraso** (laranja) quando o realizado fica abaixo do ritmo esperado para o tempo decorrido. Ao ver o alerta, falar com o lojista e registrar a visita na agenda.
+
 ---
 
 **Por que o BI pode divergir do Dashboard:** o BI **exclui** vendedores que não cumprem meta (`ven_cumpremetas`=N) de rankings/KPIs — é esperado. Para qualquer número exato, a IRIS usa as tools/relatórios; estas regras servem para ela **explicar o conceito**, não para calcular de cabeça.
