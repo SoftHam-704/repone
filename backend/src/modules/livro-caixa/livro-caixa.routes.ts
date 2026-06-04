@@ -10,22 +10,26 @@ import {
 } from './livro-caixa.controller';
 
 const router = Router();
-// Livro Caixa: gerência+ (igual ao Financeiro). Master vê tudo.
+// Base: gerência+ (operador não acessa). A baixa de CP/CR — nível gerência — precisa LISTAR
+// caixas e ler o teto, então esses dois GETs ficam em gerência.
 router.use(authMiddleware, tenantMiddleware, requireLevel(LEVEL.GERENCIA));
+// O Livro Caixa em si (dashboard, lançamentos, transferências, gestão de contas) é do MASTER —
+// faz parte do Dashboard Hub.
+const MASTER = requireLevel(LEVEL.MASTER);
 
-router.get   ('/contas',         listContasCaixaHandler);
-router.post  ('/contas',         createContaCaixaHandler);
-router.put   ('/contas/:id',     updateContaCaixaHandler);
-router.delete('/contas/:id',     deleteContaCaixaHandler);
+router.get   ('/contas',             listContasCaixaHandler);   // gerência — baixa CP/CR escolhe o caixa
+router.post  ('/contas',     MASTER, createContaCaixaHandler);
+router.put   ('/contas/:id', MASTER, updateContaCaixaHandler);
+router.delete('/contas/:id', MASTER, deleteContaCaixaHandler);
 
-router.get   ('/resumo',         resumoCaixaHandler);
-router.get   ('/config',         configCaixaHandler);
+router.get   ('/resumo',     MASTER, resumoCaixaHandler);
+router.get   ('/config',             configCaixaHandler);       // gerência — baixa lê o teto de imposto
 
-router.get   ('/lancamentos',     listLancamentosHandler);
-router.post  ('/lancamentos',     createLancamentoHandler);
-router.put   ('/lancamentos/:id', updateLancamentoHandler);
-router.delete('/lancamentos/:id', deleteLancamentoHandler);
+router.get   ('/lancamentos',     MASTER, listLancamentosHandler);
+router.post  ('/lancamentos',     MASTER, createLancamentoHandler);
+router.put   ('/lancamentos/:id', MASTER, updateLancamentoHandler);
+router.delete('/lancamentos/:id', MASTER, deleteLancamentoHandler);
 
-router.post  ('/transferencia',   transferenciaHandler);
+router.post  ('/transferencia',   MASTER, transferenciaHandler);
 
 export default router;

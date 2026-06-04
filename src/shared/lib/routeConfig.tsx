@@ -1,4 +1,4 @@
-import { lazy } from 'react';
+import { lazy, type ReactNode } from 'react';
 import {
   LayoutDashboard, BarChart2, CalendarDays, Target,
   Building2, Users, Briefcase, Package, Tags, DollarSign,
@@ -9,6 +9,19 @@ import {
   BookOpen, Gamepad2, LogOut, ChevronRight, MessageSquare, Sparkles, Mail,
   Radar, Users2,
 } from 'lucide-react';
+import { Navigate } from 'react-router-dom';
+import { useAuthStore } from '@/shared/stores/useAuthStore';
+
+// ─── Guarda de nível: MASTER ────────────────────────────────────────────────
+// Espelha o backend (requireLevel(LEVEL.MASTER)). Não-master que tentar a URL é
+// devolvido ao Dashboard, em vez de carregar a casca e tomar 403 da API.
+const ROLE_LEVEL: Record<string, number> = { user: 1, manager: 2, admin: 3, superadmin: 4 };
+function RequireMaster({ children }: { children: ReactNode }) {
+  const role = useAuthStore(s => s.user?.role);
+  const level = ROLE_LEVEL[role || 'user'] ?? 1;
+  if (level < 3) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
 
 const CentralEstatisticosPage = lazy(() => import('@/modules/estatisticas/pages/CentralEstatisticosPage'))
 const DashboardHome      = lazy(() => import('@/modules/dashboard/pages/HomeRouter'))
@@ -109,12 +122,12 @@ export const ROUTE_CONFIG: Record<string, RouteItem> = {
   '/agenda': { id: 'agenda', label: 'Minha Agenda', path: '/agenda', icon: CalendarDays, element: <MinhaAgendaPage /> },
   '/utilitarios/envio-emails':   { id: 'envio-emails',    label: 'Envio de Emails',    path: '/utilitarios/envio-emails',   icon: MessageSquare, element: <EnvioEmailsPage /> },
   '/utilitarios/email-central': { id: 'email-central',   label: 'Central de Emails',  path: '/utilitarios/email-central',  icon: Mail,          element: <EmailCentralPage /> },
-  '/financeiro/dashboard':              { id: 'fin-dashboard', label: 'Dashboard Financeiro',  path: '/financeiro/dashboard',              icon: Wallet,       element: <FinanceiroDashboardPage /> },
+  '/financeiro/dashboard':              { id: 'fin-dashboard', label: 'Dashboard Financeiro',  path: '/financeiro/dashboard',              icon: Wallet,       element: <RequireMaster><FinanceiroDashboardPage /></RequireMaster> },
   '/financeiro/receber':               { id: 'fin-receber',   label: 'Contas a Receber',       path: '/financeiro/receber',                icon: DollarSign,   element: <ContasReceberPage /> },
   '/financeiro/pagar':                 { id: 'fin-pagar',     label: 'Contas a Pagar',         path: '/financeiro/pagar',                  icon: DollarSign,   element: <ContasPagarPage /> },
-  '/financeiro/livro-caixa':           { id: 'fin-livro-caixa', label: 'Livro Caixa', path: '/financeiro/livro-caixa', icon: BookOpen, element: <LivroCaixaPage /> },
-  '/financeiro/relatorios/fluxo-caixa':{ id: 'fin-fluxo',     label: 'Fluxo de Caixa',         path: '/financeiro/relatorios/fluxo-caixa', icon: TrendingUp,   element: <FluxoCaixaPage /> },
-  '/financeiro/relatorios/dre':        { id: 'fin-dre',       label: 'DRE Gerencial',           path: '/financeiro/relatorios/dre',         icon: PieChart,     element: <DREPage /> },
+  '/financeiro/livro-caixa':           { id: 'fin-livro-caixa', label: 'Livro Caixa', path: '/financeiro/livro-caixa', icon: BookOpen, element: <RequireMaster><LivroCaixaPage /></RequireMaster> },
+  '/financeiro/relatorios/fluxo-caixa':{ id: 'fin-fluxo',     label: 'Fluxo de Caixa',         path: '/financeiro/relatorios/fluxo-caixa', icon: TrendingUp,   element: <RequireMaster><FluxoCaixaPage /></RequireMaster> },
+  '/financeiro/relatorios/dre':        { id: 'fin-dre',       label: 'DRE Gerencial',           path: '/financeiro/relatorios/dre',         icon: PieChart,     element: <RequireMaster><DREPage /></RequireMaster> },
   '/financeiro/plano-contas':          { id: 'fin-plano',     label: 'Plano de Contas',         path: '/financeiro/plano-contas',           icon: Settings,     element: <PlanoContasPage /> },
   '/financeiro/centro-custo':          { id: 'fin-centro',    label: 'Centro de Custo',          path: '/financeiro/centro-custo',           icon: Building2,    element: <CentroCustoPage /> },
   '/financeiro/fin-clientes':          { id: 'fin-clientes',  label: 'Clientes Financeiros',     path: '/financeiro/fin-clientes',           icon: Users,        element: <FinClientesPage /> },

@@ -24,15 +24,17 @@ import {
 } from './financeiro.controller';
 
 const router = Router();
-// Financeiro inteiro: gerência+ (operador não acessa). Master vê tudo.
+// Financeiro inteiro: gerência+ (operador não acessa).
 router.use(authMiddleware, tenantMiddleware, requireLevel(LEVEL.GERENCIA));
+// Dashboard Hub e seus relatórios (Fluxo de Caixa, DRE) são do MASTER — painel adm do financeiro.
+const MASTER = requireLevel(LEVEL.MASTER);
 
-// Dashboard
-router.get('/dashboard/summary', financeiroDashboardHandler);
+// Dashboard Hub (Master)
+router.get('/dashboard/summary', MASTER, financeiroDashboardHandler);
 
-// Relatórios
-router.get('/relatorios/fluxo-caixa', fluxoCaixaHandler);
-router.get('/relatorios/dre',          dreHandler);
+// Relatórios do Hub (Master)
+router.get('/relatorios/fluxo-caixa', MASTER, fluxoCaixaHandler);
+router.get('/relatorios/dre',         MASTER, dreHandler);
 
 // Plano de Contas
 router.get   ('/plano-contas',     listPlanoContasHandler);
