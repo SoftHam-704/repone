@@ -10,12 +10,14 @@ import {
   addTrackingHandler,
   deleteTrackingHandler,
   autoProgressHandler,
+  selloutCoverageHandler,
 } from './campaigns.controller';
 
 const router = Router();
 router.use(authMiddleware, tenantMiddleware);
 
 router.get('/',                        listCampaignsHandler);
+router.get('/sellout-coverage',        selloutCoverageHandler);
 router.post('/simulate',               simulateCampaignHandler);
 router.post('/',                       createCampaignHandler);
 router.put('/:id',                     updateCampaignHandler);

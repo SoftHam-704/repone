@@ -109,6 +109,46 @@ export async function simulateCampaignHandler(req: Request, res: Response): Prom
   }
 }
 
+// ─── GET /api/campaigns/sellout-coverage?cliente=&industria= ─────────────────
+// Cobertura de sell-out do par (cliente×indústria) p/ a tela decidir a base de
+// apuração padrão (D5) e avisar quando não há reporte (D6).
+export async function selloutCoverageHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { cliente, industria } = req.query as any;
+    const cli = parseInt(String(cliente));
+    const ind = parseInt(String(industria));
+    if (isNaN(cli) || isNaN(ind)) {
+      res.status(400).json({ success: false, message: 'cliente e industria são obrigatórios.' });
+      return;
+    }
+
+    const r = await db.query(`
+      SELECT
+        COUNT(*)                                                                          AS total,
+        COUNT(*) FILTER (
+          WHERE periodo >= (DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '6 months')
+        )                                                                                  AS recentes,
+        MAX(periodo)                                                                       AS ultimo_periodo
+      FROM crm_sellout
+      WHERE cli_codigo = $1 AND for_codigo = $2
+    `, [cli, ind]);
+
+    const row      = r.rows[0] || {};
+    const recentes = parseInt(row.recentes) || 0;
+    res.json({ success: true, data: {
+      total:          parseInt(row.total) || 0,
+      recentes,
+      ultimo_periodo: row.ultimo_periodo || null,
+      tem_cobertura:  recentes > 0,
+      sugestao_base:  recentes > 0 ? 'SELL_OUT' : 'SELL_IN',
+    }});
+  } catch (error: any) {
+    console.error('❌ [CAMPAIGNS] sellout-coverage:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
 // ─── POST /api/campaigns ──────────────────────────────────────────────────────
 export async function createCampaignHandler(req: Request, res: Response): Promise<void> {
   try {
@@ -118,12 +158,17 @@ export async function createCampaignHandler(req: Request, res: Response): Promis
       cmp_periodo_base_ini, cmp_periodo_base_fim, cmp_campanha_ini, cmp_campanha_fim,
       cmp_perc_crescimento, simulation_data, cmp_observacao,
       cmp_setor, cmp_regiao, cmp_equipe_vendas, cmp_verba_solicitada,
-      cmp_tema, cmp_tipo_periodo, cmp_tipo,
+      cmp_tema, cmp_tipo_periodo, cmp_tipo, cmp_base_apuracao,
       cmp_meta_qtd_total: cmp_meta_qtd_direct,
     } = req.body;
 
     const base       = simulation_data?.base       || {};
     const projection = simulation_data?.projection || {};
+    // Critério de apuração gravado NA campanha (D4). MIX só existe em sell-in (D3).
+    const baseApuracao =
+      cmp_tipo === 'MIX'             ? 'SELL_IN'
+      : cmp_base_apuracao === 'SELL_OUT' ? 'SELL_OUT'
+      : 'SELL_IN';
 
     const result = await db.query(`
       INSERT INTO campanhas_promocionais (
@@ -134,9 +179,9 @@ export async function createCampaignHandler(req: Request, res: Response): Promis
         cmp_perc_crescimento,
         cmp_meta_valor_total, cmp_meta_qtd_total, cmp_meta_diaria_val, cmp_meta_diaria_qtd,
         cmp_observacao, cmp_setor, cmp_regiao, cmp_equipe_vendas,
-        cmp_verba_solicitada, cmp_tema, cmp_tipo_periodo, cmp_tipo
+        cmp_verba_solicitada, cmp_tema, cmp_tipo_periodo, cmp_tipo, cmp_base_apuracao
       ) VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
       ) RETURNING cmp_codigo
     `, [
       cmp_descricao, cmp_cliente_id, cmp_industria_id, cmp_promotor_id || null,
@@ -150,7 +195,7 @@ export async function createCampaignHandler(req: Request, res: Response): Promis
       projection.target_daily_value || 0, projection.target_daily_qty || 0,
       cmp_observacao || '', cmp_setor || '', cmp_regiao || '', cmp_equipe_vendas || 0,
       cmp_verba_solicitada || 0, cmp_tema || '', cmp_tipo_periodo || 'TRIMESTRAL',
-      cmp_tipo || 'CRESCIMENTO',
+      cmp_tipo || 'CRESCIMENTO', baseApuracao,
     ]);
 
     res.json({ success: true, message: 'Campanha criada com sucesso!', id: result.rows[0].cmp_codigo });
@@ -172,8 +217,11 @@ export async function updateCampaignHandler(req: Request, res: Response): Promis
       cmp_setor, cmp_regiao, cmp_equipe_vendas, cmp_verba_solicitada,
       cmp_tema, cmp_tipo_periodo, cmp_justificativa, cmp_premiacoes,
       cmp_real_valor_total, cmp_real_qtd_total, cmp_tipo,
-      cmp_meta_qtd_total,
+      cmp_meta_qtd_total, cmp_base_apuracao,
     } = req.body;
+
+    const baseApuracaoIn =
+      cmp_base_apuracao === 'SELL_OUT' || cmp_base_apuracao === 'SELL_IN' ? cmp_base_apuracao : null;
 
     await db.query(`
       UPDATE campanhas_promocionais SET
@@ -200,8 +248,14 @@ export async function updateCampaignHandler(req: Request, res: Response): Promis
         cmp_real_qtd_total     = COALESCE($21, cmp_real_qtd_total),
         cmp_tipo               = COALESCE($22, cmp_tipo),
         cmp_meta_qtd_total     = COALESCE($23, cmp_meta_qtd_total),
+        -- só pode mudar o critério enquanto SIMULACAO e nunca em MIX (D3/D7)
+        cmp_base_apuracao      = CASE
+                                   WHEN cmp_status = 'SIMULACAO' AND COALESCE($22, cmp_tipo) <> 'MIX'
+                                     THEN COALESCE($24, cmp_base_apuracao)
+                                   ELSE cmp_base_apuracao
+                                 END,
         cmp_data_atualizacao   = NOW()
-      WHERE cmp_codigo = $24
+      WHERE cmp_codigo = $25
     `, [
       cmp_descricao, cmp_cliente_id, cmp_industria_id, cmp_promotor_id || null,
       cmp_periodo_base_ini, cmp_periodo_base_fim, cmp_campanha_ini, cmp_campanha_fim,
@@ -209,7 +263,7 @@ export async function updateCampaignHandler(req: Request, res: Response): Promis
       cmp_setor, cmp_regiao, cmp_equipe_vendas, cmp_verba_solicitada,
       cmp_tema, cmp_tipo_periodo, cmp_justificativa, cmp_premiacoes,
       cmp_real_valor_total, cmp_real_qtd_total,
-      cmp_tipo || null, cmp_meta_qtd_total || null,
+      cmp_tipo || null, cmp_meta_qtd_total || null, baseApuracaoIn,
       id,
     ]);
 
@@ -227,7 +281,7 @@ export async function autoProgressHandler(req: Request, res: Response): Promise<
     const { id } = req.params;
 
     const campRes = await db.query(`
-      SELECT cmp_tipo, cmp_cliente_id, cmp_industria_id,
+      SELECT cmp_tipo, cmp_base_apuracao, cmp_cliente_id, cmp_industria_id,
              cmp_campanha_ini, cmp_campanha_fim,
              cmp_meta_valor_total, cmp_meta_qtd_total
       FROM campanhas_promocionais WHERE cmp_codigo = $1
@@ -240,71 +294,121 @@ export async function autoProgressHandler(req: Request, res: Response): Promise<
 
     const camp = campRes.rows[0];
     const tipo: string = camp.cmp_tipo || 'CRESCIMENTO';
+    // MIX sempre cai em sell-in: o sell-out atual é agregado, não tem família (decisão D3).
+    const base: 'SELL_OUT' | 'SELL_IN' =
+      tipo === 'MIX' ? 'SELL_IN' : (camp.cmp_base_apuracao === 'SELL_OUT' ? 'SELL_OUT' : 'SELL_IN');
+    const useSellOut = base === 'SELL_OUT';
 
     if (!camp.cmp_campanha_ini || !camp.cmp_campanha_fim) {
-      res.json({ success: true, data: { realizado: 0, meta: 0, progress_pct: 0, elapsed_pct: 0, behind: false, tipo, label: '' } });
+      res.json({ success: true, data: {
+        realizado: 0, meta: 0, progress_pct: 0, elapsed_pct: 0, behind: false,
+        tipo, base_apuracao: base, label: '',
+        sell_in: 0, sell_out: 0, sell_through: null, sem_reporte: false,
+      } });
       return;
     }
+
+    const cli = camp.cmp_cliente_id;
+    const ind = camp.cmp_industria_id;
+    const ini = camp.cmp_campanha_ini;
+    const fim = camp.cmp_campanha_fim;
+
+    // ── Dual-view (sempre): comprou (sell-in R$) · vendeu (sell-out R$) · giro ──
+    const sellInValRes = await db.query(`
+      SELECT COALESCE(ROUND(SUM(i.ite_totliquido::NUMERIC), 2), 0) AS v
+      FROM itens_ped i
+      JOIN pedidos p ON i.ite_pedido = p.ped_pedido
+      WHERE p.ped_cliente = $1 AND i.ite_industria = $2
+        AND p.ped_data BETWEEN $3::DATE AND $4::DATE
+        AND p.ped_situacao IN ('P', 'F')
+    `, [cli, ind, ini, fim]);
+    const sellOutValRes = await db.query(`
+      SELECT COALESCE(ROUND(SUM(s.valor)::NUMERIC, 2), 0) AS v, COUNT(*) AS meses
+      FROM crm_sellout s
+      WHERE s.cli_codigo = $1 AND s.for_codigo = $2
+        AND s.periodo >= DATE_TRUNC('month', $3::DATE)
+        AND s.periodo <= DATE_TRUNC('month', $4::DATE)
+    `, [cli, ind, ini, fim]);
+
+    const sell_in       = parseFloat(sellInValRes.rows[0].v) || 0;
+    const sell_out      = parseFloat(sellOutValRes.rows[0].v) || 0;
+    const selloutMeses  = parseInt(sellOutValRes.rows[0].meses) || 0;
+    const sell_through  = sell_in > 0 ? Math.round((sell_out / sell_in) * 1000) / 10 : null;
 
     let realizado = 0;
     let meta = 0;
     let label = '';
 
     if (tipo === 'CRESCIMENTO') {
-      const r = await db.query(`
-        SELECT COALESCE(ROUND(SUM(i.ite_totliquido::NUMERIC), 2), 0) AS realizado
-        FROM itens_ped i
-        JOIN pedidos p ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_cliente   = $1
-          AND i.ite_industria = $2
-          AND p.ped_data BETWEEN $3::DATE AND $4::DATE
-          AND p.ped_situacao IN ('P', 'F')
-      `, [camp.cmp_cliente_id, camp.cmp_industria_id, camp.cmp_campanha_ini, camp.cmp_campanha_fim]);
-      realizado = parseFloat(r.rows[0].realizado) || 0;
+      realizado = useSellOut ? sell_out : sell_in;
       meta = parseFloat(String(camp.cmp_meta_valor_total)) || 0;
-      label = 'R$ vendido';
+      label = useSellOut ? 'R$ vendido na ponta (sell-out)' : 'R$ comprado (sell-in)';
+    } else if (tipo === 'VOLUME') {
+      if (useSellOut) {
+        const r = await db.query(`
+          SELECT COALESCE(SUM(s.quantidade), 0) AS realizado
+          FROM crm_sellout s
+          WHERE s.cli_codigo = $1 AND s.for_codigo = $2
+            AND s.periodo >= DATE_TRUNC('month', $3::DATE)
+            AND s.periodo <= DATE_TRUNC('month', $4::DATE)
+        `, [cli, ind, ini, fim]);
+        realizado = parseFloat(r.rows[0].realizado) || 0;
+      } else {
+        const r = await db.query(`
+          SELECT COALESCE(SUM(i.ite_quant), 0) AS realizado
+          FROM itens_ped i
+          JOIN pedidos p ON i.ite_pedido = p.ped_pedido
+          WHERE p.ped_cliente = $1 AND i.ite_industria = $2
+            AND p.ped_data BETWEEN $3::DATE AND $4::DATE
+            AND p.ped_situacao IN ('P', 'F')
+        `, [cli, ind, ini, fim]);
+        realizado = parseFloat(r.rows[0].realizado) || 0;
+      }
+      meta = parseFloat(String(camp.cmp_meta_qtd_total)) || 0;
+      label = useSellOut ? 'unidades vendidas (sell-out)' : 'unidades compradas (sell-in)';
+    } else if (tipo === 'POSITIVACAO') {
+      if (useSellOut) {
+        const r = await db.query(`
+          SELECT COUNT(*) AS realizado
+          FROM crm_sellout s
+          WHERE s.cli_codigo = $1 AND s.for_codigo = $2
+            AND s.periodo >= DATE_TRUNC('month', $3::DATE)
+            AND s.periodo <= DATE_TRUNC('month', $4::DATE)
+            AND s.valor > 0
+        `, [cli, ind, ini, fim]);
+        realizado = parseFloat(r.rows[0].realizado) || 0;
+      } else {
+        const r = await db.query(`
+          SELECT COUNT(DISTINCT DATE_TRUNC('month', p.ped_data)) AS realizado
+          FROM pedidos p
+          JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+          WHERE p.ped_cliente = $1 AND i.ite_industria = $2
+            AND p.ped_data BETWEEN $3::DATE AND $4::DATE
+            AND p.ped_situacao IN ('P', 'F')
+        `, [cli, ind, ini, fim]);
+        realizado = parseFloat(r.rows[0].realizado) || 0;
+      }
+      meta = parseFloat(String(camp.cmp_meta_qtd_total)) || 0;
+      label = useSellOut ? 'meses com venda (sell-out)' : 'meses com pedido (sell-in)';
     } else if (tipo === 'MIX') {
       const r = await db.query(`
         SELECT COUNT(DISTINCT pr.pro_grupo) AS realizado
         FROM itens_ped i
         JOIN pedidos p  ON i.ite_pedido  = p.ped_pedido
         JOIN produtos pr ON pr.pro_codigo = i.ite_produto
-        WHERE p.ped_cliente   = $1
-          AND i.ite_industria = $2
+        WHERE p.ped_cliente = $1 AND i.ite_industria = $2
           AND p.ped_data BETWEEN $3::DATE AND $4::DATE
           AND p.ped_situacao IN ('P', 'F')
           AND pr.pro_grupo IS NOT NULL AND pr.pro_grupo <> ''
-      `, [camp.cmp_cliente_id, camp.cmp_industria_id, camp.cmp_campanha_ini, camp.cmp_campanha_fim]);
+      `, [cli, ind, ini, fim]);
       realizado = parseFloat(r.rows[0].realizado) || 0;
       meta = parseFloat(String(camp.cmp_meta_qtd_total)) || 0;
-      label = 'famílias vendidas';
-    } else if (tipo === 'POSITIVACAO') {
-      const r = await db.query(`
-        SELECT COUNT(DISTINCT DATE_TRUNC('month', p.ped_data)) AS realizado
-        FROM pedidos p
-        JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_cliente   = $1
-          AND i.ite_industria = $2
-          AND p.ped_data BETWEEN $3::DATE AND $4::DATE
-          AND p.ped_situacao IN ('P', 'F')
-      `, [camp.cmp_cliente_id, camp.cmp_industria_id, camp.cmp_campanha_ini, camp.cmp_campanha_fim]);
-      realizado = parseFloat(r.rows[0].realizado) || 0;
-      meta = parseFloat(String(camp.cmp_meta_qtd_total)) || 0;
-      label = 'meses com pedido';
-    } else if (tipo === 'VOLUME') {
-      const r = await db.query(`
-        SELECT COALESCE(SUM(i.ite_quant), 0) AS realizado
-        FROM itens_ped i
-        JOIN pedidos p ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_cliente   = $1
-          AND i.ite_industria = $2
-          AND p.ped_data BETWEEN $3::DATE AND $4::DATE
-          AND p.ped_situacao IN ('P', 'F')
-      `, [camp.cmp_cliente_id, camp.cmp_industria_id, camp.cmp_campanha_ini, camp.cmp_campanha_fim]);
-      realizado = parseFloat(r.rows[0].realizado) || 0;
-      meta = parseFloat(String(camp.cmp_meta_qtd_total)) || 0;
-      label = 'unidades vendidas';
+      label = 'famílias compradas (sell-in)';
     }
+
+    // Campanha por sell-out, mas o par não reportou nada na janela → aguardando reporte
+    // (não é "0%" — é falta de dado; ver decisão D6 / cobertura).
+    const sem_reporte = useSellOut && selloutMeses === 0;
 
     const progress_pct = meta > 0 ? Math.min(100, (realizado / meta) * 100) : 0;
 
@@ -315,9 +419,14 @@ export async function autoProgressHandler(req: Request, res: Response): Promise<
     const elapsedMs = Math.max(0, now.getTime() - startDt.getTime());
     const elapsed_pct = totalMs > 0 ? Math.min(100, (elapsedMs / totalMs) * 100) : 0;
 
-    const behind = elapsed_pct > 15 && progress_pct < elapsed_pct * 0.75;
+    // Sem reporte não dispara alerta de atraso — não dá pra julgar ritmo sem dado.
+    const behind = !sem_reporte && elapsed_pct > 15 && progress_pct < elapsed_pct * 0.75;
 
-    res.json({ success: true, data: { realizado, meta, progress_pct, elapsed_pct, behind, tipo, label } });
+    res.json({ success: true, data: {
+      realizado, meta, progress_pct, elapsed_pct, behind, tipo,
+      base_apuracao: base, label,
+      sell_in, sell_out, sell_through, sem_reporte,
+    } });
   } catch (error: any) {
     console.error('❌ [CAMPAIGNS] auto-progress:', error.message);
     res.status(500).json({ success: false, message: error.message });
