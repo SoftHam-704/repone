@@ -9,7 +9,6 @@ import { Link } from 'react-router-dom';
 import { NoticiasBanner } from '../components/NoticiasBanner';
 import { api } from '@/shared/lib/api';
 import { useAuthStore } from '@/shared/stores/useAuthStore';
-import { useIrisModal } from '@/shared/stores/useIrisModal';
 
 /**
  * RepHome — Home do usuário NÃO master (rep).
@@ -313,33 +312,8 @@ export default function RepHome() {
                 : null}
             />
 
-            <CommandCard
-              icon={<Send size={14} style={{ color: G.warning }} />}
-              title="IRIS Campanhas"
-              badge="EM BREVE"
-              line1="Disparo inteligente via WhatsApp + E-mail"
-            />
-
-            {(['admin', 'superadmin'].includes(user?.role || '') && (user?.iaPlanLevel || 'INATIVA') !== 'INATIVA') ? (
-              <CommandCard
-                onClick={() => useIrisModal.getState().open()}
-                icon={<Sparkles size={14} style={{ color: G.mustard }} />}
-                title="IRIS Dev"
-                badge="BETA · ATIVA"
-                line1="Seu desenvolvedor pessoal — peça e ela monta"
-                line2="Relatório, gráfico, mapa · na hora"
-              />
-            ) : (
-              <CommandCard
-                icon={<Sparkles size={14} style={{ color: G.mustard }} />}
-                title="IRIS Dev"
-                badge="EM BREVE"
-                line1="Seu desenvolvedor pessoal — peça e ela monta"
-                line2="Relatório, gráfico, mapa · na hora"
-                helpTitle="O fim do tempo perdido procurando relatório"
-                helpContent={IrisPergunteHelpContent}
-              />
-            )}
+            {/* Cards IRIS Dev / IRIS Campanhas removidos: a IRIS Dev agora é o
+                orbe do sidebar + Ctrl+K. IRIS Campanhas fica para a V2. */}
           </div>
         </div>
 

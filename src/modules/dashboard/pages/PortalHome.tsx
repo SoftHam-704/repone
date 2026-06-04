@@ -2211,34 +2211,8 @@ const PortalHome = () => {
                 </div>
               </div>
 
-              {/* ── IRIS Campanhas — teaser ── */}
-              <div className="rounded-2xl overflow-hidden"
-                style={{ background: 'linear-gradient(135deg, #1A2D42 0%, #28374A 60%, #1E3A2F 100%)', border: '1px solid rgba(255,210,0,0.18)' }}>
-                <div className="px-4 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-                      style={{ background: 'rgba(255,210,0,0.15)', border: '1px solid rgba(255,210,0,0.3)' }}>
-                      <Send size={14} style={{ color: '#FFD200' }} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-black" style={{ color: '#E8E1D4' }}>IRIS Campanhas</span>
-                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-widest"
-                          style={{ background: 'rgba(255,210,0,0.2)', color: '#FFD200' }}>Em breve</span>
-                      </div>
-                      <span className="text-[10px]" style={{ color: '#A8B8C4' }}>Disparo inteligente via WhatsApp + E-mail para clientes inativos</span>
-                    </div>
-                  </div>
-                  <Link to="/estatisticas" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-opacity hover:opacity-80 flex-shrink-0"
-                    style={{ background: '#FFD200', color: '#1A2D42' }}>
-                    <Zap size={11} />
-                    Ver clientes
-                  </Link>
-                </div>
-              </div>
-
-              {/* ── Pergunte à IRIS — teaser persuasivo (clica no "?" pra ver os benefícios) ── */}
-              <PergunteIrisTeaser />
+              {/* Cards IRIS Dev / IRIS Campanhas removidos: a IRIS Dev agora é o
+                  orbe do sidebar + Ctrl+K. IRIS Campanhas fica para a V2. */}
 
               {/* Email + WhatsApp — 2 colunas */}
               <div className="grid grid-cols-2 gap-4">
