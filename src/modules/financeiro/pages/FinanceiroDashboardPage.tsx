@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowDownCircle, ArrowUpCircle, TrendingUp, AlertTriangle,
-  Plus, BarChart2, Wallet, ChevronRight, BookOpen, PieChart
+  Plus, BarChart2, Wallet, ChevronRight, BookOpen, PieChart, FileText
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -124,7 +124,7 @@ export default function FinanceiroDashboardPage() {
               <Wallet size={22} color={G.mustard} />
               <h1 style={{ fontSize: 22, fontWeight: 700, color: '#FFFFFF', margin: 0 }}>Financeiro</h1>
             </div>
-            <p style={{ margin: 0, fontSize: 13, color: 'rgba(255,255,255,.55)' }}>Visão geral da saúde financeira da empresa</p>
+            <p style={{ margin: 0, fontSize: 13, color: 'rgba(255,255,255,.55)' }}>Painel administrativo do financeiro</p>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <Link to="/financeiro/receber" style={{
@@ -247,31 +247,44 @@ export default function FinanceiroDashboardPage() {
             <span>Ferramentas financeiras</span>
             <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: .5, color: G.navy, background: G.mustard, padding: '2px 7px', borderRadius: 5 }}>MASTER</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 14 }}>
             {[
-              { label: 'Livro Caixa',    desc: 'Conta corrente — caixa, bancos e lançamentos', to: '/financeiro/livro-caixa',            icon: BookOpen,  color: G.mustard },
-              { label: 'Fluxo de Caixa', desc: 'Entradas e saídas projetadas por período',     to: '/financeiro/relatorios/fluxo-caixa', icon: BarChart2, color: G.green },
-              { label: 'DRE Gerencial',  desc: 'Resultado — receitas, despesas e margem',       to: '/financeiro/relatorios/dre',         icon: PieChart,  color: G.navy },
-            ].map(({ label, desc, to, icon: Icon, color }) => (
-              <Link key={to} to={to} style={{
+              { label: 'Livro Caixa',     desc: 'Conta corrente — caixa, bancos e lançamentos', to: '/financeiro/livro-caixa',            icon: BookOpen,  color: G.mustard },
+              { label: 'Fluxo de Caixa',  desc: 'Entradas e saídas projetadas por período',     to: '/financeiro/relatorios/fluxo-caixa', icon: BarChart2, color: G.green },
+              { label: 'DRE Gerencial',   desc: 'Resultado — receitas, despesas e margem',       to: '/financeiro/relatorios/dre',         icon: PieChart,  color: G.navy },
+              { label: 'NFSe — Comissões', desc: 'Emitir notas de serviço e separar impostos',   to: '/financeiro/nfse',                   icon: FileText,  color: G.red, soon: true },
+            ].map(({ label, desc, to, icon: Icon, color, soon }) => {
+              const inner = (
+                <>
+                  <span style={{ width: 46, height: 46, borderRadius: 12, background: color + '1a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon size={22} color={color} />
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: G.text }}>{label}</div>
+                    <div style={{ fontSize: 12, color: G.muted }}>{desc}</div>
+                  </div>
+                  {soon
+                    ? <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: .5, color: G.muted, background: 'rgba(0,0,0,.05)', border: `1px solid ${G.border}`, padding: '2px 6px', borderRadius: 5, flexShrink: 0 }}>EM BREVE</span>
+                    : <ChevronRight size={18} color={G.muted} />}
+                </>
+              )
+              const baseStyle: React.CSSProperties = {
                 display: 'flex', alignItems: 'center', gap: 14, padding: '18px 20px',
                 background: G.card, border: `1px solid ${G.border}`, borderRadius: 12,
                 textDecoration: 'none', boxShadow: '0 2px 8px rgba(0,0,0,.05)',
-                transition: 'border-color .15s, box-shadow .15s, transform .15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = color; e.currentTarget.style.boxShadow = '0 8px 22px rgba(0,0,0,.12)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = G.border; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,.05)'; e.currentTarget.style.transform = 'none' }}
-              >
-                <span style={{ width: 46, height: 46, borderRadius: 12, background: color + '1a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Icon size={22} color={color} />
-                </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: G.text }}>{label}</div>
-                  <div style={{ fontSize: 12, color: G.muted }}>{desc}</div>
-                </div>
-                <ChevronRight size={18} color={G.muted} />
-              </Link>
-            ))}
+              }
+              if (soon) return (
+                <div key={to} title="Em desenvolvimento" style={{ ...baseStyle, opacity: .6, cursor: 'default' }}>{inner}</div>
+              )
+              return (
+                <Link key={to} to={to} style={{ ...baseStyle, transition: 'border-color .15s, box-shadow .15s, transform .15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = color; e.currentTarget.style.boxShadow = '0 8px 22px rgba(0,0,0,.12)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = G.border; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,.05)'; e.currentTarget.style.transform = 'none' }}
+                >
+                  {inner}
+                </Link>
+              )
+            })}
           </div>
         </div>
       </div>
