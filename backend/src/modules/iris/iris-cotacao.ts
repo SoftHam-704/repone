@@ -1,35 +1,51 @@
 import { pool } from '../../config/database';
+import { resolverPrecoFinal, carregarDescontosPorGrupo } from '../../shared/utils/preco-resolver';
 
 // Roda a cada 60s — detecta pedidos 'J' sem itens e monta a cotação automaticamente
 export function startIrisCotacaoCron() {
   console.log('🤖 [IRIS] Cotação cron iniciado (60s)');
-  setInterval(processarPendentes, 60_000);
+  // .catch no callback: qualquer rejeição vira log, NUNCA unhandledRejection
+  // (que pode derrubar o processo). Um timeout de conexão só pula o ciclo.
+  setInterval(() => {
+    processarPendentes().catch(e => console.error('❌ [IRIS] cron unhandled:', e?.message));
+  }, 60_000);
 }
 
 async function processarPendentes() {
-  const client = await pool.connect();
+  // 1) Lista os schemas de tenant com um client dedicado, liberado logo em seguida
+  //    (não segura conexão durante o loop). connect() DENTRO do try.
+  let schemas;
   try {
-    // Busca todos os schemas de tenant (exclui schemas do sistema)
-    const schemas = await client.query(
-      `SELECT nspname AS schema FROM pg_namespace
-       WHERE nspname NOT IN ('public','information_schema','pg_catalog','pg_toast','basesales')
-         AND nspname NOT LIKE 'pg_%'
-       ORDER BY nspname`
-    );
-
-    for (const { schema } of schemas.rows) {
-      await processarSchema(schema);
+    const client = await pool.connect();
+    try {
+      schemas = await client.query(
+        `SELECT nspname AS schema FROM pg_namespace
+         WHERE nspname NOT IN ('public','information_schema','pg_catalog','pg_toast','basesales')
+           AND nspname NOT LIKE 'pg_%'
+         ORDER BY nspname`
+      );
+    } finally {
+      client.release();
     }
   } catch (e: any) {
-    console.error('❌ [IRIS] cron error:', e.message);
-  } finally {
-    client.release();
+    console.error('❌ [IRIS] cron error (schemas):', e.message);
+    return;
+  }
+
+  // 2) Processa cada schema isolado — erro/timeout num tenant não derruba o ciclo.
+  for (const { schema } of schemas.rows) {
+    try {
+      await processarSchema(schema);
+    } catch (e: any) {
+      console.error(`❌ [IRIS][${schema}] erro:`, e.message);
+    }
   }
 }
 
 async function processarSchema(schema: string) {
-  const client = await pool.connect();
+  let client: any;
   try {
+    client = await pool.connect();
     await client.query(`SET search_path TO "${schema}", public`);
 
     // Pedidos 'J' que ainda não têm itens
@@ -54,7 +70,7 @@ async function processarSchema(schema: string) {
   } catch (e: any) {
     console.error(`❌ [IRIS][${schema}] erro:`, e.message);
   } finally {
-    client.release();
+    client?.release();
   }
 }
 
@@ -62,18 +78,23 @@ async function resolverCotacao(client: any, schema: string, ped: any) {
   const { ped_numero, ped_pedido, ped_cliente, ped_industria, ped_obs, ped_tabela } = ped;
 
   try {
-    // Busca descontos da política comercial
+    // Busca cli_ind (canal + cascata padrão Prio 3)
     const polR = await client.query(
-      `SELECT cli_desc1,cli_desc2,cli_desc3,cli_desc4,cli_desc5,cli_desc6,cli_desc7
+      `SELECT COALESCE(cli_canal,'varejo') AS cli_canal,
+              cli_desc1,cli_desc2,cli_desc3,cli_desc4,cli_desc5,cli_desc6,cli_desc7,
+              cli_desc8,cli_desc9,cli_desc10,cli_desc11
        FROM cli_ind
        WHERE cli_codigo = $1 AND cli_forcodigo = $2
        LIMIT 1`,
       [ped_cliente, ped_industria]
     );
     const pol = polR.rows[0] || {};
-    const descontos = [1,2,3,4,5,6,7]
-      .map(i => parseFloat(pol[`cli_desc${i}`] || '0'))
-      .filter(d => d > 0);
+    const cascataCliInd = [1,2,3,4,5,6,7,8,9,10,11]
+      .map(i => parseFloat(pol[`cli_desc${i}`] || '0') || 0);
+
+    // Prio 1 (cli_descpro) + Prio 2 (grupo_desc)
+    const { descontosPorGrupoCliente, descontosPorGrupoTabela } =
+      await carregarDescontosPorGrupo(client, ped_cliente, ped_industria);
 
     // Parseia os códigos colados pelo lojista (um por linha)
     // Suporta: "1905002" ou "1905002  10" (código + quantidade separados por espaço/tab)
@@ -101,7 +122,7 @@ async function resolverCotacao(client: any, schema: string, ped: any) {
 
     for (const { codigo, qty } of linhas) {
       const prodR = await client.query(
-        `SELECT pro_id, pro_codprod, pro_codigonormalizado, pro_nome, pro_embalagem, pro_conversao
+        `SELECT pro_id, pro_codprod, pro_codigonormalizado, pro_nome, pro_embalagem, pro_conversao, pro_grupo
          FROM cad_prod
          WHERE pro_industria = $1
            AND pro_status IS NOT FALSE
@@ -143,34 +164,58 @@ async function resolverCotacao(client: any, schema: string, ped: any) {
       }
 
       const precoR = await client.query(
-        `SELECT itab_precobruto, itab_precopromo, itab_ipi, itab_st
+        `SELECT itab_precobruto, itab_precopromo, itab_precoespecial, itab_grupodesconto, itab_ipi, itab_st
          FROM cad_tabelaspre
          WHERE itab_idprod = $1
            AND itab_tabela = $2
+           AND COALESCE(itab_status, true) = true
          LIMIT 1`,
         [prod.pro_id, ped_tabela || '']
       );
 
-      let puni = 0;
-      if (precoR.rows.length > 0) {
-        const pr = precoR.rows[0];
-        puni = parseFloat(pr.itab_precopromo || pr.itab_precobruto || '0');
-      }
+      const pr = precoR.rows[0] || {};
+      const precoBruto    = parseFloat(pr.itab_precobruto    || '0') || 0;
+      const precoPromo    = parseFloat(pr.itab_precopromo    || '0') || 0;
+      const precoEspecial = parseFloat(pr.itab_precoespecial || '0') || 0;
 
-      let puniliq = puni;
-      for (const d of descontos) {
-        puniliq = puniliq * (1 - d / 100);
-      }
-      puniliq = Math.round(puniliq * 10000) / 10000;
+      // Helper canônico aplica hierarquia: promo > cli_descpro > grupo_desc > cli_ind
+      const resolved = resolverPrecoFinal(
+        { precoBruto, precoPromo, precoEspecial },
+        {
+          canal: String(pol.cli_canal || 'varejo') === 'distribuidor' ? 'distribuidor' : 'varejo',
+          descontos: cascataCliInd,
+          descontosPorGrupoCliente,
+          descontosPorGrupoTabela,
+        },
+        {
+          proGrupo:          prod.pro_grupo,
+          itabGrupoDesconto: pr.itab_grupodesconto,
+        },
+      );
 
+      const puni    = resolved.precoBase;
+      const puniliq = resolved.preco;
       const totItem = Math.round(puniliq * qtyFinal * 10000) / 10000;
       totBruto += puni * qtyFinal;
       totLiq   += totItem;
 
+      // Repete a lógica do helper para descobrir QUAL cascata foi aplicada
+      // (precisa do array completo dos 7 valores pra gravar nos ite_des1..7).
+      let descontosAplicados: number[] = [];
+      if (!resolved.isPromo) {
+        const proG = prod.pro_grupo != null ? Number(prod.pro_grupo) : null;
+        const itabG = pr.itab_grupodesconto != null ? Number(pr.itab_grupodesconto) : null;
+        const c1 = proG  != null ? descontosPorGrupoCliente[proG]  : undefined;
+        const c2 = itabG != null ? descontosPorGrupoTabela[itabG] : undefined;
+        if (c1 && c1.some(d => d > 0))      descontosAplicados = c1;
+        else if (c2 && c2.some(d => d > 0)) descontosAplicados = c2;
+        else                                 descontosAplicados = cascataCliInd;
+      }
+
       itens.push({
         seq, produto: prod.pro_codprod, nome: prod.pro_nome,
         emb: prod.pro_embalagem, quant: qtyFinal, puni, puniliq,
-        totliq: totItem, descontos, obs: null,
+        totliq: totItem, descontos: descontosAplicados, obs: null,
       });
       seq++;
     }
