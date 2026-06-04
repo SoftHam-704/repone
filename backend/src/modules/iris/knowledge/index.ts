@@ -3,7 +3,7 @@ import path from 'path';
 
 // Os .md de domínio que entram no prompt da IRIS (comerciais + financeiro administrativo).
 // _tecnico/ (briefing de DBA) NUNCA entra aqui — é referência de quem constrói tools.
-const FILES = ['negocio-autopecas.md', 'glossario-kpis.md', 'modelo-comercial.md', 'mapa-modulos.md', 'mapa-navegacao.md', 'financeiro.md'];
+const FILES = ['negocio-autopecas.md', 'glossario-kpis.md', 'modelo-comercial.md', 'mapa-modulos.md', 'mapa-navegacao.md', 'financeiro.md', 'regras-negocio.md'];
 
 let cached: string | null = null;
 
