@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowDownCircle, ArrowUpCircle, TrendingUp, AlertTriangle,
-  Plus, BarChart2, Wallet, ChevronRight
+  Plus, BarChart2, Wallet, ChevronRight, BookOpen, PieChart
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -241,26 +241,38 @@ export default function FinanceiroDashboardPage() {
           </div>
         </div>
 
-        {/* Quick Links */}
-        <div style={{ display: 'flex', gap: 12 }}>
-          {[
-            { label: 'Fluxo de Caixa', to: '/financeiro/relatorios/fluxo-caixa', icon: BarChart2, color: G.mustard },
-            { label: 'DRE Gerencial',   to: '/financeiro/relatorios/dre',         icon: TrendingUp, color: G.green },
-            { label: 'Plano de Contas', to: '/financeiro/plano-contas',           icon: Wallet,     color: G.navy },
-          ].map(({ label, to, icon: Icon, color }) => (
-            <Link key={to} to={to} style={{
-              display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px',
-              background: G.card, border: `1px solid ${G.border}`, borderRadius: 8,
-              fontSize: 13, fontWeight: 500, color: G.text, textDecoration: 'none',
-              transition: 'border-color .15s, box-shadow .15s',
-              boxShadow: '0 1px 4px rgba(0,0,0,.05)',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = G.mustard; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,.1)' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = G.border;  e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,.05)' }}
-            >
-              <Icon size={16} color={color} /> {label}
-            </Link>
-          ))}
+        {/* Ferramentas do Master */}
+        <div style={{ marginTop: 4 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: G.text, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>Ferramentas financeiras</span>
+            <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: .5, color: G.navy, background: G.mustard, padding: '2px 7px', borderRadius: 5 }}>MASTER</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+            {[
+              { label: 'Livro Caixa',    desc: 'Conta corrente — caixa, bancos e lançamentos', to: '/financeiro/livro-caixa',            icon: BookOpen,  color: G.mustard },
+              { label: 'Fluxo de Caixa', desc: 'Entradas e saídas projetadas por período',     to: '/financeiro/relatorios/fluxo-caixa', icon: BarChart2, color: G.green },
+              { label: 'DRE Gerencial',  desc: 'Resultado — receitas, despesas e margem',       to: '/financeiro/relatorios/dre',         icon: PieChart,  color: G.navy },
+            ].map(({ label, desc, to, icon: Icon, color }) => (
+              <Link key={to} to={to} style={{
+                display: 'flex', alignItems: 'center', gap: 14, padding: '18px 20px',
+                background: G.card, border: `1px solid ${G.border}`, borderRadius: 12,
+                textDecoration: 'none', boxShadow: '0 2px 8px rgba(0,0,0,.05)',
+                transition: 'border-color .15s, box-shadow .15s, transform .15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = color; e.currentTarget.style.boxShadow = '0 8px 22px rgba(0,0,0,.12)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = G.border; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,.05)'; e.currentTarget.style.transform = 'none' }}
+              >
+                <span style={{ width: 46, height: 46, borderRadius: 12, background: color + '1a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon size={22} color={color} />
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: G.text }}>{label}</div>
+                  <div style={{ fontSize: 12, color: G.muted }}>{desc}</div>
+                </div>
+                <ChevronRight size={18} color={G.muted} />
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
     </div>
