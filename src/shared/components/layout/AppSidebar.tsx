@@ -14,6 +14,7 @@ import {
   Radar, Users2, CalendarCheck, Sparkles,
 } from 'lucide-react';
 import { useAuthStore } from '@/shared/stores/useAuthStore';
+import { useIrisModal } from '@/shared/stores/useIrisModal';
 import { useAlertasStore } from '@/shared/stores/useAlertasStore';
 import { api } from '@/shared/lib/api';
 
@@ -166,6 +167,7 @@ const IRIS_STYLES = `
 
 function IrisSidebarBar({ collapsed }: { collapsed: boolean }) {
   const [msgIdx, setMsgIdx] = useState(0);
+  const openIris = useIrisModal(s => s.open);
 
   useEffect(() => {
     const t = setInterval(() => setMsgIdx(i => (i + 1) % IRIS_MSGS.length), 4000);
@@ -175,7 +177,13 @@ function IrisSidebarBar({ collapsed }: { collapsed: boolean }) {
   return (
     <>
       <style>{IRIS_STYLES}</style>
-      <div style={{
+      <div
+        onClick={openIris}
+        title="Abrir a IRIS (Ctrl+K)"
+        role="button"
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,210,0,0.10)'; e.currentTarget.style.borderColor = 'rgba(255,210,0,0.35)'; }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,210,0,0.05)'; e.currentTarget.style.borderColor = 'rgba(255,210,0,0.15)'; }}
+        style={{
         position: 'relative', overflow: 'visible',
         margin: collapsed ? '4px 6px' : '4px 8px',
         borderRadius: 10,
@@ -188,7 +196,8 @@ function IrisSidebarBar({ collapsed }: { collapsed: boolean }) {
         justifyContent: 'center',
         padding: collapsed ? '6px 0' : '8px 10px',
         gap: 6,
-        transition: 'height 0.22s ease',
+        cursor: 'pointer',
+        transition: 'height 0.22s ease, background 0.15s ease, border-color 0.15s ease',
       }}>
         {/* scanning glow — clipado dentro do border-radius */}
         <div style={{ position: 'absolute', inset: 0, borderRadius: 10, overflow: 'hidden', pointerEvents: 'none' }}>
@@ -212,6 +221,13 @@ function IrisSidebarBar({ collapsed }: { collapsed: boolean }) {
                 letterSpacing: 2, textTransform: 'uppercase',
               }}>
                 IRIS · ativa
+              </span>
+              <span style={{
+                marginLeft: 'auto', fontSize: 8, fontWeight: 800,
+                color: 'rgba(232,225,212,0.5)', border: '1px solid rgba(232,225,212,0.18)',
+                borderRadius: 4, padding: '1px 5px', letterSpacing: 0.5, whiteSpace: 'nowrap',
+              }}>
+                Ctrl K
               </span>
             </div>
 

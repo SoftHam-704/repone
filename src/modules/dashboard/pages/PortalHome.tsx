@@ -10,16 +10,18 @@ import {
   Mail, MessageCircle, Inbox, Clock,
   ChevronRight, ChevronLeft, Bell, Users,
   Radar, Users2, ListChecks, Kanban, AlertTriangle,
-  Send, Zap, Bot, Phone,
+  Send, Zap, Bot, Phone, Sparkles, HelpCircle,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts';
-import { Link } from 'react-router-dom';
-import { AppSidebar } from '@/shared/components/layout/AppSidebar';
+import { Link, useNavigate } from 'react-router-dom';
+// AppSidebar é renderizado pelo MainLayout — não duplicar aqui.
+import { NoticiasBanner } from '../components/NoticiasBanner';
 import { api } from '@/shared/lib/api';
 import { useAuthStore } from '@/shared/stores/useAuthStore';
+import { useIrisModal } from '@/shared/stores/useIrisModal';
 
 // ─── TOKENS — Mustard Precision ──────────────────────────────────────────────
 const G = {
@@ -266,30 +268,32 @@ const KPI_TIPS: Record<string, string> = {
   'Ticket Médio': 'Valor médio por pedido no período (faturamento ÷ nº de pedidos).',
 };
 
+// Mini-card de KPI (grid 2×2 — compacto pra ganhar vertical em telas de notebook)
 const KpiLine = ({ label, value, mom, loading }: {
   label: string; value: string; mom?: number; loading?: boolean;
 }) => (
-  <div className="flex items-end justify-between py-3" style={{ borderBottom: `1px solid ${G.border}` }}
+  <div className="rounded-xl px-3 py-2.5" style={{ border: `1px solid ${G.border}`, background: G.card }}
     title={KPI_TIPS[label] || label}>
-    <div>
-      <p className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: G.textMuted }}>{label}</p>
-      {loading
-        ? <div className="h-7 w-24 rounded animate-pulse" style={{ background: G.cardHi }} />
-        : <p className="text-2xl font-black leading-none" style={{ color: G.text }}>{value}</p>
-      }
-    </div>
-    {mom !== undefined && !loading && (
-      <div title={`Variação comparada ao mês anterior: ${mom >= 0 ? '+' : ''}${Number(mom).toFixed(1)}%`} style={{
-        display: 'flex', alignItems: 'center', gap: 2,
-        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 8,
-        background: mom >= 0 ? '#16A34A22' : '#C0392B22',
-        color: mom >= 0 ? G.success : G.danger,
-        border: `1px solid ${mom >= 0 ? '#16A34A44' : '#C0392B44'}`,
-      }}>
-        {mom >= 0 ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
-        {Math.abs(Number(mom)).toFixed(1)}%
-      </div>
-    )}
+    <p className="text-[10px] font-bold uppercase tracking-wider mb-1 truncate" style={{ color: G.textMuted }}>{label}</p>
+    {loading
+      ? <div className="h-6 w-16 rounded animate-pulse" style={{ background: G.cardHi }} />
+      : (
+        <div className="flex items-end justify-between gap-1">
+          <p className="text-xl font-black leading-none" style={{ color: G.text }}>{value}</p>
+          {mom !== undefined && (
+            <span title={`Variação vs mês anterior: ${mom >= 0 ? '+' : ''}${Number(mom).toFixed(1)}%`} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 1,
+              fontSize: 9.5, fontWeight: 700, padding: '1px 5px', borderRadius: 6,
+              background: mom >= 0 ? '#16A34A22' : '#C0392B22',
+              color: mom >= 0 ? G.success : G.danger,
+              border: `1px solid ${mom >= 0 ? '#16A34A44' : '#C0392B44'}`,
+            }}>
+              {mom >= 0 ? <ArrowUpRight size={9} /> : <ArrowDownRight size={9} />}
+              {Math.abs(Number(mom)).toFixed(1)}%
+            </span>
+          )}
+        </div>
+      )}
   </div>
 );
 
@@ -1068,7 +1072,49 @@ const PortalHome = () => {
   const [crmDash,               setCrmDash]               = useState<any>(null);
   const [wppResumo,             setWppResumo]             = useState<any>(null);
   const [showAniversariosModal, setShowAniversariosModal] = useState(false);
+  const [showAnivPeriodoModal,  setShowAnivPeriodoModal]  = useState(false);
   const [showWppModal,          setShowWppModal]          = useState(false);
+
+  // Estado do modal de aniversariantes por período (independente do modal mensal)
+  const today = new Date();
+  const in30  = new Date(); in30.setDate(in30.getDate() + 30);
+  const toYMD = (d: Date) => d.toISOString().slice(0, 10);
+  const [anivPeriodoInicio, setAnivPeriodoInicio] = useState(toYMD(today));
+  const [anivPeriodoFim,    setAnivPeriodoFim]    = useState(toYMD(in30));
+  const [anivPeriodoData,   setAnivPeriodoData]   = useState<any[]>([]);
+  const [anivPeriodoLoading,setAnivPeriodoLoading]= useState(false);
+  const [anivPeriodoBuscou, setAnivPeriodoBuscou] = useState(false);
+
+  const buscarAnivPeriodo = useCallback(async () => {
+    if (!anivPeriodoInicio || !anivPeriodoFim) return;
+    setAnivPeriodoLoading(true);
+    try {
+      const r = await api.get('/agenda/aniversariantes-periodo', {
+        params: { data_inicial: anivPeriodoInicio, data_final: anivPeriodoFim },
+      });
+      setAnivPeriodoData(r.data?.data || []);
+      setAnivPeriodoBuscou(true);
+    } catch (e) {
+      console.error('Erro ao buscar aniversariantes por período:', e);
+      setAnivPeriodoData([]);
+    } finally {
+      setAnivPeriodoLoading(false);
+    }
+  }, [anivPeriodoInicio, anivPeriodoFim]);
+
+  const exportAnivPeriodoXlsx = () => {
+    if (!anivPeriodoData.length) return;
+    const ws = XLSX.utils.json_to_sheet(anivPeriodoData.map((a: any) => ({
+      Data:    a.data_aniv,
+      Nome:    a.con_nome,
+      Empresa: a.empresa,
+      Rede:    a.cli_redeloja || '',
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Aniversariantes');
+    const fname = `aniversariantes_${anivPeriodoInicio}_${anivPeriodoFim}.xlsx`;
+    XLSX.writeFile(wb, fname);
+  };
 
   const h        = now.getHours();
   const greeting = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
@@ -1428,6 +1474,165 @@ const PortalHome = () => {
         );
       })()}
 
+      {/* Modal Aniversariantes por Período (filtro custom) */}
+      {showAnivPeriodoModal && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)' }}
+          onClick={() => setShowAnivPeriodoModal(false)}>
+          <motion.div initial={{ opacity: 0, scale: 0.96, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{ background: G.card, border: `1px solid ${G.border}` }}
+            className="relative rounded-2xl overflow-hidden w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl"
+            onClick={e => e.stopPropagation()}>
+            {/* barra rosa no topo */}
+            <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: '#EC4899' }} />
+            {/* header */}
+            <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: `1px solid ${G.border}` }}>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#EC489915', border: '1px solid #EC489930' }}>
+                  <Cake size={16} style={{ color: '#EC4899' }} />
+                </div>
+                <div>
+                  <h2 className="text-base font-black" style={{ color: G.text }}>Aniversariantes por período</h2>
+                  <p className="text-xs" style={{ color: G.textMuted }}>
+                    {anivPeriodoBuscou
+                      ? `${anivPeriodoData.length} pessoa${anivPeriodoData.length !== 1 ? 's' : ''} no período`
+                      : 'Escolha o intervalo e clique em Buscar'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {anivPeriodoData.length > 0 && (
+                  <button onClick={exportAnivPeriodoXlsx}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                    style={{ background: '#EC489915', color: '#EC4899', border: '1px solid #EC489930' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#EC489925')}
+                    onMouseLeave={e => (e.currentTarget.style.background = '#EC489915')}>
+                    <ArrowUpRight size={12} />
+                    Exportar Excel
+                  </button>
+                )}
+                <button onClick={() => setShowAnivPeriodoModal(false)}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
+                  style={{ background: 'transparent', border: `1px solid ${G.border}`, color: G.textMuted }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(40,55,74,0.06)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* filtros */}
+            <div className="flex flex-wrap items-end gap-3 px-6 py-4" style={{ borderBottom: `1px solid ${G.border}`, background: G.bg }}>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: G.textMuted }}>De</label>
+                <input type="date" value={anivPeriodoInicio}
+                  onChange={e => setAnivPeriodoInicio(e.target.value)}
+                  className="h-9 rounded-lg px-3 text-xs font-bold outline-none"
+                  style={{ border: `1px solid ${G.border}`, background: G.card, color: G.text }} />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: G.textMuted }}>Até</label>
+                <input type="date" value={anivPeriodoFim}
+                  onChange={e => setAnivPeriodoFim(e.target.value)}
+                  className="h-9 rounded-lg px-3 text-xs font-bold outline-none"
+                  style={{ border: `1px solid ${G.border}`, background: G.card, color: G.text }} />
+              </div>
+              <button onClick={buscarAnivPeriodo}
+                disabled={anivPeriodoLoading || !anivPeriodoInicio || !anivPeriodoFim}
+                className="h-9 px-4 rounded-lg text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                style={{ background: '#EC4899', color: '#fff' }}>
+                {anivPeriodoLoading ? 'Buscando...' : 'Buscar'}
+              </button>
+              {/* atalhos rápidos */}
+              <div className="flex items-center gap-1 ml-auto">
+                {[
+                  { label: '7d',   days: 7 },
+                  { label: '30d',  days: 30 },
+                  { label: '90d',  days: 90 },
+                ].map(p => (
+                  <button key={p.label}
+                    onClick={() => {
+                      const d1 = new Date();
+                      const d2 = new Date(); d2.setDate(d2.getDate() + p.days);
+                      setAnivPeriodoInicio(toYMD(d1));
+                      setAnivPeriodoFim(toYMD(d2));
+                    }}
+                    className="text-[10px] font-bold px-2 py-1 rounded-md transition-all"
+                    style={{ background: 'transparent', color: G.textMuted, border: `1px solid ${G.border}` }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(40,55,74,0.04)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* grid */}
+            <div className="overflow-y-auto flex-1">
+              {!anivPeriodoBuscou && (
+                <div className="flex flex-col items-center justify-center py-16 gap-3">
+                  <Cake size={32} style={{ color: G.textMuted, opacity: 0.5 }} />
+                  <p className="text-xs font-bold" style={{ color: G.textMuted }}>
+                    Defina o período e clique em Buscar
+                  </p>
+                </div>
+              )}
+              {anivPeriodoBuscou && anivPeriodoData.length === 0 && !anivPeriodoLoading && (
+                <div className="flex flex-col items-center justify-center py-16 gap-3">
+                  <p className="text-xs font-bold" style={{ color: G.textMuted }}>
+                    Nenhum aniversariante encontrado no período selecionado.
+                  </p>
+                </div>
+              )}
+              {anivPeriodoData.length > 0 && (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${G.border}`, background: G.bg }}>
+                      <th className="text-left px-4 py-2.5 font-bold" style={{ color: G.textMuted, width: 70 }}>Data</th>
+                      <th className="text-left px-4 py-2.5 font-bold" style={{ color: G.textMuted }}>Nome</th>
+                      <th className="text-left px-4 py-2.5 font-bold" style={{ color: G.textMuted }}>Empresa</th>
+                      <th className="text-left px-4 py-2.5 font-bold" style={{ color: G.textMuted, width: 110 }}>Rede</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {anivPeriodoData.map((a: any, i: number) => {
+                      const todayDay = new Date().getDate();
+                      const todayMon = new Date().getMonth() + 1;
+                      const isHoje   = a.dia === todayDay && a.mes === todayMon;
+                      return (
+                        <tr key={i}
+                          style={{
+                            borderBottom: `1px solid ${G.border}`,
+                            background: isHoje ? '#EC489908' : 'transparent',
+                          }}
+                          onMouseEnter={e => (e.currentTarget.style.background = isHoje ? '#EC489912' : 'rgba(40,55,74,0.03)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = isHoje ? '#EC489908' : 'transparent')}>
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-1.5">
+                              {isHoje && <span style={{ fontSize: 13 }}>🎂</span>}
+                              <span className="font-bold" style={{ color: isHoje ? '#EC4899' : G.textSec }}>{a.data_aniv}</span>
+                              {isHoje && (
+                                <span className="text-[9px] font-black px-1 py-0.5 rounded"
+                                  style={{ background: '#EC489920', color: '#EC4899' }}>HOJE</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-2.5 font-bold" style={{ color: G.text }}>{a.con_nome}</td>
+                          <td className="px-4 py-2.5" style={{ color: G.textSec }}>{a.empresa || '—'}</td>
+                          <td className="px-4 py-2.5" style={{ color: G.textMuted }}>{a.cli_redeloja || '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+
       <main className="flex-1 overflow-y-auto scrollbar-hide">
 
         {/* ── HEADER ──────────────────────────────────────────────────────── */}
@@ -1512,6 +1717,8 @@ const PortalHome = () => {
         {/* ── CONTEÚDO ─────────────────────────────────────────────────────── */}
         <div className="px-8 pt-7 pb-24 space-y-7">
 
+          {/* Banner de notícias movido pro rodapé da coluna central (destaque que força leitura) */}
+
           {/* Banner de alerta crítico */}
           {!loadingInsights && criticalAlerts.length > 0 && (
               <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
@@ -1545,43 +1752,7 @@ const PortalHome = () => {
               </motion.div>
             )}
 
-          {/* Barra de aniversariantes */}
-          {agendaResumo?.aniversarios_mes?.length > 0 && (() => {
-            const todayDay   = new Date().getDate();
-            const todayMonth = new Date().getMonth() + 1;
-            const meses      = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-            const mesLabel   = meses[todayMonth - 1];
-            const todos      = Array.from(
-              new Map((agendaResumo.aniversarios_mes as any[]).map((a: any) =>
-                [`${a.con_nome?.trim().toUpperCase()}|${a.cli_redeloja || ''}`, a]
-              )).values()
-            );
-            const hoje = todos.filter((a: any) => a.dia === todayDay);
-            return (
-              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-                className="flex items-center gap-3 px-5 py-3 rounded-2xl"
-                style={{ background: 'rgba(236,72,153,0.06)', border: '1px solid rgba(236,72,153,0.16)' }}>
-                <Cake size={13} style={{ color: '#EC4899' }} className="flex-shrink-0" />
-                <span className="text-xs font-black uppercase tracking-widest flex-shrink-0" style={{ color: '#EC4899' }}>
-                  Aniversariantes
-                </span>
-                <div className="flex-1 text-xs font-semibold" style={{ color: G.textSec }}>
-                  {hoje.length > 0
-                    ? <>🎂 Hoje: <strong>{hoje.length <= 3
-                        ? hoje.map((a: any) => a.con_nome).join(', ')
-                        : `${hoje.length} aniversariantes`}</strong></>
-                    : <span style={{ color: G.textMuted }}>Nenhum aniversário hoje</span>
-                  }
-                </div>
-                <button
-                  onClick={() => setShowAniversariosModal(true)}
-                  className="text-xs font-bold flex-shrink-0 transition-opacity hover:opacity-70"
-                  style={{ color: '#EC4899', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                  Ver todos de {mesLabel} ({todos.length}) →
-                </button>
-              </motion.div>
-            );
-          })()}
+          {/* Aniversariantes (hoje + mês) fundidos no card de Consultas da coluna central */}
 
           {/* ── ZONA PRINCIPAL ─────────────────────────────────────────────── */}
           <div className="grid grid-cols-12 gap-6">
@@ -1797,7 +1968,7 @@ const PortalHome = () => {
 
             {/* Centro-dir: KPIs — col 3 */}
             <div className="col-span-3 flex flex-col gap-6">
-              <div className="space-y-0 pt-2">
+              <div className="grid grid-cols-2 gap-2 pt-2">
                 <KpiLine
                   label="Volume de Itens"
                   value={loadingMetrics ? '...' : fmt(parseFloat(String(metrics?.quantidade_vendida_current || 0)))}
@@ -1816,37 +1987,36 @@ const PortalHome = () => {
                   mom={metrics?.ticket_mom}
                   loading={loadingMetrics}
                 />
-                {/* Burnout indicator */}
-                {!loadingInsights && (
-                  <div className="flex items-end justify-between pt-3">
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: G.textMuted }}
-                        title="Clientes que compraram no mês passado mas ainda não compraram neste mês. Ação urgente para evitar perda.">Burnout</p>
-                      <p className="text-2xl font-black leading-none"
-                        style={{ color: (insights?.risco_inativacao?.count || 0) > 0 ? G.danger : G.success }}>
-                        {insights?.risco_inativacao?.count || 0}
-                        <span className="text-xs font-bold ml-1.5" style={{ color: G.textMuted }}>críticos</span>
-                      </p>
-                    </div>
-                    <div className="flex gap-1.5 mb-0.5">
-                      <button onClick={() => openInsightDrawer('burnout')}
-                        title="Ver lista de clientes em risco de inativação"
-                        className="flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg transition-all"
-                        style={{ color: G.danger, background: `${G.danger}12`, border: `1px solid ${G.danger}30` }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = `${G.danger}20`; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = `${G.danger}12`; }}>
-                        <Users size={11} /> Ver clientes
-                      </button>
-                      <button onClick={() => setModalData(insightHelp.burnout)}
-                        className="flex items-center justify-center w-7 h-7 rounded-lg transition-all"
-                        style={{ color: G.textMuted, border: `1px solid ${G.border}` }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = G.text; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = G.textMuted; }}>
-                        <Info size={11} />
-                      </button>
-                    </div>
+                {/* Burnout — mini-card clicável (abre a lista de clientes em risco) */}
+                {loadingInsights ? (
+                  <div className="rounded-xl px-3 py-2.5" style={{ border: `1px solid ${G.border}` }}>
+                    <div className="h-6 w-14 rounded animate-pulse" style={{ background: G.cardHi }} />
                   </div>
-                )}
+                ) : (() => {
+                  const burnout = insights?.risco_inativacao?.count || 0;
+                  const crit = burnout > 0;
+                  return (
+                    <button onClick={() => openInsightDrawer('burnout')}
+                      title="Clientes que compraram no mês passado mas ainda não compraram neste mês. Clique para ver a lista."
+                      className="rounded-xl px-3 py-2.5 text-left transition-all"
+                      style={{ border: `1px solid ${crit ? G.danger + '40' : G.border}`, background: crit ? `${G.danger}0C` : G.card }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = crit ? `${G.danger}18` : 'rgba(40,55,74,0.04)'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = crit ? `${G.danger}0C` : G.card; }}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider truncate" style={{ color: G.textMuted }}>Burnout</span>
+                        <span role="button" title="O que é Burnout?"
+                          onClick={(e) => { e.stopPropagation(); setModalData(insightHelp.burnout); }}
+                          style={{ display: 'inline-flex', color: G.textMuted, cursor: 'help' }}>
+                          <Info size={10} />
+                        </span>
+                      </div>
+                      <div className="flex items-end gap-1">
+                        <p className="text-xl font-black leading-none" style={{ color: crit ? G.danger : G.success }}>{burnout}</p>
+                        <span className="text-[9px] font-bold mb-0.5" style={{ color: G.textMuted }}>críticos</span>
+                      </div>
+                    </button>
+                  );
+                })()}
               </div>
 
               {/* Atalhos de insight */}
@@ -1876,8 +2046,59 @@ const PortalHome = () => {
                       </div>
                     </button>
                   ))}
+
+                  {/* ── Consultas: Aniversariantes (hoje + mês + período, fundidos num card só) ── */}
+                  <p className="text-xs font-bold uppercase tracking-widest mt-4 mb-3" style={{ color: G.textMuted }}>Consultas</p>
+                  {(() => {
+                    const todayDay   = new Date().getDate();
+                    const todayMonth = new Date().getMonth() + 1;
+                    const meses      = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+                    const mesLabel   = meses[todayMonth - 1];
+                    const todos = Array.from(
+                      new Map(((agendaResumo?.aniversarios_mes as any[]) || []).map((a: any) =>
+                        [`${a.con_nome?.trim().toUpperCase()}|${a.cli_redeloja || ''}`, a]
+                      )).values()
+                    );
+                    const hoje = todos.filter((a: any) => a.dia === todayDay);
+                    return (
+                      <div className="w-full rounded-xl px-3.5 py-3" style={{ border: `1px solid ${G.border}` }}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="flex items-center gap-2">
+                            <Cake size={16} style={{ color: '#EC4899' }} />
+                            <span className="text-sm font-bold" style={{ color: G.textSec }}>Aniversariantes</span>
+                          </span>
+                          {todos.length > 0 && (
+                            <button onClick={() => setShowAniversariosModal(true)}
+                              title={`Ver todos os aniversariantes de ${mesLabel}`}
+                              className="text-[13px] font-bold transition-opacity hover:opacity-70"
+                              style={{ color: '#EC4899', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                              {mesLabel} ({todos.length}) →
+                            </button>
+                          )}
+                        </div>
+                        <div className="text-[13px] mb-2.5" style={{ color: hoje.length ? G.textSec : G.textMuted }}>
+                          {hoje.length > 0
+                            ? <>🎂 Hoje: <strong>{hoje.length <= 2 ? hoje.map((a: any) => a.con_nome).join(', ') : `${hoje.length} aniversariantes`}</strong></>
+                            : 'Nenhum aniversário hoje'}
+                        </div>
+                        <button
+                          onClick={() => setShowAnivPeriodoModal(true)}
+                          title="Listar aniversariantes em um período personalizado (próximos dias, semana, próximo trimestre, etc.)"
+                          className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-all"
+                          style={{ border: `1px solid ${G.border}` }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(40,55,74,0.04)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                          <span className="text-sm font-semibold" style={{ color: G.textSec }}>Buscar por período…</span>
+                          <ChevronRight size={13} style={{ color: G.textMuted }} />
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
+
+              {/* ── NOVIDADES (card destacado — força o REP a LER) ── */}
+              <NoticiasBanner G={G} variant="card" />
 
             </div>
 
@@ -2016,6 +2237,9 @@ const PortalHome = () => {
                 </div>
               </div>
 
+              {/* ── Pergunte à IRIS — teaser persuasivo (clica no "?" pra ver os benefícios) ── */}
+              <PergunteIrisTeaser />
+
               {/* Email + WhatsApp — 2 colunas */}
               <div className="grid grid-cols-2 gap-4">
 
@@ -2100,7 +2324,13 @@ const PortalHome = () => {
                     )}
                   </div>
 
-                  {wppResumo?.conversas?.length > 0 ? (
+                  {wppResumo?.sem_acesso ? (
+                    <div className="px-4 py-4 text-center flex-1">
+                      <span className="text-xs" style={{ color: G.textMuted }}>
+                        Seu número não está vinculado a esta instância
+                      </span>
+                    </div>
+                  ) : wppResumo?.conversas?.length > 0 ? (
                     <div className="px-4 py-3 space-y-3 flex-1">
                       {wppResumo.conversas.map((w: any, i: number) => {
                         const aguardando = w.estado === 'aguardando_humano';
@@ -2175,3 +2405,262 @@ const PortalHome = () => {
 };
 
 export default PortalHome;
+
+// ─── Pergunte à IRIS — teaser com modal persuasivo (ou link funcional no piloto) ──
+function PergunteIrisTeaser() {
+  const [showHelp, setShowHelp] = useState(false);
+  const navigate = useNavigate();
+  const user = useAuthStore.getState().user;
+  // IRIS Dev: Master + IA habilitada (toggle "Acesso à IRIS" do ADM = plano_ia_nivel != INATIVA).
+  const irisLive = ['admin', 'superadmin'].includes(user?.role || '') && (user?.iaPlanLevel || 'INATIVA') !== 'INATIVA';
+
+  return (
+    <>
+      <div className="rounded-2xl overflow-hidden"
+        style={{ background: 'linear-gradient(135deg, #1F2D40 0%, #2A3D55 60%, #1E2D40 100%)', border: '1px solid rgba(255,210,0,0.25)' }}>
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: 'rgba(255,210,0,0.18)', border: '1px solid rgba(255,210,0,0.35)' }}>
+              <Sparkles size={14} style={{ color: '#FFD200' }} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-black" style={{ color: '#E8E1D4' }}>IRIS Dev</span>
+                {irisLive ? (
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-widest"
+                    style={{ background: 'rgba(22,163,74,0.22)', color: '#22C55E', border: '1px solid rgba(22,163,74,0.35)' }}>BETA · Ativa</span>
+                ) : (
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-widest"
+                    style={{ background: 'rgba(255,210,0,0.2)', color: '#FFD200' }}>Em breve</span>
+                )}
+              </div>
+              <span className="text-[10px]" style={{ color: '#A8B8C4' }}>Seu desenvolvedor pessoal — peça e ela monta o relatório na hora</span>
+            </div>
+          </div>
+          {irisLive ? (
+            <button
+              onClick={() => useIrisModal.getState().open()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-opacity hover:opacity-90 flex-shrink-0"
+              style={{ background: '#FFD200', color: '#1A2D42', border: '1px solid #FFD200' }}>
+              <Sparkles size={11} />
+              Conversar agora
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowHelp(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-opacity hover:opacity-80 flex-shrink-0"
+              style={{ background: 'rgba(255,210,0,0.15)', color: '#FFD200', border: '1px solid rgba(255,210,0,0.4)' }}>
+              <HelpCircle size={11} />
+              Ver mais
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showHelp && (
+        <div
+          onClick={() => setShowHelp(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(15, 23, 35, 0.78)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 20,
+          }}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              maxWidth: 580, width: '100%', maxHeight: '90vh', overflowY: 'auto',
+              background: '#F2EDE4', borderRadius: 20,
+              border: '1px solid rgba(40,55,74,0.12)',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+              position: 'relative',
+            }}>
+            {/* Header */}
+            <div style={{
+              padding: '22px 26px 18px',
+              borderBottom: '1px solid rgba(40,55,74,0.10)',
+              background: 'linear-gradient(135deg, rgba(255,210,0,0.10) 0%, transparent 100%)',
+              display: 'flex', alignItems: 'start', justifyContent: 'space-between', gap: 16,
+            }}>
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-widest mb-2" style={{ color: '#B8860B' }}>
+                  ✨ Em breve no RepOne
+                </div>
+                <h2 style={{ fontSize: 22, fontWeight: 900, color: '#28374A', lineHeight: 1.2, letterSpacing: '-0.02em' }}>
+                  O fim do tempo perdido procurando relatório
+                </h2>
+              </div>
+              <button
+                onClick={() => setShowHelp(false)}
+                style={{
+                  flexShrink: 0, width: 32, height: 32, borderRadius: 10,
+                  background: 'transparent', border: '1px solid rgba(40,55,74,0.18)',
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer',
+                }}>
+                <X size={14} style={{ color: '#5C6675' }} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px 26px 28px' }}>
+              <p style={{ fontSize: 14, lineHeight: 1.55, color: '#3D4A5C', marginBottom: 18 }}>
+                Você nunca mais vai precisar <span style={{ color: '#28374A', fontWeight: 700 }}>caçar relatório</span> em menu.
+                A IRIS vira sua <span style={{ color: '#B8860B', fontWeight: 800 }}>gerente comercial pessoal</span>,
+                disponível 24h, que responde qualquer pergunta sobre <span style={{ color: '#28374A', fontWeight: 700 }}>seus clientes, suas vendas, suas metas</span> — em segundos.
+              </p>
+
+              {/* SEÇÃO PRINCIPAL — relatórios criados dinamicamente */}
+              <div style={{
+                padding: '22px 22px 18px', borderRadius: 14,
+                background: 'linear-gradient(135deg, rgba(255,210,0,0.18) 0%, rgba(255,210,0,0.32) 100%)',
+                border: '2px solid #FFD200',
+                marginBottom: 18,
+                position: 'relative',
+              }}>
+                <div style={{
+                  position: 'absolute', top: -11, left: 16,
+                  padding: '4px 11px', borderRadius: 6,
+                  background: '#28374A', color: '#FFD200',
+                  fontSize: 10, fontWeight: 900, letterSpacing: 1.5,
+                  textTransform: 'uppercase',
+                }}>
+                  ⭐ O Pulo do Gato
+                </div>
+
+                <h3 style={{
+                  fontSize: 22, fontWeight: 900, color: '#28374A',
+                  marginTop: 4, marginBottom: 6, lineHeight: 1.1,
+                  letterSpacing: '-0.02em',
+                }}>
+                  NÃO TEM O RELATÓRIO?<br/>
+                  <span style={{ color: '#B8860B' }}>A IRIS CRIA AGORA.</span>
+                </h3>
+
+                <p style={{ fontSize: 13, color: '#28374A', fontWeight: 700, marginBottom: 14 }}>
+                  Você fala. Ela faz. Em segundos.
+                </p>
+
+                <div style={{
+                  display: 'grid', gridTemplateColumns: 'auto 1fr auto',
+                  gap: '8px 12px', alignItems: 'center', marginBottom: 12,
+                }}>
+                  <div style={{ fontSize: 10, fontWeight: 900, color: '#5C6675', textTransform: 'uppercase', letterSpacing: 1 }}>Você fala</div>
+                  <div></div>
+                  <div style={{ fontSize: 10, fontWeight: 900, color: '#5C6675', textTransform: 'uppercase', letterSpacing: 1 }}>IRIS responde</div>
+
+                  {[
+                    ['Matriz indústria × cidade × volume',  'Pronto em 5s'],
+                    ['Gráfico dos meus 6 últimos sábados', 'Pronto em 5s'],
+                    ['Clientes BA que compram filtro mas não pastilha', 'Pronto em 5s'],
+                    ['Curva ABC só dos pagadores até 30d', 'Pronto em 5s'],
+                    ['Ranking de queda do trimestre + motivo', 'Pronto em 5s'],
+                  ].map(([q, a], i) => (
+                    <>
+                      <span key={`q-${i}`} style={{ fontSize: 18 }}>🗣️</span>
+                      <span key={`t-${i}`} style={{
+                        fontSize: 12.5, color: '#28374A', fontWeight: 700,
+                        fontStyle: 'italic', lineHeight: 1.3,
+                      }}>{q}</span>
+                      <span key={`a-${i}`} style={{
+                        fontSize: 11, fontWeight: 900, color: '#B8860B',
+                        whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4,
+                      }}>
+                        <Sparkles size={10} />{a}
+                      </span>
+                    </>
+                  ))}
+                </div>
+
+                <div style={{
+                  padding: '10px 14px', borderRadius: 10,
+                  background: '#28374A',
+                  textAlign: 'center',
+                }}>
+                  <p style={{
+                    fontSize: 12, fontWeight: 900, color: '#FFD200',
+                    letterSpacing: 0.5, textTransform: 'uppercase', lineHeight: 1.4,
+                  }}>
+                    Sem esperar SoftHam · Sem abrir chamado · Sem decorar menu
+                  </p>
+                </div>
+              </div>
+
+              <div style={{
+                padding: '14px 16px', borderRadius: 12,
+                background: 'rgba(255,210,0,0.08)', border: '1px solid rgba(255,210,0,0.25)',
+                marginBottom: 18,
+              }}>
+                <p style={{ fontSize: 11, fontWeight: 800, color: '#B8860B', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                  E pra perguntas rápidas do dia a dia:
+                </p>
+                <ul style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[
+                    { q: '"Como tá meu mês? Tô na meta?"',                       a: 'Resumo com gráfico em 3 segundos' },
+                    { q: '"Quanto o Domiciano comprou esse ano?"',                a: 'Histórico + tendência + curva ABC' },
+                    { q: '"Quais clientes ficaram pra trás na minha rota?"',      a: 'Lista priorizada, com motivo' },
+                    { q: '"Que produto da Mahle saiu mais em maio?"',             a: 'Top 10 com volume e ticket' },
+                    { q: '"Qual o desconto desse cliente pra IMA?"',              a: 'Política completa + observações' },
+                    { q: '"Compara meu top 5 desse ano com o ano passado"',       a: 'Tabela comparativa + insight' },
+                  ].map((ex, i) => (
+                    <li key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                      <span style={{ flexShrink: 0, marginTop: 2 }}>
+                        <Sparkles size={11} style={{ color: '#B8860B' }} />
+                      </span>
+                      <div>
+                        <p style={{ fontSize: 12, color: '#28374A', fontWeight: 700, lineHeight: 1.4 }}>{ex.q}</p>
+                        <p style={{ fontSize: 10, color: '#7C8896', marginTop: 2 }}>→ {ex.a}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <p style={{ fontSize: 11, fontWeight: 800, color: '#28374A', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                  Por que isso muda seu dia
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {[
+                    { titulo: 'Sem manual',     desc: 'Não precisa decorar onde fica nenhum relatório' },
+                    { titulo: 'Sem espera',     desc: 'Sem ligar pro suporte pedindo "como faz pra…"' },
+                    { titulo: 'Na sua língua',  desc: 'Entende rolemão, fixão, "tirar pedido"' },
+                    { titulo: 'No campo',       desc: 'Funciona no celular durante a visita' },
+                    { titulo: 'Tudo agregado',  desc: 'BI + CRM + financeiro respondendo junto' },
+                    { titulo: 'Sob medida',     desc: 'Se um relatório não existe, IRIS monta na hora' },
+                  ].map((b, i) => (
+                    <div key={i} style={{
+                      padding: '10px 12px', borderRadius: 10,
+                      background: '#FFFFFF', border: '1px solid rgba(40,55,74,0.10)',
+                    }}>
+                      <p style={{ fontSize: 11, fontWeight: 800, color: '#28374A' }}>{b.titulo}</p>
+                      <p style={{ fontSize: 10, color: '#7C8896', marginTop: 3, lineHeight: 1.4 }}>{b.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{
+                padding: '14px 16px', borderRadius: 12,
+                background: '#FFFFFF', border: '1px solid rgba(40,55,74,0.10)',
+                display: 'flex', alignItems: 'center', gap: 12,
+                marginBottom: 14,
+              }}>
+                <Flame size={20} style={{ color: '#F59E0B', flexShrink: 0 }} />
+                <p style={{ fontSize: 12, color: '#3D4A5C', lineHeight: 1.5 }}>
+                  <span style={{ fontWeight: 800, color: '#28374A' }}>Esse é o RepOne sem fricção.</span>{' '}
+                  Você fala, ela faz. A primeira coisa que você abre de manhã, e a última que fecha à noite.
+                </p>
+              </div>
+
+              <p style={{ fontSize: 11, color: '#7C8896', textAlign: 'center', fontStyle: 'italic' }}>
+                Em desenvolvimento. Aviso aqui quando liberar.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

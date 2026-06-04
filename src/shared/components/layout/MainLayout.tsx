@@ -3,7 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
 import { TabHeader } from './TabHeader';
 import { useTabStore } from '@/shared/stores/useTabStore';
-import { IrisTerminal } from '@/modules/dashboard/components/IrisTerminal';
+import { IrisModal } from '@/shared/components/iris/IrisModal';
+import { useIrisModal } from '@/shared/stores/useIrisModal';
 import { findRouteByPath } from '@/shared/lib/routeConfig';
 
 const G = {
@@ -21,6 +22,11 @@ export function MainLayout() {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'F9') { e.preventDefault(); navigate('/produtos'); }
       if (e.key === 'F11') { e.preventDefault(); navigate('/pedidos'); }
+      // Ctrl+K / Cmd+K → invoca/fecha a IRIS (modal global)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        useIrisModal.getState().toggle();
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
@@ -41,7 +47,7 @@ export function MainLayout() {
 
   return (
     // Coluna principal: ocupa h-screen inteiro em flex-col
-    <div className="flex flex-col h-screen w-full overflow-hidden" style={{ backgroundColor: G.bg }}>
+    <div className="flex flex-col h-screen w-full overflow-hidden" style={{ backgroundColor: G.bg, paddingTop: 'env(titlebar-area-height, 0px)' }}>
 
       {/* Linha do meio: sidebar + área de conteúdo */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -79,8 +85,10 @@ export function MainLayout() {
         </div>
       </div>
 
-      {/* StatusBar: IRIS Terminal — sempre no rodapé, como Delphi */}
-      <IrisTerminal />
+      {/* IRIS Dev — modal global (Ctrl+K ou orbe do sidebar). Substitui a antiga
+          barra de rodapé. O monitor de eventos (IrisTerminal) saiu do layout por
+          ora — preservado pra futuramente alimentar o orbe (insight proativo). */}
+      <IrisModal />
     </div>
   );
 }
