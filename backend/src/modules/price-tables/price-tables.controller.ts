@@ -7,14 +7,17 @@ function cleanInd(v: string | number | string[]): number {
   return parseInt(s.includes(':') ? s.split(':')[0] : s);
 }
 
-// ─── GET /api/price-tables/ ───────────────────────────────────────────────────
+// ─── GET /api/price-tables/?incluirInativas=true ─────────────────────────────
 export async function listAllPriceTablesHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
     const userId = req.user?.userId;
     const sellerId = await getLinkedSellerId(db, userId);
     const { filterClause, params } = buildIndustryFilterClause(sellerId, 't.itab_idindustria');
+    const incluirInativas = String(req.query.incluirInativas || '').toLowerCase() === 'true';
 
+    // BOOL_OR: tabela é "ativa" se PELO MENOS UM item tiver itab_status=true.
+    // Se REP desativar a tabela inteira, todos viram false → ativa=false.
     const result = await db.query(`
       SELECT
         itab_tabela        AS nome_tabela,
@@ -22,11 +25,16 @@ export async function listAllPriceTablesHandler(req: Request, res: Response): Pr
         f.for_nomered      AS industria_nome,
         COUNT(*)           AS total_produtos,
         MIN(itab_datatabela)   AS data_criacao,
-        MAX(itab_datavencimento) AS data_vencimento
+        MAX(itab_datavencimento) AS data_vencimento,
+        COALESCE(BOOL_OR(itab_status), true) AS ativa,
+        CASE WHEN MAX(itab_datavencimento) IS NOT NULL
+                  AND MAX(itab_datavencimento) < CURRENT_DATE
+             THEN true ELSE false END AS vencida
       FROM cad_tabelaspre t
       INNER JOIN fornecedores f ON f.for_codigo = t.itab_idindustria
       WHERE 1=1 ${filterClause}
       GROUP BY itab_tabela, itab_idindustria, f.for_nomered
+      ${incluirInativas ? '' : 'HAVING COALESCE(BOOL_OR(itab_status), true) = true'}
       ORDER BY itab_idindustria, itab_tabela
     `, params);
 
@@ -45,15 +53,21 @@ export async function getPriceTablesByIndustriaHandler(req: Request, res: Respon
     const cleanId = cleanInd(industria);
     if (isNaN(cleanId)) { res.json({ success: true, data: [] }); return; }
 
+    const incluirInativas = String(req.query.incluirInativas || '').toLowerCase() === 'true';
     const result = await db.query(`
       SELECT
         itab_tabela        AS nome_tabela,
         COUNT(*)           AS total_produtos,
         MIN(itab_datatabela)     AS data_criacao,
-        MAX(itab_datavencimento) AS data_vencimento
+        MAX(itab_datavencimento) AS data_vencimento,
+        COALESCE(BOOL_OR(itab_status), true) AS ativa,
+        CASE WHEN MAX(itab_datavencimento) IS NOT NULL
+                  AND MAX(itab_datavencimento) < CURRENT_DATE
+             THEN true ELSE false END AS vencida
       FROM cad_tabelaspre
       WHERE itab_idindustria = $1
       GROUP BY itab_tabela
+      ${incluirInativas ? '' : 'HAVING COALESCE(BOOL_OR(itab_status), true) = true'}
       ORDER BY itab_tabela
     `, [cleanId]);
 
@@ -124,6 +138,100 @@ export async function deletePriceTableHandler(req: Request, res: Response): Prom
     res.json({ success: true, message: `Tabela ${tabela} excluída.`, total: result.rows.length });
   } catch (error: any) {
     console.error('❌ [PRICE-TABLES] delete table:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── PATCH /api/price-tables/:industria/status?tabela=  body: { ativa: boolean }
+// Desativa ou reativa uma tabela inteira (todos os itens dela). Não apaga dados.
+export async function setPriceTableStatusHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { industria } = req.params;
+    const tabela = String(req.query.tabela || '').trim();
+    const ativa  = req.body?.ativa === true || String(req.body?.ativa) === 'true';
+    if (!tabela) { res.status(400).json({ success: false, message: 'tabela obrigatória.' }); return; }
+    const db = req.db!;
+
+    const result = await db.query(
+      `UPDATE cad_tabelaspre
+          SET itab_status = $3
+        WHERE itab_idindustria = $1 AND itab_tabela = $2
+      RETURNING itab_idprod`,
+      [parseInt(String(industria)), tabela, ativa]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ success: false, message: 'Tabela não encontrada.' });
+      return;
+    }
+    res.json({
+      success: true,
+      message: `Tabela "${tabela}" ${ativa ? 'reativada' : 'desativada'} (${result.rowCount} itens).`,
+      total: result.rowCount,
+    });
+  } catch (error: any) {
+    console.error('❌ [PRICE-TABLES] set status:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── POST /api/price-tables/desativar-vencidas?dryRun=true
+// Lista (dryRun=true) ou desativa tabelas com data de vencimento < hoje.
+// Permission: respeita filterClause (só vê indústrias permitidas).
+export async function desativarTabelasVencidasHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const userId = req.user?.userId;
+    const sellerId = await getLinkedSellerId(db, userId);
+    const { filterClause, params } = buildIndustryFilterClause(sellerId, 't.itab_idindustria');
+    const dryRun = String(req.query.dryRun || '').toLowerCase() === 'true';
+
+    // Preview das tabelas candidatas (ainda ativas + vencidas)
+    const preview = await db.query(`
+      SELECT
+        t.itab_idindustria   AS industria,
+        f.for_nomered        AS industria_nome,
+        t.itab_tabela        AS nome_tabela,
+        MAX(t.itab_datavencimento) AS data_vencimento,
+        COUNT(*)             AS total_produtos
+      FROM cad_tabelaspre t
+      INNER JOIN fornecedores f ON f.for_codigo = t.itab_idindustria
+      WHERE 1=1 ${filterClause}
+        AND t.itab_status = true
+        AND t.itab_datavencimento IS NOT NULL
+        AND t.itab_datavencimento < CURRENT_DATE
+      GROUP BY t.itab_idindustria, f.for_nomered, t.itab_tabela
+      HAVING MAX(t.itab_datavencimento) < CURRENT_DATE
+      ORDER BY t.itab_idindustria, t.itab_tabela
+    `, params);
+
+    if (dryRun) {
+      res.json({ success: true, dryRun: true, count: preview.rowCount, data: preview.rows });
+      return;
+    }
+
+    // Aplica desativação em todos os itens encontrados
+    const upd = await db.query(`
+      UPDATE cad_tabelaspre t
+         SET itab_status = false
+        FROM (
+          SELECT DISTINCT t2.itab_idindustria, t2.itab_tabela
+            FROM cad_tabelaspre t2
+           WHERE t2.itab_status = true
+             AND t2.itab_datavencimento IS NOT NULL
+             AND t2.itab_datavencimento < CURRENT_DATE
+        ) v
+       WHERE t.itab_idindustria = v.itab_idindustria
+         AND t.itab_tabela = v.itab_tabela
+      RETURNING t.itab_idprod
+    `);
+    res.json({
+      success: true,
+      message: `${preview.rowCount} tabela(s) desativada(s), ${upd.rowCount} itens afetados.`,
+      tabelas: preview.rows,
+      total: upd.rowCount,
+    });
+  } catch (error: any) {
+    console.error('❌ [PRICE-TABLES] desativar vencidas:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 }
@@ -277,6 +385,48 @@ export async function updateStHandler(req: Request, res: Response): Promise<void
   }
 }
 
+// ─── PUT /api/price-tables/clear-price/:industria?tabela=&campo= ─────────────
+// Zera em massa um dos campos de preço da tabela inteira (bruto/promo/especial).
+// Usado quando uma promoção expira ou o gerente quer redefinir um nível de preço.
+const CAMPOS_PRECO: Record<string, { col: string; label: string }> = {
+  bruto:    { col: 'itab_precobruto',    label: 'Preço bruto' },
+  promo:    { col: 'itab_precopromo',    label: 'Preço promo' },
+  especial: { col: 'itab_precoespecial', label: 'Preço especial' },
+};
+
+export async function clearPrecoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const { industria } = req.params;
+    const tabela = String(req.query.tabela || '');
+    const campo  = String(req.query.campo || '').toLowerCase();
+    const db = req.db!;
+
+    const def = CAMPOS_PRECO[campo];
+    if (!def) {
+      res.status(400).json({ success: false, message: 'Campo inválido (use bruto, promo ou especial).' });
+      return;
+    }
+    if (!tabela) {
+      res.status(400).json({ success: false, message: 'Tabela é obrigatória.' });
+      return;
+    }
+
+    const result = await db.query(
+      `UPDATE cad_tabelaspre SET ${def.col} = 0 WHERE itab_idindustria = $1 AND itab_tabela = $2 RETURNING itab_idprod`,
+      [parseInt(String(industria)), tabela]
+    );
+
+    res.json({
+      success: true,
+      message: `${def.label} zerado em ${result.rows.length} produto(s).`,
+      total:   result.rows.length,
+    });
+  } catch (error: any) {
+    console.error('❌ [PRICE-TABLES] clear-preco:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
 // ─── PUT /api/price-tables/set-discount-group/:industria?tabela= ─────────────
 export async function setDiscountGroupHandler(req: Request, res: Response): Promise<void> {
   try {
@@ -409,7 +559,9 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
 
     // ── Pré-processar produtos no JS (zero round-trips) ───────────────────────
     type ProdProcessed = {
+      idx: number;  // índice no array recebido (linha do Excel para o rep)
       codigo: string; normalizedCode: string;
+      codigooriginal: string | null;
       nome: string | null; peso: number | null; embalagem: number | null;
       grupoProd: number | null; linha: string | null; ncm: string | null;
       aplicacao: string | null; codbarras: string | null; conversao: string | null;
@@ -417,26 +569,56 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
       ipi: number | null; st: number | null; grupoDesc: number | null;
       descontoadd: number | null; prepeso: number | null;
       ciclo: string;
+      origem: string | null;  // '0' Nacional, '1' Importada (CST SEFAZ). NULL = não informado
       linhaleve: boolean | null; linhapesada: boolean | null; linhaagricola: boolean | null;
       linhautilitarios: boolean | null; motocicletas: boolean | null;
       offroad: boolean | null; linhaamarela: boolean | null;
     };
 
+    // Registro de duplicatas para o rep auditar
+    type DuplicateRow = {
+      codigo_normalizado: string;
+      total_ocorrencias: number;
+      ocorrencias: Array<{ idx: number; codigo: string; descricao: string | null }>;
+      mantido_idx: number;
+    };
+
+    // Tolerante a variações: aceita 0, 1, N, I, NAC, IMP, NACIONAL, IMPORTADA, etc.
+    const normOrigem = (v: any): string | null => {
+      if (v == null) return null;
+      const s = String(v).trim().toUpperCase();
+      if (!s) return null;
+      if (s === '0' || s === 'N' || s.startsWith('NAC')) return '0';
+      if (s === '1' || s === 'I' || s.startsWith('IMP') || s.startsWith('EST')) return '1';
+      if (/^[2-8]$/.test(s)) return s;  // outros códigos SEFAZ avançados são preservados
+      return null;
+    };
+
     const processed: ProdProcessed[] = [];
-    for (const p of produtos) {
+    for (let i = 0; i < produtos.length; i++) {
+      const p = produtos[i];
       const nc = normalizeCode(String(p.codigo || ''));
       if (!nc) continue;
       const gDescVal = (grupoDesconto && grupoDesconto !== 'none') ? grupoDesconto : p.grupodesconto;
       const linhaFlags = parseLinhaFlags(p.linha);
+      // Linha do Excel: front envia `idx` (1-based). Sem ele, fallback para offset+1.
+      const rowIdx = Number.isFinite(p.idx) ? Number(p.idx) : (i + 1);
       processed.push({
-        codigo:        String(p.codigo || '').substring(0, 100),
+        idx: rowIdx,
+        // Limites alinhados com o schema do banco (cad_prod):
+        //   pro_codprod varchar(25), pro_codigooriginal varchar(50),
+        //   pro_nome varchar(100),    pro_linha varchar(50), pro_ncm varchar(10).
+        // Em 2026-05-21 o tenant ro_consult quebrou ao importar tabela IGUAÇU porque
+        // o handler truncava NCM em 20 (estourando varchar(10)) e código em 100.
+        codigo:         String(p.codigo || '').substring(0, 25),
         normalizedCode: nc,
-        nome:          p.descricao ? String(p.descricao).substring(0, 100) : null,
+        codigooriginal: p.codigooriginal ? String(p.codigooriginal).substring(0, 50) : null,
+        nome:           p.descricao ? String(p.descricao).substring(0, 100) : null,
         peso:          safeFloat(p.peso),
         embalagem:     safeInt(p.embalagem),
         grupoProd:     p.grupo ? (grpMap[ng(p.grupo)] ?? grpMap[ngSem(p.grupo)] ?? null) : null,
         linha:         p.linha ? String(p.linha).substring(0, 50) : null,
-        ncm:           p.ncm ? String(p.ncm).substring(0, 20) : null,
+        ncm:           p.ncm ? String(p.ncm).substring(0, 10) : null,
         aplicacao:     p.aplicacao ? String(p.aplicacao).substring(0, 200) : null,
         codbarras:     p.codbarras ? String(p.codbarras).substring(0, 13) : null,
         conversao:     p.conversao ? String(p.conversao) : null,
@@ -449,6 +631,7 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
         descontoadd:      safeFloat(p.descontoadd),
         prepeso:          safeFloat(p.prepeso),
         ciclo:            (p.ciclo === 'L' || p.ciclo === 'l') ? 'L' : 'C',
+        origem:           normOrigem(p.origem),
         linhaleve:        safeBool(p.linhaleve) ?? linhaFlags.linhaleve,
         linhapesada:      safeBool(p.linhapesada) ?? linhaFlags.linhapesada,
         linhaagricola:    safeBool(p.linhaagricola) ?? linhaFlags.linhaagricola,
@@ -465,24 +648,93 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
     }
 
     // ── Query 2: buscar produtos existentes de uma vez ────────────────────────
-    // Usa COALESCE para encontrar também produtos antigos com pro_codigonormalizado NULL
+    // IMPORTANTE: usa o pro_codprod (chave real) como fonte da verdade, recalculando
+    // o normalizado em runtime. NÃO confia no pro_codigonormalizado armazenado,
+    // porque há ~24k produtos legados com normalizado divergente (sem zeros à esquerda).
+    // Isso garante que produtos como '02-334' sejam encontrados mesmo quando o
+    // pro_codigonormalizado no banco está como '2334' em vez de '02334'.
+    //
+    // DISTINCT ON (match_code) é necessário porque alguns tenants têm duplicatas
+    // legadas (ex: ro_consult/IGUAÇU tinha 4 linhas por código, 1 com normalizado
+    // preenchido + 3 com NULL). Sem isso, o UPDATE self-healing tenta setar o
+    // mesmo pro_codigonormalizado em N linhas e estoura o índice unique parcial.
+    // Priorizamos a linha que já tem normalizado preenchido (mais "canônica");
+    // empate, escolhe o menor pro_id. As duplicatas ghost ficam intocadas.
     const allNormCodes = processed.map(p => p.normalizedCode);
+    // Lookup com 2 caminhos para garantir cobertura mesmo com legado divergente:
+    //   1) regexp_replace(upper(pro_codprod)) — fonte da verdade (chave real)
+    //   2) pro_codigonormalizado armazenado — defensivo contra legados onde
+    //      pro_codigonormalizado diverge do código real.
+    // ATENÇÃO: a ordem é regexp_replace(UPPER(...)), não upper(regexp_replace(...)).
+    // O regex [^A-Z0-9] só matcha maiúsculas, então se o pro_codprod tem
+    // letra minúscula e a gente fizer regex ANTES do upper, a letra é DEVORADA
+    // (ex: 'abc123' → '123' em vez de 'ABC123'). Bug zumbi corrigido em
+    // 2026-05-28 alinhado com a fn_normalizar_codigo da migration 063.
     const existingRes = await db.query(
-      `SELECT pro_id,
-              COALESCE(pro_codigonormalizado,
-                upper(regexp_replace(pro_codprod, '[^A-Z0-9]', '', 'g'))) AS match_code
-       FROM cad_prod
-       WHERE pro_industria = $1
-         AND COALESCE(pro_codigonormalizado,
-               upper(regexp_replace(pro_codprod, '[^A-Z0-9]', '', 'g'))) = ANY($2::text[])`,
+      `SELECT DISTINCT ON (match_code) pro_id, match_code
+       FROM (
+         SELECT pro_id, pro_codigonormalizado,
+                regexp_replace(upper(pro_codprod), '[^A-Z0-9]', '', 'g') AS match_code
+         FROM cad_prod
+         WHERE pro_industria = $1
+           AND regexp_replace(upper(pro_codprod), '[^A-Z0-9]', '', 'g') = ANY($2::text[])
+         UNION ALL
+         SELECT pro_id, pro_codigonormalizado,
+                pro_codigonormalizado AS match_code
+         FROM cad_prod
+         WHERE pro_industria = $1
+           AND pro_codigonormalizado = ANY($2::text[])
+       ) sub
+       WHERE match_code IS NOT NULL
+       ORDER BY match_code,
+                (pro_codigonormalizado = match_code) DESC,   -- match EXATO vence (canônica)
+                (pro_codigonormalizado IS NOT NULL) DESC,    -- normalizado preenchido vence
+                pro_id ASC`,
       [indId, allNormCodes]
     );
     const existingMap = new Map<string, number>(
       existingRes.rows.map((r: any) => [r.match_code as string, r.pro_id as number])
     );
 
-    const newProds = processed.filter(p => !existingMap.has(p.normalizedCode));
-    const updProds = processed.filter(p =>  existingMap.has(p.normalizedCode));
+    // ── Detectar duplicatas no lote ────────────────────────────────────────
+    // Conta TODAS as ocorrências por normalizedCode (sem distinguir new/upd) e
+    // captura quais colidiram para mostrar ao rep em um memo. Quando há
+    // duplicata, mantemos a ÚLTIMA ocorrência (comportamento típico de planilha).
+    const ocorrenciasMap = new Map<string, typeof processed>();
+    for (const p of processed) {
+      const arr = ocorrenciasMap.get(p.normalizedCode) ?? [];
+      arr.push(p);
+      ocorrenciasMap.set(p.normalizedCode, arr);
+    }
+    const duplicatas: DuplicateRow[] = [];
+    for (const [normcode, arr] of ocorrenciasMap.entries()) {
+      if (arr.length <= 1) continue;
+      const mantido = arr[arr.length - 1];
+      duplicatas.push({
+        codigo_normalizado: normcode,
+        total_ocorrencias:  arr.length,
+        ocorrencias: arr.map(o => ({ idx: o.idx, codigo: o.codigo, descricao: o.nome })),
+        mantido_idx: mantido.idx,
+      });
+    }
+
+    // Itens marcados como suspensos/inativos no arquivo entram INATIVOS (pro_status=false):
+    // somem do catálogo/pedidos/portal/IRIS (todos filtram pro_status IS NOT FALSE), mas ficam
+    // rastreáveis e reativáveis. No update, só inativa — nunca ressuscita um inativado na mão.
+    const isInativo = (nome: string) =>
+      /venda\s*suspensa|suspens[ãa]|\binativ|descontinuad|fora\s*de\s*linha|obsolet|n[ãa]o\s*comercializ/i.test(nome || '');
+
+    const newProdsRaw = processed.filter(p => !existingMap.has(p.normalizedCode));
+    const updProds    = processed.filter(p =>  existingMap.has(p.normalizedCode));
+
+    // Dedup intra-lote por normalizedCode. Quando duas linhas do Excel normalizam
+    // para o mesmo código (ex: 'ABC-123' e 'ABC123' viram 'ABC123'), o ON CONFLICT
+    // DO NOTHING não protege porque o conflito é entre as próprias linhas do INSERT
+    // — Postgres aborta toda a transação. Mantemos a ÚLTIMA ocorrência (comportamento
+    // típico de planilha onde a linha mais recente sobrescreve a anterior).
+    const newProdsMap = new Map<string, typeof newProdsRaw[number]>();
+    for (const p of newProdsRaw) newProdsMap.set(p.normalizedCode, p);
+    const newProds = Array.from(newProdsMap.values());
 
     const insertedMap = new Map<string, number>();
 
@@ -500,24 +752,27 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
       if (newProds.length > 0) {
         const insRes = await client.query(
           `INSERT INTO cad_prod
-             (pro_industria, pro_codprod, pro_codigonormalizado, pro_nome,
+             (pro_industria, pro_codprod, pro_codigonormalizado, pro_codigooriginal, pro_nome,
               pro_peso, pro_embalagem, pro_grupo, pro_linha, pro_ncm,
               pro_aplicacao, pro_codbarras, pro_conversao, pro_ciclo,
               pro_linhaleve, pro_linhapesada, pro_linhaagricola, pro_linhautilitarios,
-              pro_motocicletas, pro_offroad, pro_linhaamarela)
+              pro_motocicletas, pro_offroad, pro_linhaamarela, pro_origem, pro_status)
            SELECT
-             unnest($1::int[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[]),
-             unnest($5::float8[]), unnest($6::int[]), unnest($7::int[]), unnest($8::text[]),
-             unnest($9::text[]), unnest($10::text[]), unnest($11::text[]), unnest($12::text[]),
-             unnest($13::char[]),
-             unnest($14::bool[]), unnest($15::bool[]), unnest($16::bool[]), unnest($17::bool[]),
-             unnest($18::bool[]), unnest($19::bool[]), unnest($20::bool[])
+             unnest($1::int[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[]), unnest($5::text[]),
+             unnest($6::float8[]), unnest($7::int[]), unnest($8::int[]), unnest($9::text[]),
+             unnest($10::text[]), unnest($11::text[]), unnest($12::text[]), unnest($13::text[]),
+             unnest($14::char[]),
+             unnest($15::bool[]), unnest($16::bool[]), unnest($17::bool[]), unnest($18::bool[]),
+             unnest($19::bool[]), unnest($20::bool[]), unnest($21::bool[]),
+             unnest($22::text[]),
+             unnest($23::bool[])
            ON CONFLICT DO NOTHING
            RETURNING pro_id, pro_codigonormalizado`,
           [
             newProds.map(() => indId),
             newProds.map(p => p.codigo),
             newProds.map(p => p.normalizedCode),
+            newProds.map(p => p.codigooriginal),
             newProds.map(p => p.nome),
             newProds.map(p => p.peso),
             newProds.map(p => p.embalagem),
@@ -535,16 +790,22 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
             newProds.map(p => p.motocicletas ?? false),
             newProds.map(p => p.offroad ?? false),
             newProds.map(p => p.linhaamarela ?? false),
+            newProds.map(p => p.origem),
+            newProds.map(p => !isInativo(p.nome)),   // pro_status: false se suspenso/inativo
           ]
         );
         insRes.rows.forEach((r: any) => insertedMap.set(r.pro_codigonormalizado, r.pro_id));
       }
 
       // ── Query 4: bulk UPDATE produtos existentes ───────────────────────────
+      // pro_codigonormalizado é sobrescrito SEMPRE com a versão recalculada
+      // (self-healing: cada importação corrige os ~24k produtos com normalizado
+      // legado divergente que tocarem).
       if (updProds.length > 0) {
         await client.query(
           `UPDATE cad_prod SET
-             pro_codigonormalizado= COALESCE(pro_codigonormalizado, v.normcode),
+             pro_codigonormalizado= v.normcode,
+             pro_codigooriginal   = COALESCE(NULLIF(v.codigooriginal,''), pro_codigooriginal),
              pro_nome             = COALESCE(NULLIF(v.nome, ''),      pro_nome),
              pro_peso             = COALESCE(v.peso,                  pro_peso),
              pro_embalagem        = COALESCE(v.embalagem,             pro_embalagem),
@@ -561,32 +822,38 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
              pro_linhautilitarios = COALESCE(v.linhautilitarios, pro_linhautilitarios),
              pro_motocicletas     = COALESCE(v.motocicletas,     pro_motocicletas),
              pro_offroad          = COALESCE(v.offroad,          pro_offroad),
-             pro_linhaamarela     = COALESCE(v.linhaamarela,     pro_linhaamarela)
+             pro_linhaamarela     = COALESCE(v.linhaamarela,     pro_linhaamarela),
+             pro_origem           = COALESCE(NULLIF(v.origem,''), pro_origem),
+             pro_status           = CASE WHEN v.inativo THEN false ELSE pro_status END
            FROM (SELECT
              unnest($1::int[])    AS pro_id,
              unnest($2::text[])   AS normcode,
-             unnest($3::text[])   AS nome,
-             unnest($4::float8[]) AS peso,
-             unnest($5::int[])    AS embalagem,
-             unnest($6::int[])    AS grupo,
-             unnest($7::text[])   AS linha,
-             unnest($8::text[])   AS ncm,
-             unnest($9::text[])   AS aplicacao,
-             unnest($10::text[])  AS codbarras,
-             unnest($11::text[])  AS conversao,
-             unnest($12::char[])  AS ciclo,
-             unnest($13::bool[])  AS linhaleve,
-             unnest($14::bool[])  AS linhapesada,
-             unnest($15::bool[])  AS linhaagricola,
-             unnest($16::bool[])  AS linhautilitarios,
-             unnest($17::bool[])  AS motocicletas,
-             unnest($18::bool[])  AS offroad,
-             unnest($19::bool[])  AS linhaamarela
+             unnest($3::text[])   AS codigooriginal,
+             unnest($4::text[])   AS nome,
+             unnest($5::float8[]) AS peso,
+             unnest($6::int[])    AS embalagem,
+             unnest($7::int[])    AS grupo,
+             unnest($8::text[])   AS linha,
+             unnest($9::text[])   AS ncm,
+             unnest($10::text[])  AS aplicacao,
+             unnest($11::text[])  AS codbarras,
+             unnest($12::text[])  AS conversao,
+             unnest($13::char[])  AS ciclo,
+             unnest($14::bool[])  AS linhaleve,
+             unnest($15::bool[])  AS linhapesada,
+             unnest($16::bool[])  AS linhaagricola,
+             unnest($17::bool[])  AS linhautilitarios,
+             unnest($18::bool[])  AS motocicletas,
+             unnest($19::bool[])  AS offroad,
+             unnest($20::bool[])  AS linhaamarela,
+             unnest($21::text[])  AS origem,
+             unnest($22::bool[])  AS inativo
            ) AS v
            WHERE cad_prod.pro_id = v.pro_id`,
           [
             updProds.map(p => existingMap.get(p.normalizedCode)!),
             updProds.map(p => p.normalizedCode),
+            updProds.map(p => p.codigooriginal),
             updProds.map(p => p.nome),
             updProds.map(p => p.peso),
             updProds.map(p => p.embalagem),
@@ -604,6 +871,8 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
             updProds.map(p => p.motocicletas),
             updProds.map(p => p.offroad),
             updProds.map(p => p.linhaamarela),
+            updProds.map(p => p.origem ?? ''),
+            updProds.map(p => isInativo(p.nome)),   // inativa se a nova descrição é suspensa
           ]
         );
       }
@@ -697,10 +966,54 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
         produtosAtualizados: updProds.length,
         erros: 0,
         detalhesErros: [],
+        duplicatas,
       },
     });
   } catch (error: any) {
-    console.error('❌ [PRICE-TABLES] import:', error.message);
+    // Log com todo o contexto útil do erro Postgres pra debug rápido:
+    // - schema do tenant (pg só dá "VARCHAR(20)" sem dizer qual coluna)
+    // - error.detail / error.column / error.table / error.code
+    const schema = (req as any).schema || 'desconhecido';
+    const det    = error.detail   ? ` | detail=${error.detail}`       : '';
+    const col    = error.column   ? ` | col=${error.column}`          : '';
+    const tbl    = error.table    ? ` | table=${error.table}`         : '';
+    const code   = error.code     ? ` | code=${error.code}`           : '';
+    console.error(`❌ [PRICE-TABLES] import [${schema}]: ${error.message}${det}${col}${tbl}${code}`);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── DELETE /api/price-tables/catalog/:industria (Master) ────────────────────
+// Apaga TODO o catálogo de uma indústria: produtos (cad_prod) + tabelas de preço
+// (cad_tabelaspre). IRREVERSÍVEL — para refazer um import totalmente errado.
+// Atômico: se algum FK externo barrar, a transação aborta inteira (não apaga pela metade).
+export async function deleteCatalogHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const indId = parseInt(String(req.params.industria), 10);
+    if (!indId) { res.status(400).json({ success: false, message: 'Indústria inválida.' }); return; }
+
+    let produtos = 0, precos = 0;
+    await db.transaction(async (client: any) => {
+      // 1) tabelas de preço primeiro (FK itab_idprod → cad_prod)
+      const tp = await client.query(
+        `DELETE FROM cad_tabelaspre
+          WHERE itab_idprod IN (SELECT pro_id FROM cad_prod WHERE pro_industria = $1)`,
+        [indId],
+      );
+      precos = tp.rowCount || 0;
+      // 2) produtos
+      const pr = await client.query(`DELETE FROM cad_prod WHERE pro_industria = $1`, [indId]);
+      produtos = pr.rowCount || 0;
+    });
+
+    res.json({
+      success: true,
+      message: `Catálogo apagado: ${produtos} produto(s) e ${precos} preço(s).`,
+      produtos, precos,
+    });
+  } catch (error: any) {
+    console.error(`❌ [PRICE-TABLES] delete-catalog: ${error.message}`);
     res.status(500).json({ success: false, message: error.message });
   }
 }

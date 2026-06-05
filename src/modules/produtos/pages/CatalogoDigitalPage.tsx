@@ -4,6 +4,7 @@ import {
   FormSection, FormRow, Field, G, inp, label as labelStyle,
 } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
+import { useAuthStore } from '@/shared/stores/useAuthStore';
 import { onEnterTab } from '@/shared/lib/utils';
 import { toast } from 'sonner';
 
@@ -30,6 +31,7 @@ interface CatalogProduct {
   pro_conversao: string | null;
   pro_codigooriginal: string | null;
   pro_ciclo: string | null;
+  pro_origem: string | null;
 }
 
 interface ProductForm {
@@ -41,6 +43,7 @@ interface ProductForm {
   linhautilitarios: boolean; motocicletas: boolean; offroad: boolean;
   linhaamarela: boolean;
   ciclo: string;
+  origem: string;
 }
 
 interface SelectOption { value: string | number; label: string }
@@ -52,6 +55,7 @@ const emptyForm: ProductForm = {
   linhautilitarios: false, motocicletas: false, offroad: false,
   linhaamarela: false,
   ciclo: 'C',
+  origem: '',
 };
 
 const sel: React.CSSProperties = {
@@ -125,6 +129,9 @@ export default function CatalogoDigitalPage() {
   const [editing, setEditing]       = useState<ProductForm>(emptyForm);
   const [saving, setSaving]         = useState(false);
   const [selIndustria, setSelIndustria] = useState('');
+  const [wiping, setWiping] = useState(false);
+  const role = useAuthStore(s => s.user?.role);
+  const isMaster = ['admin', 'superadmin'].includes(role || '');
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Aux
@@ -186,6 +193,7 @@ export default function CatalogoDigitalPage() {
         motocicletas: !!d.pro_motocicletas, offroad: !!d.pro_offroad,
         linhaamarela: !!d.pro_linhaamarela,
         ciclo: d.pro_ciclo || 'C',
+        origem: d.pro_origem != null ? String(d.pro_origem) : '',
       });
       setView('form');
     } catch (err: any) {
@@ -215,6 +223,7 @@ export default function CatalogoDigitalPage() {
         motocicletas: editing.motocicletas, offroad: editing.offroad,
         linhaamarela: editing.linhaamarela,
         ciclo: editing.ciclo || 'C',
+        origem: editing.origem || '',
       });
       toast.success(editing.pro_id ? 'Produto atualizado.' : 'Produto cadastrado.');
       cancel(); load();
@@ -232,6 +241,24 @@ export default function CatalogoDigitalPage() {
       load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Erro ao excluir produto.');
+    }
+  };
+
+  // Excluir TODO o catálogo da indústria (produtos + tabelas de preço) — só Master.
+  const wipeCatalog = async () => {
+    if (!selIndustria) return;
+    const ind = industrias.find(i => String(i.value) === String(selIndustria));
+    const nome = (ind?.label as string) || 'esta indústria';
+    if (!confirm(`Excluir TODO o catálogo de ${nome}?\n\nApaga TODOS os produtos e as tabelas de preço dessa indústria. Ação irreversível.`)) return;
+    setWiping(true);
+    try {
+      const r = await api.delete(`/price-tables/catalog/${selIndustria}`);
+      toast.success(r.data.message || 'Catálogo excluído.');
+      setData([]);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Erro ao excluir o catálogo.');
+    } finally {
+      setWiping(false);
     }
   };
 
@@ -324,6 +351,13 @@ export default function CatalogoDigitalPage() {
               <select style={sel} value={editing.ciclo} onChange={e => set('ciclo', e.target.value)}>
                 <option value="C">C — Corrente</option>
                 <option value="L">L — Lançamento</option>
+              </select>
+            </Field>
+            <Field label="Origem">
+              <select style={sel} value={editing.origem} onChange={e => set('origem', e.target.value)}>
+                <option value="">— Não informada —</option>
+                <option value="0">Nacional</option>
+                <option value="1">Importada</option>
               </select>
             </Field>
           </FormRow>
@@ -431,6 +465,21 @@ export default function CatalogoDigitalPage() {
           }}>
           <Plus size={13} /> Novo Produto
         </button>
+
+        {/* Excluir catálogo inteiro da indústria — só Master */}
+        {isMaster && (
+          <button onClick={wipeCatalog} disabled={!selIndustria || wiping}
+            title="Excluir TODO o catálogo desta indústria (produtos + tabelas de preço)"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', borderRadius: 8, border: '1px solid #FCA5A5',
+              background: 'transparent', fontSize: 12, fontWeight: 700,
+              color: '#DC2626', cursor: selIndustria && !wiping ? 'pointer' : 'not-allowed',
+              opacity: !selIndustria ? 0.5 : 1,
+            }}>
+            <Trash2 size={13} /> {wiping ? 'Excluindo...' : 'Excluir catálogo'}
+          </button>
+        )}
       </div>
 
       {/* ── Table ───────────────────────────────────────────────────────── */}
@@ -445,12 +494,14 @@ export default function CatalogoDigitalPage() {
             <thead>
               <tr>
                 <th style={{ ...thBase, width: 130 }}>Código</th>
+                <th style={{ ...thBase, width: 110 }}>Cód. Normaliz.</th>
                 <th style={{ ...thBase }}>Descrição</th>
                 <th style={{ ...thBase, width: 160 }}>Conversão</th>
                 <th style={{ ...thBase, width: 70, textAlign: 'right' }}>Peso</th>
                 <th style={{ ...thBase, width: 50, textAlign: 'center' }}>EMB</th>
                 <th style={{ ...thBase, width: 46, textAlign: 'center' }}>GRP</th>
                 <th style={{ ...thBase, width: 52, textAlign: 'center' }}>CICLO</th>
+                <th style={{ ...thBase, width: 56, textAlign: 'center' }}>ORIGEM</th>
                 {LINE_COLS.map(c => (
                   <th key={c.key} style={{ ...thBase, width: 46, textAlign: 'center', color: c.color }}>
                     {c.label}
@@ -463,14 +514,14 @@ export default function CatalogoDigitalPage() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={14} style={{ ...tdBase, textAlign: 'center', color: G.textMuted, padding: '40px 0' }}>
+                  <td colSpan={16} style={{ ...tdBase, textAlign: 'center', color: G.textMuted, padding: '40px 0' }}>
                     Carregando...
                   </td>
                 </tr>
               )}
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={14} style={{ ...tdBase, textAlign: 'center', color: G.textMuted, padding: '40px 0' }}>
+                  <td colSpan={16} style={{ ...tdBase, textAlign: 'center', color: G.textMuted, padding: '40px 0' }}>
                     Nenhum produto encontrado.
                   </td>
                 </tr>
@@ -487,6 +538,26 @@ export default function CatalogoDigitalPage() {
                   <td style={tdBase}>
                     <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 12, color: '#1D4ED8' }}>
                       {row.pro_codprod}
+                    </span>
+                  </td>
+
+                  {/* Cód. Normalizado — útil pra identificar duplicatas legadas */}
+                  <td style={tdBase}>
+                    <span style={{
+                      fontFamily: 'monospace', fontSize: 11,
+                      color: row.pro_codigonormalizado &&
+                             row.pro_codprod.toUpperCase().replace(/[^A-Z0-9]/g, '') !== row.pro_codigonormalizado
+                        ? '#C0392B'  // vermelho — divergente do recalculado (legado errado)
+                        : G.textMuted,
+                      fontWeight: 600,
+                    }}
+                    title={
+                      row.pro_codigonormalizado &&
+                      row.pro_codprod.toUpperCase().replace(/[^A-Z0-9]/g, '') !== row.pro_codigonormalizado
+                        ? `⚠ Divergente do código atual. Deveria ser: ${row.pro_codprod.toUpperCase().replace(/[^A-Z0-9]/g, '')}`
+                        : ''
+                    }>
+                      {row.pro_codigonormalizado || '—'}
                     </span>
                   </td>
 
@@ -535,6 +606,31 @@ export default function CatalogoDigitalPage() {
                         background: '#DBEAFE', color: '#1E40AF', border: '1px solid #BFDBFE',
                       }}>C</span>
                     ) : null}
+                  </td>
+
+                  {/* Origem (CST SEFAZ) */}
+                  <td style={{ ...tdBase, textAlign: 'center' }}>
+                    {row.pro_origem === '0' ? (
+                      <span style={{
+                        display: 'inline-block', padding: '1px 7px', borderRadius: 6,
+                        fontSize: 10, fontWeight: 800, letterSpacing: '0.05em',
+                        background: '#DCFCE7', color: '#166534', border: '1px solid #86EFAC',
+                      }} title="Nacional">NAC</span>
+                    ) : row.pro_origem === '1' ? (
+                      <span style={{
+                        display: 'inline-block', padding: '1px 7px', borderRadius: 6,
+                        fontSize: 10, fontWeight: 800, letterSpacing: '0.05em',
+                        background: '#FFEDD5', color: '#9A3412', border: '1px solid #FDBA74',
+                      }} title="Importada">IMP</span>
+                    ) : row.pro_origem && /^[2-8]$/.test(row.pro_origem) ? (
+                      <span style={{
+                        display: 'inline-block', padding: '1px 7px', borderRadius: 6,
+                        fontSize: 10, fontWeight: 800, letterSpacing: '0.05em',
+                        background: '#E0E7FF', color: '#3730A3', border: '1px solid #A5B4FC',
+                      }} title={`CST origem ${row.pro_origem}`}>{row.pro_origem}</span>
+                    ) : (
+                      <span style={{ color: G.textMuted, fontSize: 12 }}>—</span>
+                    )}
                   </td>
 
                   {/* Line flags — individual columns */}
