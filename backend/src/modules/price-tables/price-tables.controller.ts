@@ -573,6 +573,8 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
       linhaleve: boolean | null; linhapesada: boolean | null; linhaagricola: boolean | null;
       linhautilitarios: boolean | null; motocicletas: boolean | null;
       offroad: boolean | null; linhaamarela: boolean | null;
+      useRef: string | null;   // referência "USE <código>" no preço (equivalência)
+      inativo: boolean;        // pro_status=false (suspenso/inativo ou USE órfão)
     };
 
     // Registro de duplicatas para o rep auditar
@@ -603,6 +605,9 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
       const linhaFlags = parseLinhaFlags(p.linha);
       // Linha do Excel: front envia `idx` (1-based). Sem ele, fallback para offset+1.
       const rowIdx = Number.isFinite(p.idx) ? Number(p.idx) : (i + 1);
+      // Preço tipo "USE <código>" (equivalência) → guarda a referência normalizada.
+      const useM = /^\s*USE\b\s*(.+)$/i.exec(String(p.precobruto ?? ''));
+      const useRef = useM ? normalizeCode(useM[1]) : null;
       processed.push({
         idx: rowIdx,
         // Limites alinhados com o schema do banco (cad_prod):
@@ -639,6 +644,8 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
         motocicletas:     safeBool(p.motocicletas) ?? linhaFlags.motocicletas,
         offroad:          safeBool(p.offroad) ?? linhaFlags.offroad,
         linhaamarela:     safeBool(p.linhaamarela) ?? linhaFlags.linhaamarela,
+        useRef,
+        inativo:          false,
       });
     }
 
@@ -724,6 +731,68 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
     const isInativo = (nome: string) =>
       /venda\s*suspensa|suspens[ãa]|\binativ|descontinuad|fora\s*de\s*linha|obsolet|n[ãa]o\s*comercializ/i.test(nome || '');
 
+    // ── Resolver "USE <código>" (equivalência) ───────────────────────────────
+    // Item sem preço próprio herda o PERFIL de preço (bruto/promo/especial/ipi/st)
+    // de outro código. 1º no próprio lote (transitivo, com guarda anti-loop);
+    // 2º no catálogo já existente; senão vira órfão → inativo (pro_status=false).
+    const byCode = new Map<string, ProdProcessed>();
+    for (const pr of processed) byCode.set(pr.normalizedCode, pr);
+    const resolveLote = (code: string, seen: Set<string>): ProdProcessed | null => {
+      if (!code || seen.has(code)) return null;
+      seen.add(code);
+      const tgt = byCode.get(code);
+      if (!tgt) return null;
+      return tgt.useRef ? resolveLote(tgt.useRef, seen) : tgt; // segue a cadeia USE→USE
+    };
+    const herdarPreco = (item: ProdProcessed, s: { precobruto: number; precopromo: number | null; precoespecial: number | null; ipi: number | null; st: number | null }) => {
+      item.precobruto = s.precobruto; item.precopromo = s.precopromo;
+      item.precoespecial = s.precoespecial; item.ipi = s.ipi; item.st = s.st;
+      item.useRef = null;
+    };
+
+    let useResolvidosLote = 0, useResolvidosCatalogo = 0, useOrfaos = 0;
+    const pendentesUse: ProdProcessed[] = [];
+    for (const item of processed.filter(p => p.useRef)) {
+      const tgt = resolveLote(item.useRef!, new Set([item.normalizedCode]));
+      if (tgt && !tgt.useRef) { herdarPreco(item, tgt); useResolvidosLote++; }
+      else pendentesUse.push(item);
+    }
+    // 2º: catálogo já existente (preço de import anterior)
+    if (pendentesUse.length > 0) {
+      const codes = [...new Set(pendentesUse.map(i => i.useRef!).filter(Boolean))];
+      const catRes = await db.query(
+        `SELECT pr.pro_codigonormalizado AS code,
+                t.itab_precobruto, t.itab_precopromo, t.itab_precoespecial, t.itab_ipi, t.itab_st
+           FROM cad_prod pr
+           JOIN cad_tabelaspre t ON t.itab_idprod = pr.pro_id
+          WHERE pr.pro_industria = $1
+            AND COALESCE(t.itab_status, true) = true
+            AND pr.pro_codigonormalizado = ANY($2::text[])`,
+        [indId, codes],
+      );
+      const catMap = new Map<string, any>();
+      for (const r of catRes.rows) if (!catMap.has(r.code)) catMap.set(r.code, r);
+      for (const item of pendentesUse) {
+        const cr = catMap.get(item.useRef!);
+        if (cr) {
+          herdarPreco(item, {
+            precobruto:    parseFloat(cr.itab_precobruto) || 0,
+            precopromo:    cr.itab_precopromo    != null ? parseFloat(cr.itab_precopromo)    : null,
+            precoespecial: cr.itab_precoespecial != null ? parseFloat(cr.itab_precoespecial) : null,
+            ipi:           cr.itab_ipi != null ? parseFloat(cr.itab_ipi) : null,
+            st:            cr.itab_st  != null ? parseFloat(cr.itab_st)  : null,
+          });
+          useResolvidosCatalogo++;
+        } else {
+          item.inativo = true; useOrfaos++; // órfão real → inativo
+        }
+      }
+    }
+    // Inativos por descrição (venda suspensa/descontinuado/…), somados aos órfãos.
+    for (const item of processed) {
+      if (isInativo(item.nome ?? '')) item.inativo = true;
+    }
+
     const newProdsRaw = processed.filter(p => !existingMap.has(p.normalizedCode));
     const updProds    = processed.filter(p =>  existingMap.has(p.normalizedCode));
 
@@ -791,7 +860,7 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
             newProds.map(p => p.offroad ?? false),
             newProds.map(p => p.linhaamarela ?? false),
             newProds.map(p => p.origem),
-            newProds.map(p => !isInativo(p.nome)),   // pro_status: false se suspenso/inativo
+            newProds.map(p => !p.inativo),   // pro_status: false se inativo (suspenso ou USE órfão)
           ]
         );
         insRes.rows.forEach((r: any) => insertedMap.set(r.pro_codigonormalizado, r.pro_id));
@@ -872,7 +941,7 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
             updProds.map(p => p.offroad),
             updProds.map(p => p.linhaamarela),
             updProds.map(p => p.origem ?? ''),
-            updProds.map(p => isInativo(p.nome)),   // inativa se a nova descrição é suspensa
+            updProds.map(p => p.inativo),   // inativa se suspenso/inativo ou USE órfão
           ]
         );
       }
@@ -967,6 +1036,9 @@ export async function importPriceTableHandler(req: Request, res: Response): Prom
         erros: 0,
         detalhesErros: [],
         duplicatas,
+        useResolvidosLote,        // "USE X" resolvidos no próprio arquivo
+        useResolvidosCatalogo,    // resolvidos pelo catálogo já existente
+        useOrfaosInativados: useOrfaos,  // "USE X" sem mestre em lugar nenhum → inativos
       },
     });
   } catch (error: any) {
