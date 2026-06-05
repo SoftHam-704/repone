@@ -553,7 +553,7 @@ const ItemsModel11 = ({ groupedItems, order }) => {
 
                         {items.map((item, idx) => {
                             globalSeq++;
-                            const conv = item.ite_embuch || '';
+                            const conv = item.ite_embuch || item.pro_codigooriginal || '—';
                             return (
                                 <View key={idx} style={styles.tableRowDashed} wrap={false}>
                                     <Text style={{ width: '3%', textAlign: 'center' }}>{globalSeq}</Text>
@@ -2151,7 +2151,7 @@ const TotalsSection13 = ({ order, items }) => {
                 <View style={{ borderWidth: 0.5, borderColor: '#000', borderStyle: 'solid', marginTop: 2 }}>
                     <BoxHeader title="OBSERVAÇÕES GERAIS" />
                     <View style={{ minHeight: 40, padding: 3 }}>
-                        <Text style={{ fontSize: 7 }}>{order.ped_obs || order.ped_obscomplementar || ''}</Text>
+                        <Text style={{ fontSize: 7, color: '#DC2626', fontWeight: 'bold' }}>{order.ped_obs || order.ped_obscomplementar || ''}</Text>
                     </View>
                 </View>
             </View>
@@ -2267,7 +2267,7 @@ const TotalsSection11 = ({ order, items }) => {
             <View style={{ marginTop: 5 }}>
                 <Text style={{ fontSize: 8, fontWeight: 'bold', textAlign: 'center', textDecoration: 'underline' }}>OBSERVAÇÕES GERAIS</Text>
                 <View style={{ borderWidth: 0.5, borderColor: '#000000', borderStyle: 'solid', padding: 5, marginTop: 2, minHeight: 60 }}>
-                    <Text style={{ fontSize: 7 }}>{order.ped_obs || order.ped_obscomplementar || ''}</Text>
+                    <Text style={{ fontSize: 7, color: '#DC2626', fontWeight: 'bold' }}>{order.ped_obs || order.ped_obscomplementar || ''}</Text>
                 </View>
             </View>
         </View>
