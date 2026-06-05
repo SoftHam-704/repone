@@ -56,6 +56,14 @@ const getItemDiscountString = (it) => {
 
 const num = (v) => parseFloat(v) || 0;
 
+// Complemento do item: conversão (ite_embuch) ou código original — mas o original SÓ entra
+// quando difere do código do produto (senão repetiria o código na coluna de complemento).
+const getComplemento = (it) => {
+    const orig = (it.pro_codigooriginal && String(it.pro_codigooriginal).trim() !== String(it.ite_produto).trim())
+        ? it.pro_codigooriginal : '';
+    return it.ite_embuch || orig || '';
+};
+
 // Model 15: No Tax Values (Only % IPI) - Item, Quant, Descrição, Preço Lista, Preço Unit Liq, Sub Total, % IPI
 const ItemsModel15 = ({ groupedItems, order }) => {
     let globalSeq = 0;
@@ -365,7 +373,7 @@ const ItemsModel16 = ({ groupedItems }) => {
                                 <View key={idx} style={styles.tableRowDashed} wrap={false}>
                                     <Text style={{ width: '3.5%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{globalSeq}</Text>
                                     <Text style={{ width: '11%', textAlign: 'left', paddingLeft: 2, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_produto}</Text>
-                                    <Text style={{ width: '10%', textAlign: 'left', paddingLeft: 2, fontSize: 6, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_embuch || item.pro_codigooriginal || '—'}</Text>
+                                    <Text style={{ width: '10%', textAlign: 'left', paddingLeft: 2, fontSize: 6, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{getComplemento(item) || '—'}</Text>
                                     <Text style={{ flex: 1, paddingLeft: 2, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.pro_nome || item.ite_nomeprod}</Text>
                                     <Text style={{ width: '5%', textAlign: 'center', fontWeight: 'bold', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_quant}</Text>
                                     <Text style={{ width: '8%', textAlign: 'right', paddingRight: 2, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{fv(puniLiq)}</Text>
@@ -553,7 +561,7 @@ const ItemsModel11 = ({ groupedItems, order }) => {
 
                         {items.map((item, idx) => {
                             globalSeq++;
-                            const conv = item.ite_embuch || item.pro_codigooriginal || '—';
+                            const conv = getComplemento(item) || '—';
                             return (
                                 <View key={idx} style={styles.tableRowDashed} wrap={false}>
                                     <Text style={{ width: '3%', textAlign: 'center' }}>{globalSeq}</Text>

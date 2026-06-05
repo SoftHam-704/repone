@@ -248,7 +248,8 @@ async function buildWorkbook(order: any, items: any[], separateGroups: 'S' | 'N'
             // Mapping to columns
             setCell(currentRowIdx, 'A', item.ite_produto || '', FONT_NORMAL, 'left');
             setCell(currentRowIdx, 'B', item.ite_nomeprod || '', FONT_NORMAL, 'left');
-            setCell(currentRowIdx, 'C', item.ite_embuch || item.pro_codigooriginal || item.ite_complemento || '', FONT_NORMAL, 'left');
+            const codOrig = (item.pro_codigooriginal && String(item.pro_codigooriginal).trim() !== String(item.ite_produto).trim()) ? item.pro_codigooriginal : '';
+            setCell(currentRowIdx, 'C', item.ite_embuch || codOrig || item.ite_complemento || '', FONT_NORMAL, 'left');
             // D skipped
             setCell(currentRowIdx, 'E', quant, FONT_NORMAL, 'right').numFmt = '0';
             setCell(currentRowIdx, 'F', parseFloat(item.ite_puni) || 0, FONT_NORMAL, 'right').numFmt = '#,##0.00';
