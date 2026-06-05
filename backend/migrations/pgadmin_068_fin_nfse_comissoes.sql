@@ -1,5 +1,6 @@
 -- ============================================================================
 -- Migration 068 — Controle de NFS-e (Comissoes do Escritorio) — FASE 1
+--                  (+ colunas EMISSION-READY pra FASE 3, todas opcionais)
 -- ----------------------------------------------------------------------------
 -- Banco : basesales (Postgres 16). Rodar no pgAdmin conectado em basesales.
 -- Autor : dba  |  Data: 2026-06-05  |  Todos os 31 tenants RepOne ATIVOS.
@@ -8,10 +9,21 @@
 --   Cria, em CADA tenant, as duas tabelas do modulo "Controle de NFS-e":
 --     1) fin_nfse_aliquotas — matriz tributaria do escritorio (1 linha, id=1),
 --        seedada com os defaults do REMAP (Lucro Presumido / servicos).
+--        Carrega tambem a config de EMISSAO do prestador (inscricao municipal,
+--        codigo de servico padrao, ambiente) — usada so na Fase 3.
 --     2) fin_nfse           — os lancamentos mensais (1 linha por nota emitida
 --        a uma representada), espelhando a planilha da contadora. Os impostos
 --        sao GRAVADOS no registro (snapshot), para o historico nao mudar se a
 --        matriz de aliquotas for editada depois.
+--
+-- FASE 1 vs FASE 3 (decisao Hamilton 2026-06-05):
+--   A 068 ja NASCE emission-ready pra rodar UMA migration so. As colunas de
+--   emissao (rps_*, codigo_servico, discriminacao, protocolo, codigo_verificacao,
+--   emitida_em, cancelada_em, xml, pdf_url, erro_msg + status) sao TODAS
+--   nulas/opcionais e NAO atrapalham a Fase 1 (controle/apuracao puro).
+--   - fin_nfse.status DEFAULT 'CONTROLE' = registro de apuracao, sem emissao real.
+--     O ciclo de emissao da Fase 3 usa PENDENTE -> EMITIDA / CANCELADA / ERRO.
+--   - Certificado A1 NAO fica no banco (tratado fora, na Fase 3).
 --
 -- MATRIZ (% sobre o VR BRUTO da comissao) seedada:
 --   IRRF 1.50 | PIS 0.65 | COFINS 3.00 | CSLL 2.88 | IRPJ 4.80 | ISS 2.50 | FGTS/GPS 2.70
@@ -33,6 +45,10 @@
 -- SEGURANCA (producao viva, 24x7):
 --   - Idempotente: CREATE TABLE IF NOT EXISTS + CREATE INDEX IF NOT EXISTS +
 --     seed via INSERT ... ON CONFLICT (id) DO NOTHING.
+--   - Convergencia: apos cada CREATE, um bloco ALTER TABLE ... ADD COLUMN
+--     IF NOT EXISTS garante que, mesmo num ambiente onde a tabela tenha sido
+--     criada parcialmente (versao antiga da 068, sem as colunas de emissao),
+--     o re-run alinha o schema sem quebrar nada existente.
 --   - All-or-nothing: tudo num unico bloco DO; RAISE EXCEPTION aborta a TX
 --     inteira -> nenhum tenant fica pela metade.
 --   - Nao-destrutivo: so cria objetos novos e semeia 1 linha de config. Nada
@@ -78,9 +94,36 @@ BEGIN
         irpj_pct      NUMERIC(6,4) NOT NULL DEFAULT 0,
         iss_pct       NUMERIC(6,4) NOT NULL DEFAULT 0,
         fgts_gps_pct  NUMERIC(6,4) NOT NULL DEFAULT 0,
+        -- config de EMISSAO do prestador (Fase 3 — opcional ate la)
+        inscricao_municipal   VARCHAR(20) NULL,
+        codigo_servico_padrao VARCHAR(10) NULL,  -- cod. servico default novas notas
+        ambiente      VARCHAR(12)  NOT NULL DEFAULT 'HOMOLOGACAO',
         atualizado_em TIMESTAMPTZ  NOT NULL DEFAULT now(),
-        CONSTRAINT chk_fin_nfse_aliq_singleton CHECK (id = 1)
+        CONSTRAINT chk_fin_nfse_aliq_singleton CHECK (id = 1),
+        CONSTRAINT chk_fin_nfse_aliq_ambiente
+          CHECK (ambiente IN ('HOMOLOGACAO','PRODUCAO'))
       )
+    $f$, schema_var);
+
+    -- convergencia: garante colunas de emissao em tabela pre-existente parcial
+    EXECUTE format($f$
+      ALTER TABLE %I.fin_nfse_aliquotas
+        ADD COLUMN IF NOT EXISTS inscricao_municipal   VARCHAR(20) NULL,
+        ADD COLUMN IF NOT EXISTS codigo_servico_padrao VARCHAR(10) NULL,
+        ADD COLUMN IF NOT EXISTS ambiente VARCHAR(12) NOT NULL DEFAULT 'HOMOLOGACAO'
+    $f$, schema_var);
+    EXECUTE format($f$
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'chk_fin_nfse_aliq_ambiente'
+            AND conrelid = '%1$I.fin_nfse_aliquotas'::regclass
+        ) THEN
+          ALTER TABLE %1$I.fin_nfse_aliquotas
+            ADD CONSTRAINT chk_fin_nfse_aliq_ambiente
+            CHECK (ambiente IN ('HOMOLOGACAO','PRODUCAO'));
+        END IF;
+      END $$
     $f$, schema_var);
     cnt_aliq_tbl := cnt_aliq_tbl + 1;
 
@@ -124,10 +167,55 @@ BEGIN
         data_pgto        DATE          NULL,
         transf           BOOLEAN       NOT NULL DEFAULT false, -- planilha 'SIM/OK'
         obs              TEXT          NULL,
+        -- ---- EMISSION-READY (Fase 3) — tudo nulo/opcional na Fase 1 ----
+        status           VARCHAR(12)  NOT NULL DEFAULT 'CONTROLE',
+        rps_numero       INTEGER       NULL,   -- Recibo Provisorio de Servicos
+        rps_serie        VARCHAR(5)    NULL,
+        codigo_servico   VARCHAR(10)   NULL,   -- LC116/municipal (repres. ~ 10.09)
+        discriminacao    TEXT          NULL,   -- texto dos servicos na nota
+        protocolo        VARCHAR(60)   NULL,   -- retorno da prefeitura
+        codigo_verificacao VARCHAR(60) NULL,
+        emitida_em       TIMESTAMPTZ   NULL,
+        cancelada_em     TIMESTAMPTZ   NULL,
+        xml              TEXT          NULL,   -- XML da nota (ou referencia)
+        pdf_url          TEXT          NULL,   -- link/caminho do PDF
+        erro_msg         TEXT          NULL,   -- mensagem de erro da emissao
         created_by       INTEGER       NULL,
         created_at       TIMESTAMPTZ   NOT NULL DEFAULT now(),
-        updated_at       TIMESTAMPTZ   NOT NULL DEFAULT now()
+        updated_at       TIMESTAMPTZ   NOT NULL DEFAULT now(),
+        CONSTRAINT chk_fin_nfse_status
+          CHECK (status IN ('CONTROLE','PENDENTE','EMITIDA','CANCELADA','ERRO'))
       )
+    $f$, schema_var);
+
+    -- convergencia: garante colunas de emissao em tabela pre-existente parcial
+    EXECUTE format($f$
+      ALTER TABLE %I.fin_nfse
+        ADD COLUMN IF NOT EXISTS status VARCHAR(12) NOT NULL DEFAULT 'CONTROLE',
+        ADD COLUMN IF NOT EXISTS rps_numero       INTEGER     NULL,
+        ADD COLUMN IF NOT EXISTS rps_serie        VARCHAR(5)  NULL,
+        ADD COLUMN IF NOT EXISTS codigo_servico   VARCHAR(10) NULL,
+        ADD COLUMN IF NOT EXISTS discriminacao    TEXT        NULL,
+        ADD COLUMN IF NOT EXISTS protocolo        VARCHAR(60) NULL,
+        ADD COLUMN IF NOT EXISTS codigo_verificacao VARCHAR(60) NULL,
+        ADD COLUMN IF NOT EXISTS emitida_em       TIMESTAMPTZ NULL,
+        ADD COLUMN IF NOT EXISTS cancelada_em     TIMESTAMPTZ NULL,
+        ADD COLUMN IF NOT EXISTS xml              TEXT        NULL,
+        ADD COLUMN IF NOT EXISTS pdf_url          TEXT        NULL,
+        ADD COLUMN IF NOT EXISTS erro_msg         TEXT        NULL
+    $f$, schema_var);
+    EXECUTE format($f$
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'chk_fin_nfse_status'
+            AND conrelid = '%1$I.fin_nfse'::regclass
+        ) THEN
+          ALTER TABLE %1$I.fin_nfse
+            ADD CONSTRAINT chk_fin_nfse_status
+            CHECK (status IN ('CONTROLE','PENDENTE','EMITIDA','CANCELADA','ERRO'));
+        END IF;
+      END $$
     $f$, schema_var);
     cnt_nfse_tbl := cnt_nfse_tbl + 1;
 
@@ -142,6 +230,12 @@ BEGIN
     EXECUTE format(
       'CREATE INDEX IF NOT EXISTS idx_fin_nfse_comp_for ON %I.fin_nfse (competencia, for_codigo)',
       schema_var);
+    -- emissao (Fase 3): fila de notas que precisam de acao (PENDENTE/ERRO).
+    -- parcial -> nao indexa CONTROLE/EMITIDA/CANCELADA (a esmagadora maioria).
+    EXECUTE format($f$
+      CREATE INDEX IF NOT EXISTS idx_fin_nfse_status_pend ON %I.fin_nfse (status)
+      WHERE status IN ('PENDENTE','ERRO')
+    $f$, schema_var);
 
   END LOOP;
 
@@ -159,13 +253,37 @@ BEGIN
       cnt_seed, array_length(schemas_list, 1);
   END IF;
 
+  -- emission-ready: confere que as colunas-chave de emissao convergiram em
+  -- TODOS os tenants (pega o caso de tabela pre-existente nao alinhada).
+  IF EXISTS (
+    SELECT 1 FROM unnest(schemas_list) s
+    WHERE NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = s AND table_name = 'fin_nfse' AND column_name = 'status'
+    )
+  ) THEN
+    RAISE EXCEPTION 'ABORT: coluna fin_nfse.status ausente em algum tenant';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(schemas_list) s
+    WHERE NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = s AND table_name = 'fin_nfse_aliquotas'
+        AND column_name = 'ambiente'
+    )
+  ) THEN
+    RAISE EXCEPTION 'ABORT: coluna fin_nfse_aliquotas.ambiente ausente em algum tenant';
+  END IF;
+
   -- ---- RELATORIO ----
   RAISE NOTICE '====================================================';
-  RAISE NOTICE 'Migration 068 — Controle de NFS-e (Comissoes) FASE 1';
+  RAISE NOTICE 'Migration 068 — NFS-e (Comissoes) FASE 1 + emission-ready';
   RAISE NOTICE 'Tenants processados ............... %', array_length(schemas_list, 1);
   RAISE NOTICE 'fin_nfse_aliquotas garantida ...... %', cnt_aliq_tbl;
   RAISE NOTICE 'fin_nfse garantida ................ %', cnt_nfse_tbl;
   RAISE NOTICE 'Matriz seedada (linha id=1) ....... %', cnt_seed;
+  RAISE NOTICE 'Colunas de emissao ................ OK (status DEFAULT CONTROLE)';
+  RAISE NOTICE 'Ambiente padrao ................... HOMOLOGACAO';
   RAISE NOTICE '====================================================';
   RAISE NOTICE 'OK. Faca COMMIT para aplicar (ou ROLLBACK para descartar).';
 END $outer$;
@@ -174,6 +292,7 @@ END $outer$;
 -- VERIFICACAO POS-COMMIT (read-only — rode separado em 1-2 tenants):
 --
 --   SELECT * FROM remap.fin_nfse_aliquotas;          -- 1 linha, matriz REMAP
+--                                                    -- (ambiente='HOMOLOGACAO')
 --
 --   SELECT table_schema, table_name
 --   FROM information_schema.tables
@@ -182,4 +301,13 @@ END $outer$;
 --   ORDER BY 1,2;                                     -- 2 tabelas por tenant
 --
 --   \d remap.fin_nfse                                 -- confere colunas/indices
+--
+--   -- emission-ready: colunas de emissao presentes nos 31 tenants?
+--   SELECT table_schema, count(*) AS cols_emissao
+--   FROM information_schema.columns
+--   WHERE table_name = 'fin_nfse'
+--     AND column_name IN ('status','rps_numero','rps_serie','codigo_servico',
+--       'discriminacao','protocolo','codigo_verificacao','emitida_em',
+--       'cancelada_em','xml','pdf_url','erro_msg')
+--   GROUP BY table_schema ORDER BY 1;                 -- esperado: 12 por tenant
 -- ============================================================================
