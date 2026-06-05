@@ -2816,14 +2816,14 @@ const r2 = StyleSheet.create({
     comCellLast: { flex: 1, padding: '7px 8px' },
     logoCell: { height: 42, justifyContent: 'center', alignItems: 'center' },
     itHead: { flexDirection: 'row', backgroundColor: NAVY, borderRadius: 4, paddingVertical: 5, paddingHorizontal: 6, marginBottom: 2 },
-    itHeadTxt: { color: '#FFFFFF', fontSize: 6.5, fontWeight: 'medium', textTransform: 'uppercase' },
+    itHeadTxt: { color: '#FFFFFF', fontSize: 6.5, fontWeight: 'bold', textTransform: 'uppercase' },
     itRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4, paddingHorizontal: 6, borderBottomWidth: 0.5, borderBottomColor: '#E2E8F0' },
     cSeq: { width: '5%', fontSize: 7, color: INK, fontWeight: 'medium' },
     cCod: { width: '8%', fontSize: 8, color: INK, fontWeight: 'medium' },
-    cDesc: { width: '37%', paddingRight: 4 },
+    cDesc: { width: '34%', paddingRight: 4 },
     cQtd: { width: '7%', alignItems: 'center' },
     cUni: { width: '10%', textAlign: 'right', color: INK, fontWeight: 'medium' },
-    cImp: { width: '4%', textAlign: 'center', color: INK, fontWeight: 'medium' },
+    cImp: { width: '5.5%', textAlign: 'center', color: INK, fontWeight: 'medium' },
     cUniImp: { width: '12%', textAlign: 'right', color: INK, fontWeight: 'medium' },
     cTot: { width: '13%', textAlign: 'right', color: INK, fontWeight: 'medium' },
     descTxt: { fontSize: 8.5, color: INK, fontWeight: 'medium' },
@@ -2897,8 +2897,8 @@ const RemapReport2 = ({ order, items, repInfo, logo, industryLogo }) => {
             <View style={r2.clientBox}>
                 <Text style={r2.razao}>{order.cli_nome}</Text>
                 <View style={r2.grid}>
-                    <F2 label="Endereço" value={[ender, order.cli_bairro, cidadeUf, order.cli_cep && `CEP ${order.cli_cep}`].filter(Boolean).join(' · ')} w="55%" />
-                    <F2 label="Comprador" value={order.ped_comprador_display || order.ped_comprador} w="45%" />
+                    <F2 label="Endereço" value={[ender, order.cli_bairro, cidadeUf, order.cli_cep && `CEP ${order.cli_cep}`].filter(Boolean).join(' · ')} w="70%" />
+                    <F2 label="Comprador" value={order.ped_comprador_display || order.ped_comprador} w="30%" />
                     <F2 label="CNPJ" value={formatCpfCnpj(order.client_cnpj || order.cli_cnpj)} w="33%" />
                     <F2 label="Inscr. Estadual" value={order.cli_inscricao} w="33%" />
                     <F2 label="End. Cobrança" value="O mesmo" w="34%" />
@@ -2926,15 +2926,15 @@ const RemapReport2 = ({ order, items, repInfo, logo, industryLogo }) => {
             {/* Itens */}
             <Text style={r2.blockTitle}>Itens do Pedido</Text>
             <View style={r2.itHead}>
-                <Text style={[r2.itHeadTxt, r2.cSeq]}>#</Text>
-                <Text style={[r2.itHeadTxt, r2.cCod]}>Código</Text>
-                <Text style={[r2.itHeadTxt, r2.cDesc]}>Descrição</Text>
-                <Text style={[r2.itHeadTxt, r2.cQtd]}>Qtd.</Text>
-                <Text style={[r2.itHeadTxt, r2.cUni]}>Pr. Unit.</Text>
-                <Text style={[r2.itHeadTxt, r2.cImp]}>IPI</Text>
-                <Text style={[r2.itHeadTxt, r2.cImp]}>ST</Text>
-                <Text style={[r2.itHeadTxt, r2.cUniImp]}>Pr. c/Imp.</Text>
-                <Text style={[r2.itHeadTxt, r2.cTot]}>Total</Text>
+                <Text style={[r2.cSeq, r2.itHeadTxt]}>#</Text>
+                <Text style={[r2.cCod, r2.itHeadTxt]}>Código</Text>
+                <Text style={[r2.cDesc, r2.itHeadTxt]}>Descrição</Text>
+                <Text style={[r2.cQtd, r2.itHeadTxt]}>Qtd.</Text>
+                <Text style={[r2.cUni, r2.itHeadTxt]}>Pr. Unit.</Text>
+                <Text style={[r2.cImp, r2.itHeadTxt]}>IPI</Text>
+                <Text style={[r2.cImp, r2.itHeadTxt]}>ST</Text>
+                <Text style={[r2.cUniImp, r2.itHeadTxt]}>Pr. c/Imp.</Text>
+                <Text style={[r2.cTot, r2.itHeadTxt]}>Total</Text>
             </View>
             {items?.map((it, idx) => {
                 const ipi = parseFloat(it.ite_ipi) || 0;
