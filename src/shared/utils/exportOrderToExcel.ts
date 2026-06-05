@@ -98,7 +98,7 @@ async function buildWorkbook(order: any, items: any[], separateGroups: 'S' | 'N'
     setCell(1, 'B', order.ped_pedido, FONT_BOLD, 'left').alignment = { horizontal: 'left' };
 
     setCell(1, 'D', 'OC do Cliente:', FONT_NORMAL, 'right');
-    setCell(1, 'E', order.ped_oc || order.ped_pedcli || '', FONT_BOLD, 'right');
+    setCell(1, 'E', order.ped_oc || '', FONT_BOLD, 'right');
 
     setCell(1, 'G', 'Data:', FONT_NORMAL, 'right');
     setCell(1, 'H', formatDate(order.ped_data), FONT_BOLD, 'left');
@@ -248,7 +248,7 @@ async function buildWorkbook(order: any, items: any[], separateGroups: 'S' | 'N'
             // Mapping to columns
             setCell(currentRowIdx, 'A', item.ite_produto || '', FONT_NORMAL, 'left');
             setCell(currentRowIdx, 'B', item.ite_nomeprod || '', FONT_NORMAL, 'left');
-            setCell(currentRowIdx, 'C', item.ite_embuch || item.ite_complemento || '', FONT_NORMAL, 'left');
+            setCell(currentRowIdx, 'C', item.ite_embuch || item.pro_codigooriginal || item.ite_complemento || '', FONT_NORMAL, 'left');
             // D skipped
             setCell(currentRowIdx, 'E', quant, FONT_NORMAL, 'right').numFmt = '0';
             setCell(currentRowIdx, 'F', parseFloat(item.ite_puni) || 0, FONT_NORMAL, 'right').numFmt = '#,##0.00';
