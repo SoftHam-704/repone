@@ -252,7 +252,7 @@ export default function FinanceiroDashboardPage() {
               { label: 'Livro Caixa',     desc: 'Conta corrente — caixa, bancos e lançamentos', to: '/financeiro/livro-caixa',            icon: BookOpen,  color: G.mustard },
               { label: 'Fluxo de Caixa',  desc: 'Entradas e saídas projetadas por período',     to: '/financeiro/relatorios/fluxo-caixa', icon: BarChart2, color: G.green },
               { label: 'DRE Gerencial',   desc: 'Resultado — receitas, despesas e margem',       to: '/financeiro/relatorios/dre',         icon: PieChart,  color: G.navy },
-              { label: 'NFSe — Comissões', desc: 'Emitir notas de serviço e separar impostos',   to: '/financeiro/nfse',                   icon: FileText,  color: G.red, soon: true },
+              { label: 'NFS-e — Comissões', desc: 'Notas de serviço às representadas e apuração de impostos', to: '/financeiro/nfse-comissoes',         icon: FileText,  color: G.red },
             ].map(({ label, desc, to, icon: Icon, color, soon }) => {
               const inner = (
                 <>

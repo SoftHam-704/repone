@@ -64,6 +64,7 @@ const CentroCustoPage          = lazy(() => import('@/modules/financeiro/pages/C
 const LivroCaixaPage           = lazy(() => import('@/modules/financeiro/pages/LivroCaixaPage'))
 const FinClientesPage          = lazy(() => import('@/modules/financeiro/pages/FinClientesPage'))
 const FinFornecedoresPage      = lazy(() => import('@/modules/financeiro/pages/FinFornecedoresPage'))
+const NfseComissoesPage        = lazy(() => import('@/modules/financeiro/pages/NfseComissoesPage'))
 const CarteiraRadarPage        = lazy(() => import('@/modules/crm/pages/CarteiraRadarPage'))
 const CarteiraClientesPage     = lazy(() => import('@/modules/crm/pages/CarteiraClientesPage'))
 const RepCrmDashboardPage      = lazy(() => import('@/modules/crm/pages/RepCrmDashboardPage'))
@@ -126,6 +127,7 @@ export const ROUTE_CONFIG: Record<string, RouteItem> = {
   '/financeiro/receber':               { id: 'fin-receber',   label: 'Contas a Receber',       path: '/financeiro/receber',                icon: DollarSign,   element: <ContasReceberPage /> },
   '/financeiro/pagar':                 { id: 'fin-pagar',     label: 'Contas a Pagar',         path: '/financeiro/pagar',                  icon: DollarSign,   element: <ContasPagarPage /> },
   '/financeiro/livro-caixa':           { id: 'fin-livro-caixa', label: 'Livro Caixa', path: '/financeiro/livro-caixa', icon: BookOpen, element: <RequireMaster><LivroCaixaPage /></RequireMaster> },
+  '/financeiro/nfse-comissoes':        { id: 'fin-nfse', label: 'NFS-e / Comissões', path: '/financeiro/nfse-comissoes', icon: FileText, element: <RequireMaster><NfseComissoesPage /></RequireMaster> },
   '/financeiro/relatorios/fluxo-caixa':{ id: 'fin-fluxo',     label: 'Fluxo de Caixa',         path: '/financeiro/relatorios/fluxo-caixa', icon: TrendingUp,   element: <RequireMaster><FluxoCaixaPage /></RequireMaster> },
   '/financeiro/relatorios/dre':        { id: 'fin-dre',       label: 'DRE Gerencial',           path: '/financeiro/relatorios/dre',         icon: PieChart,     element: <RequireMaster><DREPage /></RequireMaster> },
   '/financeiro/plano-contas':          { id: 'fin-plano',     label: 'Plano de Contas',         path: '/financeiro/plano-contas',           icon: Settings,     element: <PlanoContasPage /> },
