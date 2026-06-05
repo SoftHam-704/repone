@@ -1,5 +1,5 @@
 import React from 'react';
-import { Page, Text, View, Document, StyleSheet, Image } from '@react-pdf/renderer';
+import { Page, Text, View, Document, StyleSheet, Image, Font } from '@react-pdf/renderer';
 
 // Helper to format CPF/CNPJ
 const formatCpfCnpj = (value) => {
@@ -91,7 +91,7 @@ const ItemsModel15 = ({ groupedItems, order }) => {
                                     <View style={{ flexDirection: 'row' }}>
                                         <Text style={styles.colSq}>{globalSeq}</Text>
                                         <Text style={styles.colProd}>{item.ite_produto}</Text>
-                                        <Text style={styles.colDesc}>{item.ite_nomeprod}</Text>
+                                        <Text style={styles.colDesc}>{item.pro_nome || item.ite_nomeprod}</Text>
                                         <Text style={styles.colQtd}>{item.ite_quant}</Text>
                                         <Text style={styles.colVal}>{fv(item.ite_puni)}</Text>
                                         <Text style={styles.colVal}>{fv(item.ite_puniliq)}</Text>
@@ -203,7 +203,7 @@ const ItemsModel14 = ({ groupedItems, order }) => {
                                         <Text style={{ width: '3%', textAlign: 'center' }}>{globalSeq}</Text>
                                         <Text style={{ width: '7%', textAlign: 'center' }}>{item.ite_produto}</Text>
                                         <Text style={{ width: '12%', textAlign: 'center', fontSize: 6 }}>{conv}</Text>
-                                        <Text style={{ flex: 1, paddingLeft: 2 }}>{item.ite_nomeprod}</Text>
+                                        <Text style={{ flex: 1, paddingLeft: 2 }}>{item.pro_nome || item.ite_nomeprod}</Text>
                                         <Text style={{ width: '5%', textAlign: 'center', fontWeight: 'bold' }}>{item.ite_quant}</Text>
                                         <Text style={{ width: '8%', textAlign: 'right' }}>{fv(item.ite_puni)}</Text>
                                         <Text style={{ width: '8%', textAlign: 'right' }}>{fv(item.ite_puniliq)}</Text>
@@ -286,8 +286,8 @@ const ItemsModel13 = ({ groupedItems, order }) => {
                                     <Text style={{ width: '3%', textAlign: 'center' }}>{globalSeq}</Text>
                                     <Text style={{ width: '6%', textAlign: 'center', color: '#1e40af', fontWeight: 'bold' }}>{item.ite_produto}</Text>
                                     <Text style={{ width: '8%', textAlign: 'center', fontSize: 6 }}>{comp}</Text>
-                                    <Text style={{ width: '8%', textAlign: 'center', fontSize: 6 }}>{order.ped_oc || order.ped_pedcli || order.ped_pedindustria || ''}</Text>
-                                    <Text style={{ flex: 1, paddingLeft: 2, color: '#1e40af', fontWeight: 'bold' }}>{item.ite_nomeprod}</Text>
+                                    <Text style={{ width: '8%', textAlign: 'center', fontSize: 6 }}>{order.ped_oc ||order.ped_pedindustria || ''}</Text>
+                                    <Text style={{ flex: 1, paddingLeft: 2, color: '#1e40af', fontWeight: 'bold' }}>{item.pro_nome || item.ite_nomeprod}</Text>
                                     <Text style={{ width: '4%', textAlign: 'center', fontWeight: 'bold', color: '#1e40af' }}>{item.ite_quant}</Text>
                                     <Text style={{ width: '7%', textAlign: 'right' }}>{fv(item.ite_puni)}</Text>
                                     <Text style={{ width: '7%', textAlign: 'right' }}>{fv(item.ite_puniliq)}</Text>
@@ -338,6 +338,7 @@ const ItemsModel16 = ({ groupedItems }) => {
                         <View style={{ ...styles.tableHeader, borderBottomWidth: 0 }}>
                             <Text style={{ width: '3.5%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>Sq:</Text>
                             <Text style={{ width: '11%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 }}>Produto:</Text>
+                            <Text style={{ width: '10%', textAlign: 'left', paddingLeft: 2, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>Complemento:</Text>
                             <Text style={{ flex: 1, paddingLeft: 2, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>Descrição do produto:</Text>
                             <Text style={{ width: '5%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>Quant</Text>
                             <Text style={{ width: '8%', textAlign: 'right', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingRight: 2 }}>Unit Líq</Text>
@@ -364,7 +365,8 @@ const ItemsModel16 = ({ groupedItems }) => {
                                 <View key={idx} style={styles.tableRowDashed} wrap={false}>
                                     <Text style={{ width: '3.5%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{globalSeq}</Text>
                                     <Text style={{ width: '11%', textAlign: 'left', paddingLeft: 2, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_produto}</Text>
-                                    <Text style={{ flex: 1, paddingLeft: 2, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_nomeprod}</Text>
+                                    <Text style={{ width: '10%', textAlign: 'left', paddingLeft: 2, fontSize: 6, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_embuch || item.pro_codigooriginal || '—'}</Text>
+                                    <Text style={{ flex: 1, paddingLeft: 2, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.pro_nome || item.ite_nomeprod}</Text>
                                     <Text style={{ width: '5%', textAlign: 'center', fontWeight: 'bold', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_quant}</Text>
                                     <Text style={{ width: '8%', textAlign: 'right', paddingRight: 2, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{fv(puniLiq)}</Text>
                                     <Text style={{ width: '8%', textAlign: 'right', paddingRight: 2, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{fv(puniWithIPI)}</Text>
@@ -377,7 +379,7 @@ const ItemsModel16 = ({ groupedItems }) => {
                         })}
 
                         <View style={{ ...styles.subTotalRow, borderTopWidth: 0.5, marginTop: 2 }}>
-                            <Text style={{ width: '53%' }}></Text>
+                            <Text style={{ width: '63%' }}></Text>
                             <Text style={{ width: '8%', textAlign: 'right' }}></Text>
                             <Text style={{ width: '8%', textAlign: 'right' }}></Text>
                             <Text style={{ width: '9%', textAlign: 'right' }}></Text>
@@ -492,7 +494,7 @@ const ItemsModel12 = ({ groupedItems, order }) => {
                                 <View key={idx} style={styles.tableRowDashed} wrap={false}>
                                     <Text style={{ width: '3%', textAlign: 'center' }}>{globalSeq}</Text>
                                     <Text style={{ width: '7%', textAlign: 'center' }}>{item.ite_produto}</Text>
-                                    <Text style={{ flex: 1, paddingLeft: 2 }}>{item.ite_nomeprod}</Text>
+                                    <Text style={{ flex: 1, paddingLeft: 2 }}>{item.pro_nome || item.ite_nomeprod}</Text>
                                     <Text style={{ width: '5%', textAlign: 'center', fontWeight: 'bold' }}>{item.ite_quant}</Text>
                                     <Text style={{ width: '8%', textAlign: 'right' }}>{fv(item.ite_puni)}</Text>
                                     <Text style={{ width: '8%', textAlign: 'right' }}>{fv(item.ite_puniliq)}</Text>
@@ -557,7 +559,7 @@ const ItemsModel11 = ({ groupedItems, order }) => {
                                     <Text style={{ width: '3%', textAlign: 'center' }}>{globalSeq}</Text>
                                     <Text style={{ width: '8%', textAlign: 'center' }}>{item.ite_produto}</Text>
                                     <Text style={{ width: '12%', textAlign: 'center', fontSize: 6 }}>{conv}</Text>
-                                    <Text style={{ flex: 1, paddingLeft: 2 }}>{item.ite_nomeprod}</Text>
+                                    <Text style={{ flex: 1, paddingLeft: 2 }}>{item.pro_nome || item.ite_nomeprod}</Text>
                                     <Text style={{ width: '6%', textAlign: 'center', fontWeight: 'bold' }}>{item.ite_quant}</Text>
                                     <Text style={{ width: '8%', textAlign: 'right' }}>{fv(item.ite_puni)}</Text>
                                     <Text style={{ width: '8%', textAlign: 'right' }}>{fv(item.ite_puniliq)}</Text>
@@ -616,7 +618,7 @@ const ItemsModel10 = ({ groupedItems }) => {
                                         <Text style={{ width: '4%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{globalSeq}</Text>
                                         <Text style={{ width: '5%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_quant}</Text>
                                         <Text style={{ width: '8%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_produto}</Text>
-                                        <Text style={{ flex: 1, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 }}>{item.ite_nomeprod}</Text>
+                                        <Text style={{ flex: 1, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 }}>{item.pro_nome || item.ite_nomeprod}</Text>
                                         <Text style={{ width: '12%', textAlign: 'right', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingRight: 2 }}>{fv(item.ite_puniliq)}</Text>
                                         <Text style={{ width: '12%', textAlign: 'right', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingRight: 2, fontWeight: 'bold' }}>{fv(item.ite_totliquido)}</Text>
                                         <Text style={{ width: '5%', textAlign: 'right', paddingRight: 2 }}>{fv(item.ite_ipi)}</Text>
@@ -991,7 +993,7 @@ const ReportHeader = ({ order, repInfo, logo, industryLogo, modelNum = 1 }) => {
                             <View style={{ flexDirection: 'row' }}><Text style={styles.label}>Fone Cli: </Text><Text style={styles.value}>{order.cli_fone || ''}</Text></View>
                         </View>
                         <View style={{ flex: 1, borderRightWidth: 0.5, borderRightColor: '#ccc', borderRightStyle: 'solid', paddingLeft: 5 }}>
-                            <View style={{ flexDirection: 'row' }}><Text style={styles.label}>Nº ped. cliente/ Ordem compra: </Text><Text style={styles.value}>{order.ped_oc || order.ped_pedcli || order.ped_cliind || order.ped_pedindustria || ''}</Text></View>
+                            <View style={{ flexDirection: 'row' }}><Text style={styles.label}>Nº ped. cliente/ Ordem compra: </Text><Text style={styles.value}>{order.ped_oc ||order.ped_cliind || order.ped_pedindustria || ''}</Text></View>
                             <View style={{ flexDirection: 'row' }}><Text style={styles.label}>Cond. Pagamento: </Text><Text style={{ ...styles.value, color: '#dc2626' }}>{order.order_payment_type || order.ped_condpag || ''}</Text></View>
                         </View>
                         <View style={{ flex: 0.8, borderRightWidth: 0.5, borderRightColor: '#ccc', borderRightStyle: 'solid', paddingLeft: 5 }}>
@@ -1016,7 +1018,7 @@ const ReportHeader = ({ order, repInfo, logo, industryLogo, modelNum = 1 }) => {
                             <Text style={{ fontSize: 9, fontWeight: 'bold', ...titleStyle }}>{titulo} nº: {order.ped_pedido}</Text>
                         </View>
                         <View style={{ flex: 1.5, alignItems: 'center' }}>
-                            <Text style={{ fontSize: 9 }}>Ped. cliente/ Ordem compra nº: <Text style={{ fontWeight: 'bold' }}>{order.ped_oc || order.ped_pedcli || order.ped_cliind || ''}</Text></Text>
+                            <Text style={{ fontSize: 9 }}>Ped. cliente/ Ordem compra nº: <Text style={{ fontWeight: 'bold' }}>{order.ped_oc ||order.ped_cliind || ''}</Text></Text>
                         </View>
                         {modelNum === 3 && (
                             <View style={{ flex: 1.2, alignItems: 'center' }}>
@@ -1149,7 +1151,7 @@ const CommercialSection = ({ order }) => (
                 <View style={{ flex: 1.5 }}><Text style={styles.label}>E-Mail:</Text><Text style={{ ...styles.value, textTransform: 'lowercase' }}>{order.ped_emailcomp || ''}</Text></View>
             </View>
             <View style={styles.gridRow}>
-                <View style={{ flex: 1 }}><Text style={styles.label}>Ped. Cliente/ Ordem Compra:</Text><Text style={styles.value}>{order.ped_oc || order.ped_pedcli || order.ped_cliind || ''}</Text></View>
+                <View style={{ flex: 1 }}><Text style={styles.label}>Ped. Cliente/ Ordem Compra:</Text><Text style={styles.value}>{order.ped_oc ||order.ped_cliind || ''}</Text></View>
                 <View style={{ flex: 1 }}><Text style={styles.label}>Pedido Indústria:</Text><Text style={styles.value}>{order.ped_pedindu || ''}</Text></View>
             </View>
         </View>
@@ -1404,7 +1406,7 @@ const ItemsModel4 = ({ groupedItems, order }) => {
                                         <Text style={styles.colProd3}>{item.ite_produto}</Text>
                                         <Text style={styles.colComp3}>{stripNone(item.ite_embuch)}</Text>
                                         <Text style={styles.colConv3}>{stripNone(item.pro_codigooriginal)}</Text>
-                                        <Text style={styles.colDesc3}>{item.ite_nomeprod}</Text>
+                                        <Text style={styles.colDesc3}>{item.pro_nome || item.ite_nomeprod}</Text>
                                         <Text style={styles.colLiq3}>{fv(item.ite_puniliq)}</Text>
                                         <Text style={{ ...styles.colTotLiq3, fontWeight: 'bold' }}>{fv(item.ite_totliquido)}</Text>
                                         <Text style={styles.colIpi3}>{fv(ipiValor)}</Text>
@@ -1506,7 +1508,7 @@ const ItemsModel5 = ({ groupedItems, order }) => {
                                         <Text style={styles.colQtd}>{item.ite_quant}</Text>
                                         <Text style={styles.colProd}>{item.ite_produto}</Text>
                                         <Text style={styles.colConv}>{item.pro_codigooriginal || ''}</Text>
-                                        <Text style={styles.colDesc5}>{item.ite_nomeprod}</Text>
+                                        <Text style={styles.colDesc5}>{item.pro_nome || item.ite_nomeprod}</Text>
                                         <Text style={styles.colVal}>{fv(item.ite_puniliq)}</Text>
                                         <Text style={{ ...styles.colTot, fontWeight: 'bold' }}>{fv(item.ite_totliquido)}</Text>
                                         <Text style={styles.colTax}>{fv(ipiValor)}</Text>
@@ -1619,7 +1621,7 @@ const ItemsModel7 = ({ groupedItems }) => {
                                         <Text style={styles.colSq}>{globalSeq}</Text>
                                         <Text style={styles.colQtd}>{item.ite_quant}</Text>
                                         <Text style={styles.colProd}>{item.ite_produto}</Text>
-                                        <Text style={styles.colDesc}>{item.ite_nomeprod}</Text>
+                                        <Text style={styles.colDesc}>{item.pro_nome || item.ite_nomeprod}</Text>
                                         <Text style={styles.colVal}>{fv(item.ite_puni)}</Text>
                                         <Text style={styles.colVal}>{fv(item.ite_puniliq)}</Text>
                                         <Text style={{ ...styles.colTot, fontWeight: 'bold' }}>{fv(item.ite_totliquido)}</Text>
@@ -1694,7 +1696,7 @@ const ItemsModel8 = ({ groupedItems, order }) => {
                                     <View style={{ flexDirection: 'row' }}>
                                         <Text style={{ width: '5%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_quant}</Text>
                                         <Text style={{ width: '8%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_produto}</Text>
-                                        <Text style={{ flex: 1, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 }}>{item.ite_nomeprod}</Text>
+                                        <Text style={{ flex: 1, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 }}>{item.pro_nome || item.ite_nomeprod}</Text>
                                         <Text style={{ width: '9%', textAlign: 'right', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingRight: 2 }}>{fv3(pLiq)}</Text>
                                         <Text style={{ width: '9%', textAlign: 'right', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingRight: 2 }}>{fv3(pComIpi)}</Text>
                                         <Text style={{ width: '10%', textAlign: 'right', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingRight: 2 }}>{fv(liq)}</Text>
@@ -1814,7 +1816,7 @@ const ItemsModel9 = ({ groupedItems, order }) => {
                                         <Text style={{ width: '4%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{globalSeq}</Text>
                                         <Text style={{ width: '4%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_quant}</Text>
                                         <Text style={{ width: '8%', textAlign: 'center', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid' }}>{item.ite_produto}</Text>
-                                        <Text style={{ flex: 1, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 }}>{item.ite_nomeprod}</Text>
+                                        <Text style={{ flex: 1, borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingLeft: 2 }}>{item.pro_nome || item.ite_nomeprod}</Text>
                                         <Text style={{ width: '9%', textAlign: 'right', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingRight: 2 }}>{fv(item.ite_puniliq)}</Text>
                                         <Text style={{ width: '9%', textAlign: 'right', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingRight: 2 }}>{fv(liq)}</Text>
                                         <Text style={{ width: '9%', textAlign: 'right', borderRightWidth: 0.5, borderRightColor: '#94a3b8', borderRightStyle: 'solid', paddingRight: 2 }}>{fv(totalImp)}</Text>
@@ -1894,7 +1896,7 @@ const ItemsModel9 = ({ groupedItems, order }) => {
                                         <Text style={styles.colProd3}>{item.ite_produto}</Text>
                                         <Text style={styles.colComp3}>{stripNone(item.ite_embuch)}</Text>
                                         <Text style={styles.colConv3}>{stripNone(item.ite_conversao)}</Text>
-                                        <Text style={styles.colDesc3}>{item.ite_nomeprod}</Text>
+                                        <Text style={styles.colDesc3}>{item.pro_nome || item.ite_nomeprod}</Text>
                                         <Text style={styles.colLiq3}>{fv(item.ite_puniliq)}</Text>
                                         <Text style={{ ...styles.colTotLiq3, fontWeight: 'bold' }}>{fv(item.ite_totliquido)}</Text>
                                         <Text style={styles.colIpi3}>{fv(ipiValor)}</Text>
@@ -1922,21 +1924,25 @@ const ItemsModel9 = ({ groupedItems, order }) => {
 const ItemsModel1 = ({ groupedItems }) => {
     let globalSeq = 0;
 
-    return Object.entries(groupedItems).map(([key, groupItems], groupIndex) => {
+    // Achatado em uma lista única de elementos irmãos pra que o react-pdf
+    // possa quebrar entre cabeçalho e linhas naturalmente — antes o wrapper
+    // View por grupo empurrava o bloco inteiro pra próxima página, deixando
+    // uma página em branco quando os itens não cabiam no espaço restante.
+    return Object.entries(groupedItems).flatMap(([key, groupItems], groupIndex) => {
         const [discountKey, groupName] = key.split('|GRP|');
         const groupTotalLiquido = groupItems.reduce((acc, it) => acc + (parseFloat(it.ite_totliquido) || 0), 0);
 
-        return (
-            <View key={groupIndex} style={{ marginBottom: 3 }}>
-                {/* Discount Header */}
+        // Cabeçalho do grupo (Descontos + colunas) — wrap=false pra manter
+        // os dois juntos e minPresenceAhead garante que não fique órfão antes
+        // de uma quebra de página: se faltar menos de 40pt depois dele, empurra.
+        const header = (
+            <View key={`gh-${groupIndex}`} wrap={false} minPresenceAhead={40}>
                 <View style={{ backgroundColor: '#ffffff', padding: 2, borderWidth: 0.5, borderColor: '#94a3b8', borderStyle: 'solid' }}>
                     <Text style={{ fontWeight: 'bold', fontSize: 7, ...styles.redLabel }}>
                         Descontos: <Text style={{ color: '#000000' }}>{discountKey}</Text>
                         {groupName !== 'GERAL' && <Text style={{ color: '#1e40af' }}> - Grupo: {groupName}</Text>}
                     </Text>
                 </View>
-
-                {/* Table Header - Model 1 */}
                 <View style={styles.tableHeader}>
                     <Text style={styles.colSq}>Sq:</Text>
                     <Text style={styles.colQtd}>Quant:</Text>
@@ -1947,44 +1953,45 @@ const ItemsModel1 = ({ groupedItems }) => {
                     <Text style={styles.colTot}>Total lqdo:</Text>
                     <Text style={styles.colTax}>IPI:</Text>
                 </View>
-
-                {/* Items */}
-                {groupItems.map((item, idx) => {
-                    globalSeq++;
-                    const compOriginal = stripNone(item.pro_codigooriginal);
-                    const itemDiscounts = getItemDiscountString(item);
-                    
-                    return (
-                        <View key={idx} style={{ ...styles.tableRow, flexDirection: 'column' }} wrap={false}>
-                            <View style={{ flexDirection: 'row' }}>
-                                <Text style={styles.colSq}>{globalSeq}</Text>
-                                <Text style={styles.colQtd}>{item.ite_quant}</Text>
-                                <Text style={styles.colProd}>{item.ite_produto}</Text>
-                                <Text style={styles.colDesc}>{item.ite_nomeprod}</Text>
-                                <Text style={styles.colVal}>{fv(item.ite_puni)}</Text>
-                                <Text style={styles.colVal}>{fv(item.ite_puniliq)}</Text>
-                                <Text style={{ ...styles.colTot, fontWeight: 'bold' }}>{fv(item.ite_totliquido)}</Text>
-                                <Text style={styles.colTax}>{fv(item.ite_ipi || 0)}</Text>
-                            </View>
-                            {(compOriginal || item.pro_aplicacao) && (
-                                <View style={{ flexDirection: 'row', paddingLeft: '22%', paddingBottom: 2, backgroundColor: '#f9fafb' }}>
-                                    {compOriginal && <Text style={{ fontSize: 7, color: '#1e40af', fontWeight: 'bold', marginRight: 10 }}>COMPL: {compOriginal}</Text>}
-                                    {item.pro_aplicacao && <Text style={{ fontSize: 7, color: '#4b5563' }}>{item.pro_aplicacao}</Text>}
-                                </View>
-                            )}
-                        </View>
-                    );
-                })}
-
-                {/* Subtotal */}
-                <View style={styles.subTotalRow}>
-                    <Text style={{ width: '65%', paddingLeft: 2 }}>Sub-total:</Text>
-                    <Text style={{ width: '18%', textAlign: 'right', paddingRight: 2 }}>{fv(groupTotalLiquido)}</Text>
-                    <Text style={{ width: '12%', textAlign: 'right', paddingRight: 2 }}>{fv(groupTotalLiquido)}</Text>
-                    <Text style={{ width: '5%' }}></Text>
-                </View>
             </View>
         );
+
+        const rows = groupItems.map((item, idx) => {
+            globalSeq++;
+            const compOriginal = stripNone(item.pro_codigooriginal);
+
+            return (
+                <View key={`r-${groupIndex}-${idx}`} style={{ ...styles.tableRow, flexDirection: 'column' }} wrap={false}>
+                    <View style={{ flexDirection: 'row' }}>
+                        <Text style={styles.colSq}>{globalSeq}</Text>
+                        <Text style={styles.colQtd}>{item.ite_quant}</Text>
+                        <Text style={styles.colProd}>{item.ite_produto}</Text>
+                        <Text style={styles.colDesc}>{item.pro_nome || item.ite_nomeprod}</Text>
+                        <Text style={styles.colVal}>{fv(item.ite_puni)}</Text>
+                        <Text style={styles.colVal}>{fv(item.ite_puniliq)}</Text>
+                        <Text style={{ ...styles.colTot, fontWeight: 'bold' }}>{fv(item.ite_totliquido)}</Text>
+                        <Text style={styles.colTax}>{fv(item.ite_ipi || 0)}</Text>
+                    </View>
+                    {(compOriginal || item.pro_aplicacao) && (
+                        <View style={{ flexDirection: 'row', paddingLeft: '22%', paddingBottom: 2, backgroundColor: '#f9fafb' }}>
+                            {compOriginal && <Text style={{ fontSize: 7, color: '#1e40af', fontWeight: 'bold', marginRight: 10 }}>COMPL: {compOriginal}</Text>}
+                            {item.pro_aplicacao && <Text style={{ fontSize: 7, color: '#4b5563' }}>{item.pro_aplicacao}</Text>}
+                        </View>
+                    )}
+                </View>
+            );
+        });
+
+        const subtotal = (
+            <View key={`st-${groupIndex}`} style={{ ...styles.subTotalRow, marginBottom: 3 }} wrap={false}>
+                <Text style={{ width: '65%', paddingLeft: 2 }}>Sub-total:</Text>
+                <Text style={{ width: '18%', textAlign: 'right', paddingRight: 2 }}>{fv(groupTotalLiquido)}</Text>
+                <Text style={{ width: '12%', textAlign: 'right', paddingRight: 2 }}>{fv(groupTotalLiquido)}</Text>
+                <Text style={{ width: '5%' }}></Text>
+            </View>
+        );
+
+        return [header, ...rows, subtotal];
     });
 };
 
@@ -2028,7 +2035,7 @@ const ItemsModel2 = ({ groupedItems }) => {
                             <Text style={styles.colSq}>{globalSeq}</Text>
                             <Text style={styles.colQtd}>{item.ite_quant}</Text>
                             <Text style={styles.colProd}>{item.ite_produto}</Text>
-                            <Text style={styles.colDesc}>{item.ite_nomeprod}</Text>
+                            <Text style={styles.colDesc}>{item.pro_nome || item.ite_nomeprod}</Text>
                             <Text style={styles.colVal}>{fv(unitIPI)}</Text>
                             <Text style={{ ...styles.colTot, fontWeight: 'bold' }}>{fv(totalIPI)}</Text>
                             <Text style={styles.colTax}>{fv(percIPI)}</Text>
@@ -2435,6 +2442,546 @@ const formatBase64 = (data, label = 'Image') => {
 };
 
 // ============================================================================
+// FORMATO 18 — REMAP (layout clássico monospace + caixinhas labeled)
+// Solicitado em 2026-05-21 pela REMAP. Layout fiel ao PDF de referência.
+// Cada bloco é uma "caixinha" com label pequena no topo e valor maior embaixo.
+// Tabela de itens em fonte monospace, sem bordas internas.
+// ============================================================================
+const remapStyles = StyleSheet.create({
+    page: {
+        padding: 18,
+        fontSize: 8,
+        fontFamily: 'Helvetica',
+        color: '#000',
+    },
+    // ── Cabeçalho da empresa ──────────────────────────────────────
+    companyHeader: {
+        flexDirection: 'row',
+        borderBottomWidth: 1,
+        borderBottomColor: '#000',
+        borderBottomStyle: 'solid',
+        paddingBottom: 4,
+        marginBottom: 4,
+        alignItems: 'flex-end',
+    },
+    companyLogo: {
+        width: 90,
+        height: 30,
+        marginRight: 10,
+        objectFit: 'contain',
+    },
+    companyInfo: { flex: 1 },
+    companyName: { fontSize: 11, fontWeight: 'bold', marginBottom: 1 },
+    companyContact: { fontSize: 8, color: '#000' },
+    pageNumber: { fontSize: 8, fontWeight: 'bold' },
+
+    // ── Caixinhas labeled ─────────────────────────────────────────
+    boxRow: {
+        flexDirection: 'row',
+        borderTopWidth: 0.5,
+        borderTopColor: '#000',
+        borderTopStyle: 'solid',
+    },
+    boxRowFirst: {
+        flexDirection: 'row',
+        borderTopWidth: 0.5,
+        borderTopColor: '#000',
+        borderTopStyle: 'solid',
+    },
+    box: {
+        paddingHorizontal: 4,
+        paddingVertical: 3,
+        borderRightWidth: 0.5,
+        borderRightColor: '#000',
+        borderRightStyle: 'solid',
+        borderLeftWidth: 0.5,
+        borderLeftColor: '#000',
+        borderLeftStyle: 'solid',
+        flex: 1,
+    },
+    boxNoLeftBorder: {
+        paddingHorizontal: 4,
+        paddingVertical: 3,
+        borderRightWidth: 0.5,
+        borderRightColor: '#000',
+        borderRightStyle: 'solid',
+        flex: 1,
+    },
+    boxLabel: { fontSize: 6, color: '#000', marginBottom: 1 },
+    boxValue: { fontSize: 9, fontWeight: 'bold', color: '#000' },
+    boxValueLg: { fontSize: 10, fontWeight: 'bold', color: '#000' },
+
+    // ── Container de boxes (fecha borda inferior) ─────────────────
+    boxesWrapper: {
+        borderBottomWidth: 0.5,
+        borderBottomColor: '#000',
+        borderBottomStyle: 'solid',
+        marginBottom: 4,
+    },
+
+    // ── Tabela de itens ───────────────────────────────────────────
+    itemsTable: {
+        marginTop: 2,
+        marginBottom: 2,
+    },
+    itemsHead: {
+        flexDirection: 'row',
+        borderBottomWidth: 0.5,
+        borderBottomColor: '#000',
+        borderBottomStyle: 'solid',
+        paddingBottom: 2,
+        marginBottom: 2,
+        fontFamily: 'Courier',
+        fontSize: 8,
+        fontWeight: 'bold',
+    },
+    itemRow: {
+        flexDirection: 'row',
+        fontFamily: 'Courier',
+        fontSize: 8,
+        paddingVertical: 0.5,
+    },
+    colItem:     { width: 26 },
+    colQtd:      { width: 28, textAlign: 'right', paddingRight: 4 },
+    colCod:      { width: 60 },
+    colDesc:     { flex: 1, paddingRight: 4 },
+    colPrUnit:   { width: 50, textAlign: 'right', paddingRight: 4 },
+    colIpi:      { width: 28, textAlign: 'right', paddingRight: 4 },
+    colSt:       { width: 32, textAlign: 'right', paddingRight: 4 },
+    colPrcImp:   { width: 50, textAlign: 'right', paddingRight: 4 },
+    colPrFinal:  { width: 56, textAlign: 'right' },
+    itemsRule:   {
+        borderTopWidth: 0.5,
+        borderTopColor: '#000',
+        borderTopStyle: 'dashed',
+        marginTop: 3,
+        marginBottom: 3,
+    },
+
+    // ── Rodapé ────────────────────────────────────────────────────
+    nfeEmail: { fontSize: 8, marginTop: 2, fontFamily: 'Courier' },
+    legalNotice: {
+        fontSize: 7,
+        textAlign: 'center',
+        marginTop: 6,
+        marginBottom: 4,
+        fontFamily: 'Helvetica',
+    },
+    footerWrap: {
+        flexDirection: 'row',
+        borderTopWidth: 0.5,
+        borderTopColor: '#000',
+        borderTopStyle: 'solid',
+    },
+    footerLeft: {
+        flex: 1,
+        padding: 6,
+        borderRightWidth: 0.5,
+        borderRightColor: '#000',
+        borderRightStyle: 'solid',
+    },
+    footerRight: {
+        flex: 1,
+        padding: 6,
+    },
+    footerStrong: { fontSize: 9, fontWeight: 'bold', fontFamily: 'Courier' },
+    footerNote: { fontSize: 8, marginTop: 4, fontFamily: 'Courier' },
+    footerSig: {
+        fontSize: 7,
+        textAlign: 'center',
+        marginTop: 18,
+        borderTopWidth: 0.5,
+        borderTopColor: '#000',
+        borderTopStyle: 'solid',
+        paddingTop: 2,
+    },
+    digitadoPor: {
+        marginTop: 6,
+        fontSize: 7,
+        fontFamily: 'Courier',
+    },
+});
+
+const remapNum = (v) => {
+    const n = parseFloat(v) || 0;
+    return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+const remapInt = (v) => Math.round(parseFloat(v) || 0).toString();
+const remapTrunc = (s, n) => {
+    const str = (s || '').toString();
+    return str.length > n ? str.substring(0, n) : str;
+};
+
+const RemapBox = ({ label, value, flex = 1, valueStyle = {} }) => (
+    <View style={[remapStyles.boxNoLeftBorder, { flex }]}>
+        <Text style={remapStyles.boxLabel}>{label}</Text>
+        <Text style={[remapStyles.boxValue, valueStyle]}>{value || ' '}</Text>
+    </View>
+);
+
+const RemapReport = ({ order, items, repInfo, industryLogo }) => {
+    const dataPedido = formatDate(order.ped_data);
+    const dataEntrega = formatDate(order.ped_datafat || order.ped_data);
+    const qtdTotal = items?.reduce((s, it) => s + (parseFloat(it.ite_quant) || 0), 0) || 0;
+    const totBruto = parseFloat(order.ped_totbruto) || 0;
+    const totLiq = parseFloat(order.ped_totliq) || 0;
+    const totImp = totLiq + (parseFloat(order.ped_totalipi) || 0) + items?.reduce((s, it) => s + (parseFloat(it.ite_st) || 0), 0);
+    const enderecoCompleto = [order.cli_endereco, order.cli_numero].filter(Boolean).join(' ');
+    const cidadeUf = [order.cli_cidade, order.cli_uf].filter(Boolean).join(' / ');
+
+    return (
+        <Page size="A4" orientation="portrait" style={remapStyles.page}>
+            {/* ── Cabeçalho da empresa ───────────────────────────── */}
+            <View style={remapStyles.companyHeader}>
+                {industryLogo ? (
+                    <Image src={industryLogo} style={remapStyles.companyLogo} />
+                ) : (
+                    <View style={remapStyles.companyLogo} />
+                )}
+                <View style={remapStyles.companyInfo}>
+                    <Text style={remapStyles.companyName}>{order.for_nome || repInfo.rep_nome}</Text>
+                    <Text style={remapStyles.companyContact}>
+                        {[order.for_email || repInfo.rep_user_email, repInfo.rep_endereco].filter(Boolean).join('  ')}
+                    </Text>
+                    <Text style={remapStyles.companyContact}>
+                        {[order.for_fone, repInfo.rep_fone].filter(Boolean).join('  ')}
+                    </Text>
+                </View>
+                <Text style={remapStyles.pageNumber}>Pag. 1</Text>
+            </View>
+
+            {/* ── Bloco de identificação (caixinhas labeled) ─────── */}
+            <View style={remapStyles.boxesWrapper}>
+                <View style={remapStyles.boxRowFirst}>
+                    <RemapBox label="Pedido N." value={order.ped_pedido} flex={1.3} valueStyle={{ fontFamily: 'Courier' }} />
+                    <RemapBox label="Data Pedido" value={dataPedido} flex={1} />
+                    <RemapBox label="Entrega" value={dataEntrega} flex={1} />
+                    <RemapBox label="Ordem de Compra" value={order.ped_oc ||''} flex={1.4} />
+                </View>
+
+                <View style={remapStyles.boxRow}>
+                    <RemapBox label="Cliente" value={order.cli_nome} flex={4.8} valueStyle={{ fontSize: 10 }} />
+                    <RemapBox label="Código" value={String(order.ped_cliente || '')} flex={0.9} valueStyle={{ fontFamily: 'Courier' }} />
+                </View>
+
+                <View style={remapStyles.boxRow}>
+                    <RemapBox label="Endereço" value={enderecoCompleto} flex={4.5} />
+                    <RemapBox label="CEP" value={order.cli_cep} flex={1.2} valueStyle={{ fontFamily: 'Courier' }} />
+                </View>
+
+                <View style={remapStyles.boxRow}>
+                    <RemapBox label="Cidade/UF" value={cidadeUf} flex={1} />
+                    <RemapBox label="Bairro" value={order.cli_bairro} flex={1} />
+                </View>
+
+                <View style={remapStyles.boxRow}>
+                    <RemapBox label="CNPJ/CPF" value={formatCpfCnpj(order.client_cnpj || order.cli_cnpj)} flex={1} valueStyle={{ fontFamily: 'Courier' }} />
+                    <RemapBox label="Inscrição Estadual" value={order.cli_inscricao} flex={1} valueStyle={{ fontFamily: 'Courier' }} />
+                </View>
+
+                <View style={remapStyles.boxRow}>
+                    <RemapBox label="Telefone" value={order.cli_fone} flex={1} valueStyle={{ fontFamily: 'Courier' }} />
+                    <RemapBox label="Comprador" value={order.ped_comprador_display || order.ped_comprador || ''} flex={1} />
+                </View>
+
+                <View style={remapStyles.boxRow}>
+                    <RemapBox label="Endereço de Cobrança" value="O MESMO" flex={1} />
+                </View>
+
+                <View style={remapStyles.boxRow}>
+                    <RemapBox label="E-Mail" value={order.ped_emailcomp || order.cli_email || ''} flex={1} valueStyle={{ textTransform: 'lowercase' }} />
+                </View>
+
+                <View style={remapStyles.boxRow}>
+                    <RemapBox label="Vendedor" value={`${order.ped_vendedor || ''}   ${order.ven_nome || ''}`} flex={4.5} valueStyle={{ fontFamily: 'Courier' }} />
+                    <RemapBox label="Região" value={order.cli_regiao2 ? String(order.cli_regiao2) : ''} flex={1.2} valueStyle={{ fontFamily: 'Courier' }} />
+                </View>
+
+                <View style={remapStyles.boxRow}>
+                    <RemapBox label="Representada"
+                        value={`${order.ped_industria || ''}   ${order.for_nome || order.for_nomered || ''}`}
+                        flex={1}
+                        valueStyle={{ fontFamily: 'Courier', fontSize: 10 }} />
+                </View>
+
+                <View style={remapStyles.boxRow}>
+                    <RemapBox label="Desconto" value={remapNum(order.ped_descadic || 0)} flex={1} valueStyle={{ fontFamily: 'Courier' }} />
+                    <RemapBox label="Prazos" value={order.ped_condpag || ''} flex={3} />
+                </View>
+            </View>
+
+            {/* ── Tabela de itens ───────────────────────────────── */}
+            <View style={remapStyles.itemsTable}>
+                <View style={remapStyles.itemsHead}>
+                    <Text style={remapStyles.colItem}>Item</Text>
+                    <Text style={remapStyles.colQtd}>QTD.</Text>
+                    <Text style={remapStyles.colCod}>Código</Text>
+                    <Text style={remapStyles.colDesc}>Descrição</Text>
+                    <Text style={remapStyles.colPrUnit}>Pr.Unit.</Text>
+                    <Text style={remapStyles.colIpi}>IPI</Text>
+                    <Text style={remapStyles.colSt}>ST</Text>
+                    <Text style={remapStyles.colPrcImp}>Pr.c/imp</Text>
+                    <Text style={remapStyles.colPrFinal}>Pr.Final</Text>
+                </View>
+
+                {items?.map((it, idx) => {
+                    const seq = String(it.ite_seq || idx + 1).padStart(3, '0');
+                    const quant = remapInt(it.ite_quant);
+                    const puni = remapNum(it.ite_puniliq || it.ite_puni);
+                    const ipi = remapNum(it.ite_ipi);
+                    const st = remapNum(it.ite_st);
+                    const pCimp = remapNum(it.ite_valcomipi || it.ite_puni);
+                    const pFinal = remapNum(it.ite_totliquido);
+                    return (
+                        <View key={idx} style={remapStyles.itemRow}>
+                            <Text style={remapStyles.colItem}>{seq}</Text>
+                            <Text style={remapStyles.colQtd}>{quant}</Text>
+                            <Text style={remapStyles.colCod}>{remapTrunc(it.ite_produto, 12)}</Text>
+                            <Text style={remapStyles.colDesc}>{remapTrunc(it.ite_nomeprod, 38)}</Text>
+                            <Text style={remapStyles.colPrUnit}>{puni}</Text>
+                            <Text style={remapStyles.colIpi}>{ipi}</Text>
+                            <Text style={remapStyles.colSt}>{st}</Text>
+                            <Text style={remapStyles.colPrcImp}>{pCimp}</Text>
+                            <Text style={remapStyles.colPrFinal}>{pFinal}</Text>
+                        </View>
+                    );
+                })}
+
+                <View style={remapStyles.itemsRule} />
+            </View>
+
+            {/* ── Rodapé ─────────────────────────────────────────── */}
+            <Text style={remapStyles.nfeEmail}>E-Mail para a NF-e: {order.cli_emailnfe || order.cli_email || ''}</Text>
+            <Text style={remapStyles.legalNotice}>
+                Conforme Lei 4886/65 Art. 43 Del Credere, o representante não é o responsável pelo crédito
+            </Text>
+
+            <View style={remapStyles.footerWrap}>
+                <View style={remapStyles.footerLeft}>
+                    <Text style={remapStyles.footerStrong}>Quant.Total do Pedido = {remapInt(qtdTotal)}</Text>
+                    <Text style={remapStyles.footerNote}>ESTE PEDIDO NÃO VALE COMO RECIBO</Text>
+                    <Text style={remapStyles.footerSig}>Assinatura do Comprador</Text>
+                </View>
+                <View style={remapStyles.footerRight}>
+                    <Text style={remapStyles.footerStrong}>Valor Total Bruto: {remapNum(totBruto)}</Text>
+                    <Text style={remapStyles.footerStrong}>Valor Total s/impostos: {remapNum(totLiq)}</Text>
+                    <Text style={remapStyles.footerStrong}>Valor Total c/impostos: {remapNum(totImp)}</Text>
+                    <Text style={remapStyles.footerNote}>N. Pedido: {order.ped_pedido}</Text>
+                </View>
+            </View>
+
+            <Text style={remapStyles.digitadoPor}>Digitado por: {(order.ven_nome || '').toUpperCase()}</Text>
+        </Page>
+    );
+};
+
+// ============================================================================
+// MODEL 19 — REMAP "Premium" (paleta azul/navy, logo da indústria no quadro)
+// ============================================================================
+const BLUE = '#2563EB';
+const NAVY = '#0F172A';
+
+// DM Mono (Regular + Medium) — fontes do Model 19. TTFs em public/fonts (entram no dist).
+Font.register({
+    family: 'DM Mono',
+    fonts: [
+        { src: '/fonts/DMMono-Regular.ttf', fontWeight: 'normal' },
+        { src: '/fonts/DMMono-Medium.ttf', fontWeight: 'medium' },
+    ],
+});
+
+const INK = '#111827';  // "preto" — todas as fontes da cópia (negrito = 'medium', o peso forte do DM Mono)
+const r2 = StyleSheet.create({
+    page: { padding: 26, fontSize: 8.5, color: INK, fontFamily: 'DM Mono', fontWeight: 'medium' },
+    topBar: { height: 4, backgroundColor: BLUE, marginBottom: 12 },
+    headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+    repLogoBox: { width: 92, height: 46, marginRight: 12, justifyContent: 'center' },
+    coName: { fontSize: 12, fontWeight: 'medium', color: INK },
+    coLine: { fontSize: 7.5, color: INK, fontWeight: 'medium', marginTop: 2 },
+    pedLabel: { fontSize: 7, color: INK, fontWeight: 'medium', textTransform: 'uppercase', textAlign: 'right', letterSpacing: 1 },
+    pedNum: { fontSize: 18, fontWeight: 'medium', color: INK, textAlign: 'right' },
+    cardRow: { flexDirection: 'row', gap: 6, marginBottom: 12 },
+    card: { flex: 1, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 5, padding: '6px 8px' },
+    cardAccent: { borderColor: BLUE, backgroundColor: '#EFF4FE' },
+    cardLabel: { fontSize: 6.5, color: INK, fontWeight: 'medium', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
+    cardValue: { fontSize: 9.5, fontWeight: 'medium', color: INK },
+    blockTitle: { fontSize: 7, color: INK, fontWeight: 'medium', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
+    clientBox: { borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 6, backgroundColor: '#F8FAFC', padding: 10, marginBottom: 12 },
+    razao: { fontSize: 11, fontWeight: 'medium', color: INK, marginBottom: 6 },
+    grid: { flexDirection: 'row', flexWrap: 'wrap' },
+    fLabel: { fontSize: 6.5, color: INK, fontWeight: 'medium', textTransform: 'uppercase', marginBottom: 1 },
+    fVal: { fontSize: 8.5, color: INK, fontWeight: 'medium', marginBottom: 6 },
+    comRow: { flexDirection: 'row', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 6, marginBottom: 12 },
+    comCell: { flex: 1, padding: '7px 8px', borderRightWidth: 1, borderRightColor: '#E2E8F0' },
+    comCellLast: { flex: 1, padding: '7px 8px' },
+    logoCell: { height: 42, justifyContent: 'center', alignItems: 'center' },
+    itHead: { flexDirection: 'row', backgroundColor: NAVY, borderRadius: 4, paddingVertical: 5, paddingHorizontal: 6, marginBottom: 2 },
+    itHeadTxt: { color: '#FFFFFF', fontSize: 6.5, fontWeight: 'medium', textTransform: 'uppercase' },
+    itRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4, paddingHorizontal: 6, borderBottomWidth: 0.5, borderBottomColor: '#E2E8F0' },
+    cSeq: { width: '5%', fontSize: 7, color: INK, fontWeight: 'medium' },
+    cCod: { width: '8%', fontSize: 8, color: INK, fontWeight: 'medium' },
+    cDesc: { width: '37%', paddingRight: 4 },
+    cQtd: { width: '7%', alignItems: 'center' },
+    cUni: { width: '10%', textAlign: 'right', color: INK, fontWeight: 'medium' },
+    cImp: { width: '4%', textAlign: 'center', color: INK, fontWeight: 'medium' },
+    cUniImp: { width: '12%', textAlign: 'right', color: INK, fontWeight: 'medium' },
+    cTot: { width: '13%', textAlign: 'right', color: INK, fontWeight: 'medium' },
+    descTxt: { fontSize: 8.5, color: INK, fontWeight: 'medium' },
+    qtyCircle: { backgroundColor: '#DBEAFE', borderRadius: 4, minWidth: 22, height: 16, paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center' },
+    qtyTxt: { color: INK, fontSize: 8, fontWeight: 'medium', textAlign: 'center', lineHeight: 1 },
+    sumRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 },
+    sumLeft: { fontSize: 8, color: INK, fontWeight: 'medium' },
+    totCard: { backgroundColor: NAVY, borderRadius: 8, padding: 12, width: 230 },
+    totLine: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 },
+    totLbl: { fontSize: 7.5, color: '#FFFFFF', fontWeight: 'medium', textTransform: 'uppercase' },
+    totVal: { fontSize: 8.5, color: '#FFFFFF', fontWeight: 'medium' },
+    totFinalLbl: { fontSize: 8, color: '#FFFFFF', fontWeight: 'medium', textTransform: 'uppercase' },
+    totFinalVal: { fontSize: 13, color: '#FFFFFF', fontWeight: 'medium' },
+    totDivider: { borderTopWidth: 0.5, borderTopColor: '#334155', marginVertical: 5 },
+    legal: { fontSize: 6.5, color: INK, fontWeight: 'medium', marginTop: 14, lineHeight: 1.4 },
+    sigLine: { marginTop: 36, borderTopWidth: 0.5, borderTopColor: '#94A3B8', width: 220, alignSelf: 'flex-end' },
+    sigTxt: { fontSize: 7, color: INK, fontWeight: 'medium', textAlign: 'right' },
+});
+
+const F2 = ({ label, value, w }) => (
+    <View style={{ width: w || '50%' }}>
+        <Text style={r2.fLabel}>{label}</Text>
+        <Text style={r2.fVal}>{value || '—'}</Text>
+    </View>
+);
+
+const RemapReport2 = ({ order, items, repInfo, logo, industryLogo }) => {
+    const totBruto = parseFloat(order.ped_totbruto) || 0;
+    const totLiq = parseFloat(order.ped_totliq) || 0;
+    // c/impostos CORRETO: soma valor-com-ipi-e-st por item (= s/impostos quando não há imposto).
+    const totComImp = (items?.reduce((s, it) => s + (parseFloat(it.ite_valcomst) || parseFloat(it.ite_totliquido) || 0), 0)) || totLiq;
+    const totPecas = items?.reduce((s, it) => s + (parseFloat(it.ite_quant) || 0), 0) || 0;
+    const frete = order.ped_tipofrete === 'C' ? 'CIF' : order.ped_tipofrete === 'F' ? 'FOB' : (order.ped_tipofrete || '—');
+    const ender = [order.cli_endereco, order.cli_numero].filter(Boolean).join(', ');
+    const cidadeUf = [order.cli_cidade, order.cli_uf].filter(Boolean).join(' / ');
+
+    return (
+        <Page size="A4" orientation="portrait" style={r2.page}>
+            <View style={r2.topBar} />
+
+            {/* Cabeçalho REMAP + Pedido Nº */}
+            <View style={r2.headerRow}>
+                {/* Logo da REMAP — à esquerda, ANTES do nome */}
+                {logo ? (
+                    <View style={r2.repLogoBox}>
+                        <Image src={logo} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    </View>
+                ) : null}
+                <View style={{ flex: 1 }}>
+                    <Text style={r2.coName}>{(repInfo.rep_nome || '').toUpperCase()}</Text>
+                    <Text style={r2.coLine}>{[repInfo.rep_endereco, repInfo.rep_bairro, [repInfo.rep_cidade, repInfo.rep_uf].filter(Boolean).join(' / ')].filter(Boolean).join(' — ')}</Text>
+                    <Text style={r2.coLine}>{repInfo.rep_fone}</Text>
+                </View>
+                <View style={{ width: 150 }}>
+                    <Text style={r2.pedLabel}>Pedido N°</Text>
+                    <Text style={r2.pedNum}>{order.ped_pedido}</Text>
+                </View>
+            </View>
+
+            {/* Cards */}
+            <View style={r2.cardRow}>
+                <View style={[r2.card, r2.cardAccent]}><Text style={r2.cardLabel}>Data do Pedido</Text><Text style={r2.cardValue}>{formatDate(order.ped_data)}</Text></View>
+                <View style={r2.card}><Text style={r2.cardLabel}>Código Cliente</Text><Text style={r2.cardValue}>{order.ped_cliente}</Text></View>
+                <View style={r2.card}><Text style={r2.cardLabel}>Prazo (dias)</Text><Text style={r2.cardValue}>{order.ped_condpag || '—'}</Text></View>
+                <View style={r2.card}><Text style={r2.cardLabel}>Desconto</Text><Text style={r2.cardValue}>{remapNum(order.ped_descadic || 0)}%</Text></View>
+                <View style={r2.card}><Text style={r2.cardLabel}>Ordem de Compra</Text><Text style={r2.cardValue}>{order.ped_oc || '—'}</Text></View>
+            </View>
+
+            {/* Dados do cliente */}
+            <Text style={r2.blockTitle}>Dados do Cliente</Text>
+            <View style={r2.clientBox}>
+                <Text style={r2.razao}>{order.cli_nome}</Text>
+                <View style={r2.grid}>
+                    <F2 label="Endereço" value={[ender, order.cli_bairro, cidadeUf, order.cli_cep && `CEP ${order.cli_cep}`].filter(Boolean).join(' · ')} w="55%" />
+                    <F2 label="Comprador" value={order.ped_comprador_display || order.ped_comprador} w="45%" />
+                    <F2 label="CNPJ" value={formatCpfCnpj(order.client_cnpj || order.cli_cnpj)} w="33%" />
+                    <F2 label="Inscr. Estadual" value={order.cli_inscricao} w="33%" />
+                    <F2 label="End. Cobrança" value="O mesmo" w="34%" />
+                    <F2 label="E-mail (NF-e e pedidos)" value={order.cli_emailnfe || order.cli_email} w="100%" />
+                </View>
+            </View>
+
+            {/* Informações comerciais */}
+            <Text style={r2.blockTitle}>Informações Comerciais</Text>
+            <View style={r2.comRow}>
+                <View style={r2.comCell}><Text style={r2.fLabel}>Vendedor</Text><Text style={r2.fVal}>{order.ven_nome || '—'}</Text></View>
+                <View style={r2.comCell}><Text style={r2.fLabel}>Representada</Text><Text style={r2.fVal}>{`${order.ped_industria || ''} — ${order.for_nomered || order.for_nome || ''}`}</Text></View>
+                <View style={r2.comCell}><Text style={r2.fLabel}>Transportadora</Text><Text style={r2.fVal}>{order.tra_nome || '—'}</Text>{order.tra_cgc ? <Text style={[r2.fVal, { fontSize: 6.5, color: '#94A3B8' }]}>{formatCpfCnpj(order.tra_cgc)}</Text> : null}</View>
+                <View style={r2.comCell}><Text style={r2.fLabel}>Frete</Text><Text style={r2.fVal}>{frete}</Text></View>
+                {/* Logo da indústria — no fim da linha, depois do Frete ("passar p/final") */}
+                <View style={r2.comCellLast}>
+                    <View style={r2.logoCell}>
+                        {industryLogo
+                            ? <Image src={industryLogo} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                            : <Text style={r2.fVal}>{order.for_nomered || order.for_nome || '—'}</Text>}
+                    </View>
+                </View>
+            </View>
+
+            {/* Itens */}
+            <Text style={r2.blockTitle}>Itens do Pedido</Text>
+            <View style={r2.itHead}>
+                <Text style={[r2.itHeadTxt, r2.cSeq]}>#</Text>
+                <Text style={[r2.itHeadTxt, r2.cCod]}>Código</Text>
+                <Text style={[r2.itHeadTxt, r2.cDesc]}>Descrição</Text>
+                <Text style={[r2.itHeadTxt, r2.cQtd]}>Qtd.</Text>
+                <Text style={[r2.itHeadTxt, r2.cUni]}>Pr. Unit.</Text>
+                <Text style={[r2.itHeadTxt, r2.cImp]}>IPI</Text>
+                <Text style={[r2.itHeadTxt, r2.cImp]}>ST</Text>
+                <Text style={[r2.itHeadTxt, r2.cUniImp]}>Pr. c/Imp.</Text>
+                <Text style={[r2.itHeadTxt, r2.cTot]}>Total</Text>
+            </View>
+            {items?.map((it, idx) => {
+                const ipi = parseFloat(it.ite_ipi) || 0;
+                const st = parseFloat(it.ite_st) || 0;
+                // Preço UNITÁRIO com impostos: líquido unit × (1+IPI%) × (1+ST%)
+                const unitComImp = (parseFloat(it.ite_puniliq || it.ite_puni) || 0) * (1 + ipi / 100) * (1 + st / 100);
+                return (
+                    <View key={idx} style={r2.itRow} wrap={false}>
+                        <Text style={r2.cSeq}>{String(it.ite_seq || idx + 1).padStart(3, '0')}</Text>
+                        <Text style={r2.cCod}>{remapTrunc(it.ite_produto, 10)}</Text>
+                        <View style={r2.cDesc}>
+                            <Text style={r2.descTxt}>{remapTrunc(it.ite_nomeprod, 40)}</Text>
+                        </View>
+                        <View style={r2.cQtd}><View style={r2.qtyCircle}><Text style={r2.qtyTxt}>{remapInt(it.ite_quant)}</Text></View></View>
+                        <Text style={r2.cUni}>{remapNum(it.ite_puniliq || it.ite_puni)}</Text>
+                        <Text style={r2.cImp}>{ipi > 0 ? remapNum(ipi) : '–'}</Text>
+                        <Text style={r2.cImp}>{st > 0 ? remapNum(st) : '–'}</Text>
+                        <Text style={r2.cUniImp}>{remapNum(unitComImp)}</Text>
+                        <Text style={r2.cTot}>{remapNum(it.ite_totliquido)}</Text>
+                    </View>
+                );
+            })}
+
+            {/* Totais */}
+            <View style={r2.sumRow} wrap={false}>
+                <Text style={r2.sumLeft}>{items?.length || 0} itens no total · Total do pedido: {remapInt(totPecas)} peças.</Text>
+                <View style={r2.totCard} wrap={false}>
+                    <View style={r2.totLine}><Text style={r2.totLbl}>Valor Bruto</Text><Text style={r2.totVal}>R$ {remapNum(totBruto)}</Text></View>
+                    <View style={r2.totLine}><Text style={r2.totLbl}>Total s/ Impostos</Text><Text style={r2.totVal}>R$ {remapNum(totLiq)}</Text></View>
+                    <View style={r2.totDivider} />
+                    <View style={r2.totLine}><Text style={r2.totFinalLbl}>Total c/ Impostos</Text><Text style={r2.totFinalVal}>R$ {remapNum(totComImp)}</Text></View>
+                </View>
+            </View>
+
+            {/* Rodapé legal */}
+            <Text style={r2.legal}>
+                Este pedido não vale como recibo. Conforme Lei 4886/65, Art. 43 — Del Credere: o representante não é responsável pelo crédito.
+                {order.ped_obs ? `\nOBS: ${order.ped_obs}` : ''}
+                {`\nDigitado por: ${(repInfo.rep_nome || '').toUpperCase()}`}
+            </Text>
+            <View style={r2.sigLine} />
+            <Text style={r2.sigTxt}>Assinatura do Comprador</Text>
+        </Page>
+    );
+};
+
+// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 const OrderPdfReport = ({ order, items, companyData, model = '1', separateGroups = 'N' }) => {
@@ -2462,10 +3009,17 @@ const OrderPdfReport = ({ order, items, companyData, model = '1', separateGroups
     const groupedItems = groupItemsByDiscount(items, separateGroups);
 
     // Determine page orientation based on model
-    const isLandscape = [13, 17, 18, 23, 24].includes(modelNum);
+    // 18 = formato REMAP (portrait, layout próprio) — removido da lista de landscape
+    const isLandscape = [13, 17, 23, 24].includes(modelNum);
 
     // Hide certain sections for reorder models
-    const isReorderModel = [17, 18].includes(modelNum);
+    // 18 = REMAP (não é reorder model) — removido
+    const isReorderModel = [17].includes(modelNum);
+
+    // Formato 18 (REMAP) tem layout próprio — bypassa todas as seções padrão
+    const isRemapModel = modelNum === 18;
+    // Formato 19 (REMAP Premium — paleta azul/navy, logo da indústria no quadro)
+    const isRemapModel2 = modelNum === 19;
 
     // Select items renderer based on model
     const renderItems = () => {
@@ -2538,6 +3092,24 @@ const OrderPdfReport = ({ order, items, companyData, model = '1', separateGroups
                 return <TotalsSection order={order} items={items} />;
         }
     };
+
+    // Formato 19 (REMAP Premium) — bypass total: layout próprio
+    if (isRemapModel2) {
+        return (
+            <Document>
+                <RemapReport2 order={order} items={items} repInfo={repInfo} logo={logo} industryLogo={industryLogo} />
+            </Document>
+        );
+    }
+
+    // Formato 18 (REMAP) — bypass total: layout próprio, ignora todas as seções padrão
+    if (isRemapModel) {
+        return (
+            <Document>
+                <RemapReport order={order} items={items} repInfo={repInfo} industryLogo={industryLogo} />
+            </Document>
+        );
+    }
 
     return (
         <Document>
@@ -2636,7 +3208,7 @@ const OrderPdfReport = ({ order, items, companyData, model = '1', separateGroups
                                 <View style={{ flex: 0.5 }}><Text style={{ ...styles.label, color: '#dc2626' }}>Suframa: </Text><Text style={styles.value}>{order.cli_suframa}</Text></View>
                             </View>
                             <View style={{ flexDirection: 'row', gap: 10 }}>
-                                <View style={{ flex: 1 }}><Text style={styles.label}>Fone: </Text><Text style={styles.value}>({order.cli_ddd || ''}) {order.cli_fone}</Text></View>
+                                <View style={{ flex: 1 }}><Text style={styles.label}>Fone: </Text><Text style={styles.value}>{order.cli_fone}</Text></View>
                                 <View style={{ flex: 0.8 }}><Text style={styles.label}>Comprador: </Text><Text style={styles.value}>{order.ped_comprador_display || order.ped_comprador}</Text></View>
                                 <View style={{ flex: 1.5 }}><Text style={styles.label}>E-mail: </Text><Text style={{ ...styles.value, textTransform: 'lowercase' }}>{order.ped_emailcomp || order.cli_email}</Text></View>
                             </View>
