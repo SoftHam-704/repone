@@ -2820,10 +2820,10 @@ const r2 = StyleSheet.create({
     itRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4, paddingHorizontal: 6, borderBottomWidth: 0.5, borderBottomColor: '#E2E8F0' },
     cSeq: { width: '5%', fontSize: 7, color: INK, fontWeight: 'medium' },
     cCod: { width: '8%', fontSize: 8, color: INK, fontWeight: 'medium' },
-    cDesc: { width: '34%', paddingRight: 4 },
+    cDesc: { width: '32%', paddingRight: 4 },
     cQtd: { width: '7%', alignItems: 'center' },
-    cUni: { width: '10%', textAlign: 'right', color: INK, fontWeight: 'medium' },
-    cImp: { width: '5.5%', textAlign: 'center', color: INK, fontWeight: 'medium' },
+    cUni: { width: '10%', textAlign: 'right', paddingRight: 12, color: INK, fontWeight: 'medium' },
+    cImp: { width: '6.5%', textAlign: 'center', color: INK, fontWeight: 'medium' },
     cUniImp: { width: '12%', textAlign: 'right', color: INK, fontWeight: 'medium' },
     cTot: { width: '13%', textAlign: 'right', color: INK, fontWeight: 'medium' },
     descTxt: { fontSize: 8.5, color: INK, fontWeight: 'medium' },
@@ -2897,8 +2897,11 @@ const RemapReport2 = ({ order, items, repInfo, logo, industryLogo }) => {
             <View style={r2.clientBox}>
                 <Text style={r2.razao}>{order.cli_nome}</Text>
                 <View style={r2.grid}>
-                    <F2 label="Endereço" value={[ender, order.cli_bairro, cidadeUf, order.cli_cep && `CEP ${order.cli_cep}`].filter(Boolean).join(' · ')} w="70%" />
-                    <F2 label="Comprador" value={order.ped_comprador_display || order.ped_comprador} w="30%" />
+                    <F2 label="Endereço" value={[ender, order.cli_bairro, cidadeUf, order.cli_cep && `CEP ${order.cli_cep}`].filter(Boolean).join(' · ')} w="60%" />
+                    <View style={{ width: '40%', alignItems: 'flex-end' }}>
+                        <Text style={r2.fLabel}>Comprador</Text>
+                        <Text style={r2.fVal}>{order.ped_comprador_display || order.ped_comprador || '—'}</Text>
+                    </View>
                     <F2 label="CNPJ" value={formatCpfCnpj(order.client_cnpj || order.cli_cnpj)} w="33%" />
                     <F2 label="Inscr. Estadual" value={order.cli_inscricao} w="33%" />
                     <F2 label="End. Cobrança" value="O mesmo" w="34%" />
