@@ -1,5 +1,22 @@
 import { Request, Response } from 'express';
-import { getAllowedIndustries } from '../../shared/permissions';
+import { getAllowedIndustries, getLinkedSellerId } from '../../shared/permissions';
+
+// ─── Regras de negócio compartilhadas ─────────────────────────────────────────
+
+/**
+ * Cláusula que EXCLUI pedidos cujo vendedor tem `ven_cumpremetas = 'N'`.
+ * Pedidos com `ped_vendedor = 0` (sem vendedor / escritório) PASSAM normalmente
+ * porque o subselect não retorna match (0 não está em `vendedores`).
+ * Regra validada por Hamilton em 2026-05-23: vendedor sem meta não aparece
+ * em rankings, KPIs nem no combobox do BI.
+ */
+const CUMPRE_METAS_CLAUSE = `AND NOT EXISTS (SELECT 1 FROM vendedores v WHERE v.ven_codigo = p.ped_vendedor AND v.ven_cumpremetas = 'N')`;
+
+/**
+ * Variante pra sellout (tabela `crm_sellout s` não tem coluna vendedor —
+ * vai pelo `clientes.cli_vendedor` da carteira atual do cliente).
+ */
+const CUMPRE_METAS_CLAUSE_SELLOUT = `AND NOT EXISTS (SELECT 1 FROM clientes cm JOIN vendedores vm ON vm.ven_codigo = cm.cli_vendedor WHERE cm.cli_codigo = s.cli_codigo AND vm.ven_cumpremetas = 'N')`;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -26,9 +43,11 @@ function buildWhere(
   forInt: number | null,
   cliInt: number | null,
   allowedIndustries: number[] | null,
+  venInt: number | null = null,
   dateField = 'p.ped_data',
   industryField = 'p.ped_industria',
   clientField = 'p.ped_cliente',
+  vendorField = 'p.ped_vendedor',
 ) {
   // O correto é apenas P e F. Upper + Trim para maior robustez.
   const clauses: string[] = [`UPPER(TRIM(p.ped_situacao)) IN ('P', 'F')` ];
@@ -56,6 +75,14 @@ function buildWhere(
     params.push(cliInt);
     clauses.push(`${clientField} = $${params.length}`);
   }
+  if (venInt) {
+    params.push(venInt);
+    clauses.push(`${vendorField} = $${params.length}`);
+  }
+
+  // Exclui vendedor com cumpremetas='N' (regra de BI — Hamilton 2026-05-23)
+  // Remove o "AND " inicial porque o join abaixo já adiciona.
+  clauses.push(CUMPRE_METAS_CLAUSE.replace(/^AND\s+/, ''));
 
   return { where: clauses.join(' AND '), params };
 }
@@ -69,14 +96,15 @@ export async function overviewHandler(req: Request, res: Response): Promise<void
     const meses = parseMeses(req.query.meses as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
     // Primário = primeiro ano do array (mais recente)
     const anoA = Math.max(...anos);
     const anoB = anos.length === 2 ? Math.min(...anos) : anoA - 1;
 
-    const { where, params } = buildWhere([anoA], meses, forInt, cliInt, allowedIndustries);
-    const { where: whereB, params: paramsB } = buildWhere([anoB], meses, forInt, cliInt, allowedIndustries);
+    const { where, params } = buildWhere([anoA], meses, forInt, cliInt, allowedIndustries, venInt);
+    const { where: whereB, params: paramsB } = buildWhere([anoB], meses, forInt, cliInt, allowedIndustries, venInt);
 
     const [rA, rB] = await Promise.all([
       db.query(`
@@ -183,6 +211,7 @@ export async function monthlyHandler(req: Request, res: Response): Promise<void>
     const anos = parseAnos(req.query.anos as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
     const indFilter = forInt ? `AND p.ped_industria = ${forInt}` : '';
@@ -200,7 +229,7 @@ export async function monthlyHandler(req: Request, res: Response): Promise<void>
           COUNT(DISTINCT p.ped_pedido)::INTEGER                            AS pedidos
         FROM pedidos p
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = $1
           ${indFilter}
           ${cliFilter}
@@ -218,18 +247,76 @@ export async function monthlyHandler(req: Request, res: Response): Promise<void>
   }
 }
 
+// ─── GET /api/bi/comparativo-anual ───────────────────────────────────────────
+// Comparativo ano vs ano, mês a mês. VALOR = SUM(ped_totliq) do cabeçalho (padrão da casa,
+// igual Mapa/Pedidos); QTD = SUM(ite_quant). Só vendas P/F. Retorna valor E qtd por mês
+// dos anos selecionados → o toggle Valor/Qtd é client-side.
+export async function comparativoAnualHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const userId = getUserId(req);
+    const anos = parseAnos(req.query.anos as string);
+    const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+
+    const indFilter     = forInt ? `AND p.ped_industria = ${forInt}` : '';
+    const cliFilter     = cliInt ? `AND p.ped_cliente = ${cliInt}` : '';
+    const venFilter     = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
+    const allowedFilter = allowedIndustries ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}])` : '';
+
+    const rows: any[] = [];
+    for (const ano of anos) {
+      const r = await db.query(`
+        WITH ped AS (
+          SELECT p.ped_pedido,
+                 EXTRACT(MONTH FROM p.ped_data)::INTEGER AS mes,
+                 p.ped_totliq
+          FROM pedidos p
+          WHERE p.ped_situacao IN ('P','F')
+            AND EXTRACT(YEAR FROM p.ped_data) = $1
+            ${indFilter} ${cliFilter} ${venFilter} ${allowedFilter}
+        ),
+        qtd AS (
+          SELECT ped.mes, SUM(i.ite_quant)::NUMERIC AS quantidade
+          FROM ped JOIN itens_ped i ON i.ite_pedido = ped.ped_pedido
+          GROUP BY ped.mes
+        )
+        SELECT ped.mes,
+               COALESCE(ROUND(SUM(ped.ped_totliq)::NUMERIC, 2), 0)::NUMERIC AS total,
+               COALESCE(q.quantidade, 0)::NUMERIC                           AS quantidade,
+               COUNT(DISTINCT ped.ped_pedido)::INTEGER                      AS pedidos
+        FROM ped
+        LEFT JOIN qtd q ON q.mes = ped.mes
+        GROUP BY ped.mes, q.quantidade
+        ORDER BY ped.mes
+      `, [ano]);
+      rows.push({ ano, series: r.rows });
+    }
+
+    res.json({ success: true, data: rows });
+  } catch (error: any) {
+    console.error('❌ [BI/comparativo-anual]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
 // ─── Helper: monta filtros inline para market-share / ranking ────────────────
 function buildInlineFilters(
   meses: number[] | null,
   forInt: number | null,
   cliInt: number | null,
   allowedIndustries: number[] | null,
+  venInt: number | null = null,
 ) {
   const parts: string[] = [];
   if (meses?.length) parts.push(`AND EXTRACT(MONTH FROM p.ped_data) = ANY(ARRAY[${meses.join(',')}]::int[])`);
   if (forInt)        parts.push(`AND p.ped_industria = ${forInt}`);
   if (cliInt)        parts.push(`AND p.ped_cliente = ${cliInt}`);
+  if (venInt)        parts.push(`AND p.ped_vendedor = ${venInt}`);
   if (allowedIndustries?.length) parts.push(`AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])`);
+  parts.push(CUMPRE_METAS_CLAUSE);  // exclui vendedor com cumpremetas='N'
   return parts.join('\n');
 }
 
@@ -241,10 +328,11 @@ export async function marketShareHandler(req: Request, res: Response): Promise<v
     const anos = parseAnos(req.query.anos as string);
     const meses = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const metrica  = String(req.query.metrica || 'financeiro');
     const orderCol = metrica === 'volume' ? 'quantidade' : metrica === 'skus' ? 'skus' : 'total';
     const allowedIndustries = await getAllowedIndustries(db, userId);
-    const extraFilters = buildInlineFilters(meses, forInt, null, allowedIndustries);
+    const extraFilters = buildInlineFilters(meses, forInt, null, allowedIndustries, venInt);
 
     const r = await db.query(`
       WITH agg AS (
@@ -257,7 +345,7 @@ export async function marketShareHandler(req: Request, res: Response): Promise<v
           COUNT(DISTINCT p.ped_pedido)::INTEGER                AS pedidos
         FROM pedidos p
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = ANY($1::int[])
           ${extraFilters}
         GROUP BY p.ped_industria
@@ -290,7 +378,6 @@ export async function marketShareHandler(req: Request, res: Response): Promise<v
       CROSS JOIN grand g
       WHERE f.for_nomered IS NOT NULL
       ORDER BY a.${orderCol} DESC
-      LIMIT 15
     `, [anos]);
 
     res.json({ success: true, data: r.rows });
@@ -309,11 +396,12 @@ export async function rankingProdutosHandler(req: Request, res: Response): Promi
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const metrica  = String(req.query.metrica || 'financeiro');
     const orderCol = metrica === 'volume' || metrica === 'skus' ? 'quantidade' : 'total';
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
-    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
 
     const r = await db.query(`
       SELECT
@@ -347,8 +435,9 @@ export async function rankingIndustriasHandler(req: Request, res: Response): Pro
     const anos = parseAnos(req.query.anos as string);
     const meses = parseMeses(req.query.meses as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
-    const extraFilters = buildInlineFilters(meses, forInt, null, allowedIndustries);
+    const extraFilters = buildInlineFilters(meses, forInt, null, allowedIndustries, venInt);
 
     const r = await db.query(`
       WITH agg AS (
@@ -359,7 +448,7 @@ export async function rankingIndustriasHandler(req: Request, res: Response): Pro
           COUNT(DISTINCT p.ped_pedido)::INTEGER         AS pedidos
         FROM pedidos p
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = ANY($1::int[])
           ${extraFilters}
         GROUP BY p.ped_industria
@@ -392,14 +481,21 @@ export async function sellersPerformanceHandler(req: Request, res: Response): Pr
     const anos = parseAnos(req.query.anos as string);
     const meses = parseMeses(req.query.meses as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
     const anoAtual = Math.max(...anos);
     const anoAnt   = anoAtual - 1;
 
+    // Data de início do período corrente — usada para definir "inéditos" via comparação por data.
+    // Se filtrou meses específicos, usa o primeiro mês do filtro; senão, jan/ano-atual.
+    const startMonth = meses?.length ? Math.min(...meses) : 1;
+    const periodStart = `${anoAtual}-${String(startMonth).padStart(2, '0')}-01`;
+
     const mesesFilter = meses?.length ? `AND EXTRACT(MONTH FROM p.ped_data) = ANY(ARRAY[${meses.join(',')}]::int[])` : '';
     const forFilter   = forInt ? `AND p.ped_industria = ${forInt}` : '';
     const allowFilter = allowedIndustries?.length ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])` : '';
+    const venFilter   = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
 
     const r = await db.query(`
       WITH
@@ -409,9 +505,9 @@ export async function sellersPerformanceHandler(req: Request, res: Response): Pr
           COUNT(DISTINCT p.ped_cliente)::INTEGER                 AS clientes
         FROM pedidos p
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = $1
-          ${mesesFilter} ${forFilter} ${allowFilter}
+          ${mesesFilter} ${forFilter} ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
         GROUP BY p.ped_vendedor
       ),
       ant AS (
@@ -420,21 +516,21 @@ export async function sellersPerformanceHandler(req: Request, res: Response): Pr
           COUNT(DISTINCT p.ped_cliente)::INTEGER                 AS clientes
         FROM pedidos p
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = $2
-          ${mesesFilter} ${forFilter} ${allowFilter}
+          ${mesesFilter} ${forFilter} ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
         GROUP BY p.ped_vendedor
       ),
       novos AS (
         SELECT DISTINCT p.ped_vendedor, p.ped_cliente
         FROM pedidos p
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = $1
-          ${mesesFilter} ${forFilter} ${allowFilter}
+          ${mesesFilter} ${forFilter} ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
           AND NOT EXISTS (
             SELECT 1 FROM pedidos p2
             WHERE p2.ped_cliente = p.ped_cliente
-              AND p2.ped_situacao IN ('P','F','A')
+              AND p2.ped_situacao IN ('P','F')
               AND EXTRACT(YEAR FROM p2.ped_data) < $1
           )
       ),
@@ -444,20 +540,20 @@ export async function sellersPerformanceHandler(req: Request, res: Response): Pr
       reativos AS (
         SELECT DISTINCT p.ped_vendedor, p.ped_cliente
         FROM pedidos p
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = $1
-          ${mesesFilter} ${forFilter} ${allowFilter}
+          ${mesesFilter} ${forFilter} ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
           AND EXISTS (
             SELECT 1 FROM pedidos p2
             WHERE p2.ped_cliente = p.ped_cliente
-              AND p2.ped_situacao IN ('P','F','A')
+              AND p2.ped_situacao IN ('P','F')
               AND EXTRACT(YEAR FROM p2.ped_data) < $1
           )
           AND (
             SELECT (DATE_TRUNC('year', MAKE_DATE($1::INTEGER, 1, 1))::DATE - MAX(p2.ped_data)::DATE)
             FROM pedidos p2
             WHERE p2.ped_cliente = p.ped_cliente
-              AND p2.ped_situacao IN ('P','F','A')
+              AND p2.ped_situacao IN ('P','F')
               AND EXTRACT(YEAR FROM p2.ped_data) < $1
           ) >= 60
           AND p.ped_cliente NOT IN (SELECT ped_cliente FROM novos)
@@ -465,28 +561,44 @@ export async function sellersPerformanceHandler(req: Request, res: Response): Pr
       reativos_agg AS (
         SELECT ped_vendedor, COUNT(*)::INTEGER AS cnt FROM reativos GROUP BY ped_vendedor
       ),
+      -- Total de SKUs distintos vendidos pelo vendedor no período atual (sem filtro de "novo")
+      skus_total AS (
+        SELECT p.ped_vendedor,
+          COUNT(DISTINCT i.ite_produto)::INTEGER                AS cnt,
+          COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0) AS valor
+        FROM pedidos p
+        JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+        WHERE p.ped_situacao IN ('P','F')
+          AND EXTRACT(YEAR FROM p.ped_data) = $1
+          ${mesesFilter} ${forFilter} ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
+        GROUP BY p.ped_vendedor
+      ),
+      -- SKUs inéditos: produtos que o vendedor nunca vendeu antes do início do período corrente.
+      -- Usa comparação por DATA (não por ano) para que produtos vendidos em meses anteriores
+      -- do mesmo ano também contem como "já vendidos" (e portanto não-inéditos).
       skus_novos AS (
         SELECT p.ped_vendedor,
           COUNT(DISTINCT i.ite_produto)::INTEGER                 AS cnt,
           COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0) AS valor
         FROM pedidos p
         JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = $1
-          ${mesesFilter} ${forFilter} ${allowFilter}
+          ${mesesFilter} ${forFilter} ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
           AND NOT EXISTS (
             SELECT 1 FROM pedidos p2
             JOIN itens_ped i2 ON i2.ite_pedido = p2.ped_pedido
             WHERE p2.ped_vendedor = p.ped_vendedor
-              AND p2.ped_situacao IN ('P','F','A')
+              AND p2.ped_situacao IN ('P','F')
               AND i2.ite_produto = i.ite_produto
-              AND EXTRACT(YEAR FROM p2.ped_data) < $1
+              AND p2.ped_data < $3::DATE
           )
         GROUP BY p.ped_vendedor
       )
       SELECT
         v.ven_codigo,
         TRIM(v.ven_nome)                                                    AS ven_nome,
+        v.ven_imagem                                                        AS ven_imagem,
         COALESCE(a.total,  0)::NUMERIC                                      AS total_value_current,
         COALESCE(b.total,  0)::NUMERIC                                      AS total_value_previous,
         CASE WHEN COALESCE(b.total, 0) > 0
@@ -495,6 +607,8 @@ export async function sellersPerformanceHandler(req: Request, res: Response): Pr
         COALESCE(b.clientes, 0)::INTEGER                                    AS clients_previous,
         COALESCE(n.cnt,    0)::INTEGER                                      AS new_clients,
         COALESCE(r.cnt,    0)::INTEGER                                      AS reactivated_clients,
+        COALESCE(st.cnt,   0)::INTEGER                                      AS total_skus_count,
+        COALESCE(st.valor, 0)::NUMERIC                                      AS total_skus_value,
         COALESCE(sk.cnt,   0)::INTEGER                                      AS new_skus_count,
         COALESCE(sk.valor, 0)::NUMERIC                                      AS new_skus_value
       FROM vendedores v
@@ -502,11 +616,13 @@ export async function sellersPerformanceHandler(req: Request, res: Response): Pr
       LEFT JOIN ant          b  ON b.ped_vendedor  = v.ven_codigo
       LEFT JOIN novos_agg    n  ON n.ped_vendedor  = v.ven_codigo
       LEFT JOIN reativos_agg r  ON r.ped_vendedor  = v.ven_codigo
+      LEFT JOIN skus_total   st ON st.ped_vendedor = v.ven_codigo
       LEFT JOIN skus_novos   sk ON sk.ped_vendedor = v.ven_codigo
       WHERE v.ven_status = 'A'
+        AND COALESCE(UPPER(TRIM(v.ven_cumpremetas)), 'S') <> 'N'
         AND (COALESCE(a.total, 0) > 0 OR COALESCE(b.total, 0) > 0)
       ORDER BY COALESCE(a.total, 0) DESC
-    `, [anoAtual, anoAnt]);
+    `, [anoAtual, anoAnt, periodStart]);
 
     res.json({ success: true, data: r.rows });
   } catch (error: any) {
@@ -522,13 +638,28 @@ export async function equipeCockpitHandler(req: Request, res: Response): Promise
   try {
     const db = req.db!;
     const userId = getUserId(req);
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
     const allowFilter = allowedIndustries?.length
       ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])`
       : '';
+    const venFilter = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
 
     const r = await db.query(`
       WITH
+      titular_por_cliente AS (
+        -- Mapeia cliente → vendedor titular pelo PEDIDO MAIS RECENTE (180d).
+        -- A visita é atribuída ao titular da carteira, não a quem fisicamente
+        -- visitou — útil quando gerentes/promotores apoiam o rep em campo.
+        SELECT DISTINCT ON (p.ped_cliente)
+               p.ped_cliente  AS cli_codigo,
+               p.ped_vendedor AS ven_codigo
+        FROM pedidos p
+        WHERE p.ped_situacao IN ('P','F')
+          AND p.ped_data >= CURRENT_DATE - INTERVAL '180 days'
+          AND p.ped_vendedor > 0
+        ORDER BY p.ped_cliente, p.ped_data DESC, p.ped_pedido DESC
+      ),
       mes_atual AS (
         SELECT p.ped_vendedor,
                COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0) AS fat_atual
@@ -536,7 +667,7 @@ export async function equipeCockpitHandler(req: Request, res: Response): Promise
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
         WHERE p.ped_situacao IN ('P','F')
           AND DATE_TRUNC('month', p.ped_data) = DATE_TRUNC('month', CURRENT_DATE)
-          ${allowFilter}
+          ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
         GROUP BY p.ped_vendedor
       ),
       mes_ant AS (
@@ -546,25 +677,28 @@ export async function equipeCockpitHandler(req: Request, res: Response): Promise
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
         WHERE p.ped_situacao IN ('P','F')
           AND DATE_TRUNC('month', p.ped_data) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
-          ${allowFilter}
+          ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
         GROUP BY p.ped_vendedor
       ),
       ultimo_pedido AS (
         SELECT p.ped_vendedor, MAX(p.ped_data) AS ultima_data
         FROM pedidos p
         WHERE p.ped_situacao IN ('P','F')
-          ${allowFilter}
+          ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
         GROUP BY p.ped_vendedor
       ),
       visitas_semana AS (
-        SELECT v2.ven_codigo,
-               COUNT(*) AS visitas
-        FROM agenda a
-        JOIN vendedores v2 ON v2.ven_codusu = a.usuario_id
-        WHERE a.data_inicio >= DATE_TRUNC('week', CURRENT_DATE)
-          AND a.data_inicio <  DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'
-          AND a.tipo IN ('visita','reuniao','ligacao','cobranca','followup')
-        GROUP BY v2.ven_codigo
+        -- Visitas REAIS (check-in) atribuídas ao titular da carteira do cliente.
+        -- DISTINCT em (data, cliente) evita inflar com múltiplos check-ins no
+        -- mesmo cliente/dia (ex: gerente acompanhando o rep).
+        SELECT tc.ven_codigo,
+               COUNT(DISTINCT (rv.vis_datahora::date, rv.vis_cliente_id)) AS visitas
+        FROM registro_visitas rv
+        JOIN titular_por_cliente tc ON tc.cli_codigo = rv.vis_cliente_id
+        WHERE rv.vis_tipo = 'CHECKIN'
+          AND rv.vis_datahora >= DATE_TRUNC('week', CURRENT_DATE)
+          AND rv.vis_datahora <  DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'
+        GROUP BY tc.ven_codigo
       ),
       clientes_risco AS (
         SELECT p.ped_vendedor,
@@ -573,7 +707,7 @@ export async function equipeCockpitHandler(req: Request, res: Response): Promise
         WHERE p.ped_situacao IN ('P','F')
           AND p.ped_data >= CURRENT_DATE - INTERVAL '90 days'
           AND p.ped_data <  CURRENT_DATE - INTERVAL '30 days'
-          ${allowFilter}
+          ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
           AND NOT EXISTS (
             SELECT 1 FROM pedidos p2
             WHERE p2.ped_vendedor = p.ped_vendedor
@@ -582,10 +716,57 @@ export async function equipeCockpitHandler(req: Request, res: Response): Promise
               AND p2.ped_data >= CURRENT_DATE - INTERVAL '30 days'
           )
         GROUP BY p.ped_vendedor
+      ),
+      tempo_medio_visita AS (
+        -- Duração média das visitas (check-in+check-out pareados no mesmo dia)
+        -- nos últimos 30 dias, atribuída ao titular da carteira. Outliers: 1min–4h.
+        SELECT tc.ven_codigo,
+               ROUND(AVG(EXTRACT(EPOCH FROM (co.vis_datahora - ci.vis_datahora)) / 60.0)::NUMERIC, 1) AS minutos
+        FROM registro_visitas ci
+        JOIN registro_visitas co
+          ON co.vis_promotor_id = ci.vis_promotor_id
+         AND co.vis_cliente_id  = ci.vis_cliente_id
+         AND co.vis_tipo        = 'CHECKOUT'
+         AND co.vis_datahora::date = ci.vis_datahora::date
+         AND co.vis_datahora    > ci.vis_datahora
+        JOIN titular_por_cliente tc ON tc.cli_codigo = ci.vis_cliente_id
+        WHERE ci.vis_tipo = 'CHECKIN'
+          AND ci.vis_datahora >= CURRENT_DATE - INTERVAL '30 days'
+          AND EXTRACT(EPOCH FROM (co.vis_datahora - ci.vis_datahora)) BETWEEN 60 AND 14400
+        GROUP BY tc.ven_codigo
+      ),
+      conversao_visita AS (
+        -- Taxa de conversão: % visitas (últimos 30 dias) à carteira do titular
+        -- que geraram pedido (do titular) em até 7 dias após o check-in.
+        WITH visitas_30d AS (
+          SELECT DISTINCT
+            tc.ven_codigo,
+            ci.vis_cliente_id,
+            ci.vis_datahora::date AS dia_visita
+          FROM registro_visitas ci
+          JOIN titular_por_cliente tc ON tc.cli_codigo = ci.vis_cliente_id
+          WHERE ci.vis_tipo = 'CHECKIN'
+            AND ci.vis_datahora >= CURRENT_DATE - INTERVAL '37 days'
+            AND ci.vis_datahora <  CURRENT_DATE
+        )
+        SELECT vd.ven_codigo,
+               COUNT(*) AS total_visitas,
+               COUNT(*) FILTER (
+                 WHERE EXISTS (
+                   SELECT 1 FROM pedidos p
+                   WHERE p.ped_vendedor  = vd.ven_codigo
+                     AND p.ped_cliente   = vd.vis_cliente_id
+                     AND p.ped_situacao IN ('P','F')
+                     AND p.ped_data BETWEEN vd.dia_visita AND vd.dia_visita + INTERVAL '7 days'
+                 )
+               ) AS visitas_converteram
+        FROM visitas_30d vd
+        GROUP BY vd.ven_codigo
       )
       SELECT
         v.ven_codigo,
         v.ven_nome,
+        v.ven_imagem,
         COALESCE(ma.fat_atual, 0)        AS fat_mes_atual,
         COALESCE(mb.fat_meta,  0)        AS fat_meta,
         CASE WHEN COALESCE(mb.fat_meta, 0) > 0
@@ -596,20 +777,330 @@ export async function equipeCockpitHandler(req: Request, res: Response): Promise
         up.ultima_data,
         CASE WHEN up.ultima_data IS NOT NULL
              THEN (CURRENT_DATE - up.ultima_data::date)
-             ELSE NULL END               AS dias_sem_pedido
+             ELSE NULL END               AS dias_sem_pedido,
+        tmv.minutos                      AS tempo_medio_min,
+        COALESCE(cv.total_visitas, 0)    AS total_visitas_30d,
+        COALESCE(cv.visitas_converteram, 0) AS visitas_converteram,
+        CASE WHEN COALESCE(cv.total_visitas, 0) > 0
+             THEN ROUND(cv.visitas_converteram * 100.0 / cv.total_visitas, 1)
+             ELSE NULL END               AS taxa_conversao_pct
       FROM vendedores v
-      LEFT JOIN mes_atual      ma ON ma.ped_vendedor  = v.ven_codigo
-      LEFT JOIN mes_ant        mb ON mb.ped_vendedor  = v.ven_codigo
-      LEFT JOIN ultimo_pedido  up ON up.ped_vendedor  = v.ven_codigo
-      LEFT JOIN visitas_semana vs ON vs.ven_codigo     = v.ven_codigo
-      LEFT JOIN clientes_risco cr ON cr.ped_vendedor  = v.ven_codigo
+      LEFT JOIN mes_atual         ma  ON ma.ped_vendedor = v.ven_codigo
+      LEFT JOIN mes_ant           mb  ON mb.ped_vendedor = v.ven_codigo
+      LEFT JOIN ultimo_pedido     up  ON up.ped_vendedor = v.ven_codigo
+      LEFT JOIN visitas_semana    vs  ON vs.ven_codigo   = v.ven_codigo
+      LEFT JOIN clientes_risco    cr  ON cr.ped_vendedor = v.ven_codigo
+      LEFT JOIN tempo_medio_visita tmv ON tmv.ven_codigo = v.ven_codigo
+      LEFT JOIN conversao_visita  cv  ON cv.ven_codigo   = v.ven_codigo
       WHERE v.ven_status = 'A'
+        AND COALESCE(UPPER(TRIM(v.ven_cumpremetas)), 'S') <> 'N'
       ORDER BY COALESCE(ma.fat_atual, 0) DESC
     `);
 
     res.json({ success: true, data: r.rows });
   } catch (error: any) {
     console.error('❌ [BI/equipe-cockpit]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── GET /api/bi/equipe-cobertura ─────────────────────────────────────────────
+// Cobertura de campo: % da carteira ativa que cada vendedor visitou nos últimos 30 dias.
+// Carteira ativa = clientes com pedido nos últimos 90 dias (situação P/F).
+// Visitados = clientes distintos com check-in (registro_visitas) nos últimos 30 dias.
+export async function equipeCoberturaHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const userId = getUserId(req);
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+    const allowFilter = allowedIndustries?.length
+      ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])`
+      : '';
+    const venFilter = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
+
+    const r = await db.query(`
+      WITH
+      carteira_clientes AS (
+        -- Clientes ativos do rep (compraram nos últimos 90 dias).
+        -- Materializa par (ven_codigo, cli_codigo) pra cruzar com visitas
+        -- por CLIENTE — não por quem fisicamente fez o check-in.
+        SELECT DISTINCT
+               p.ped_vendedor AS ven_codigo,
+               p.ped_cliente  AS cli_codigo
+        FROM pedidos p
+        WHERE p.ped_situacao IN ('P','F')
+          AND p.ped_data >= CURRENT_DATE - INTERVAL '90 days'
+          ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
+      ),
+      carteira AS (
+        SELECT ven_codigo, COUNT(*) AS carteira_total
+        FROM carteira_clientes
+        GROUP BY ven_codigo
+      ),
+      visitados AS (
+        -- Cliente da carteira que recebeu check-in real nos últimos 30 dias —
+        -- não importa se foi o titular, um gerente ou um promotor que visitou.
+        SELECT cc.ven_codigo,
+               COUNT(DISTINCT rv.vis_cliente_id) AS visitados
+        FROM registro_visitas rv
+        JOIN carteira_clientes cc ON cc.cli_codigo = rv.vis_cliente_id
+        WHERE rv.vis_tipo = 'CHECKIN'
+          AND rv.vis_datahora >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY cc.ven_codigo
+      )
+      SELECT
+        v.ven_codigo,
+        v.ven_nome,
+        v.ven_imagem,
+        COALESCE(c.carteira_total, 0)   AS carteira_total,
+        COALESCE(vi.visitados, 0)       AS clientes_visitados,
+        CASE WHEN COALESCE(c.carteira_total, 0) > 0
+             THEN ROUND(COALESCE(vi.visitados, 0) * 100.0 / c.carteira_total, 1)
+             ELSE NULL END              AS cobertura_pct
+      FROM vendedores v
+      LEFT JOIN carteira  c  ON c.ven_codigo  = v.ven_codigo
+      LEFT JOIN visitados vi ON vi.ven_codigo = v.ven_codigo
+      WHERE v.ven_status = 'A'
+        AND COALESCE(UPPER(TRIM(v.ven_cumpremetas)), 'S') <> 'N'
+        AND COALESCE(c.carteira_total, 0) > 0
+        ${venInt ? `AND v.ven_codigo = ${venInt}` : ''}
+      ORDER BY cobertura_pct DESC NULLS LAST, c.carteira_total DESC
+    `);
+
+    res.json({ success: true, data: r.rows });
+  } catch (error: any) {
+    console.error('❌ [BI/equipe-cobertura]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── GET /api/bi/visitas-sem-retorno ──────────────────────────────────────────
+// Leads quentes: clientes com check-in nos últimos 14 dias QUE NÃO geraram
+// pedido após a visita. Oportunidades pendentes de conversão.
+export async function visitasSemRetornoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
+
+    const r = await db.query(`
+      WITH
+      titular_por_cliente AS (
+        SELECT DISTINCT ON (p.ped_cliente)
+               p.ped_cliente  AS cli_codigo,
+               p.ped_vendedor AS ven_codigo
+        FROM pedidos p
+        WHERE p.ped_situacao IN ('P','F')
+          AND p.ped_data >= CURRENT_DATE - INTERVAL '180 days'
+          AND p.ped_vendedor > 0
+        ORDER BY p.ped_cliente, p.ped_data DESC, p.ped_pedido DESC
+      ),
+      visitas_recentes AS (
+        -- Última visita por cliente nos últimos 14 dias, atribuída ao
+        -- vendedor TITULAR da carteira (não a quem fisicamente visitou).
+        SELECT DISTINCT ON (tc.ven_codigo, rv.vis_cliente_id)
+          tc.ven_codigo,
+          v.ven_nome,
+          rv.vis_cliente_id        AS cli_codigo,
+          rv.vis_datahora::date    AS data_visita
+        FROM registro_visitas rv
+        JOIN titular_por_cliente tc ON tc.cli_codigo = rv.vis_cliente_id
+        JOIN vendedores v ON v.ven_codigo = tc.ven_codigo
+        WHERE rv.vis_tipo = 'CHECKIN'
+          AND rv.vis_datahora >= CURRENT_DATE - INTERVAL '14 days'
+          AND COALESCE(UPPER(TRIM(v.ven_cumpremetas)), 'S') <> 'N'
+          AND v.ven_status = 'A'
+          ${venInt ? `AND tc.ven_codigo = ${venInt}` : ''}
+        ORDER BY tc.ven_codigo, rv.vis_cliente_id, rv.vis_datahora DESC
+      )
+      SELECT
+        vr.ven_codigo,
+        vr.ven_nome,
+        vr.cli_codigo,
+        COALESCE(NULLIF(TRIM(c.cli_nomred), ''), NULLIF(TRIM(c.cli_fantasia), ''), c.cli_nome, 'Cliente ' || vr.cli_codigo) AS cli_nome,
+        vr.data_visita,
+        (CURRENT_DATE - vr.data_visita) AS dias_desde_visita
+      FROM visitas_recentes vr
+      JOIN clientes c ON c.cli_codigo = vr.cli_codigo
+      WHERE NOT EXISTS (
+        SELECT 1 FROM pedidos p
+        WHERE p.ped_cliente   = vr.cli_codigo
+          AND p.ped_vendedor  = vr.ven_codigo
+          AND p.ped_situacao IN ('P','F')
+          AND p.ped_data >= vr.data_visita
+      )
+      ORDER BY vr.data_visita ASC, vr.ven_nome
+      LIMIT 100
+    `);
+
+    res.json({ success: true, data: r.rows });
+  } catch (error: any) {
+    console.error('❌ [BI/visitas-sem-retorno]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── GET /api/bi/abandono-campo ───────────────────────────────────────────────
+// Clientes da carteira ativa (compraram nos últimos 180 dias) que estão SEM
+// visita há mais de 60 dias. Diferente de "em risco" no cockpit, o critério
+// aqui é AUSÊNCIA DE VISITA, não de pedido — sinaliza buracos no roteiro.
+export async function abandonoCampoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const userId = getUserId(req);
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+    const allowFilter = allowedIndustries?.length
+      ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])`
+      : '';
+    const venFilter = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
+
+    const r = await db.query(`
+      WITH carteira AS (
+        SELECT DISTINCT
+          p.ped_vendedor AS ven_codigo,
+          p.ped_cliente  AS cli_codigo
+        FROM pedidos p
+        WHERE p.ped_situacao IN ('P','F')
+          AND p.ped_data >= CURRENT_DATE - INTERVAL '180 days'
+          ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
+      ),
+      ultima_visita AS (
+        -- Última visita por CLIENTE (independente de quem visitou).
+        -- Cruzamos com a carteira do titular pela chave cli_codigo.
+        SELECT
+          rv.vis_cliente_id AS cli_codigo,
+          MAX(rv.vis_datahora::date) AS ultima_data
+        FROM registro_visitas rv
+        WHERE rv.vis_tipo = 'CHECKIN'
+        GROUP BY rv.vis_cliente_id
+      ),
+      ultimo_pedido_cli AS (
+        SELECT
+          p.ped_vendedor AS ven_codigo,
+          p.ped_cliente  AS cli_codigo,
+          MAX(p.ped_data) AS ultimo_pedido
+        FROM pedidos p
+        WHERE p.ped_situacao IN ('P','F')
+        GROUP BY p.ped_vendedor, p.ped_cliente
+      )
+      SELECT
+        c.ven_codigo,
+        v.ven_nome,
+        c.cli_codigo,
+        COALESCE(NULLIF(TRIM(cli.cli_nomred), ''), NULLIF(TRIM(cli.cli_fantasia), ''), cli.cli_nome) AS cli_nome,
+        uv.ultima_data                            AS ultima_visita,
+        CASE WHEN uv.ultima_data IS NULL
+             THEN NULL
+             ELSE (CURRENT_DATE - uv.ultima_data)
+             END                                  AS dias_sem_visita,
+        up.ultimo_pedido,
+        CASE WHEN up.ultimo_pedido IS NOT NULL
+             THEN (CURRENT_DATE - up.ultimo_pedido::date)
+             ELSE NULL END                        AS dias_sem_pedido
+      FROM carteira c
+      JOIN vendedores   v   ON v.ven_codigo  = c.ven_codigo
+      JOIN clientes cli ON cli.cli_codigo = c.cli_codigo
+      LEFT JOIN ultima_visita      uv ON uv.cli_codigo = c.cli_codigo
+      LEFT JOIN ultimo_pedido_cli  up ON up.ven_codigo = c.ven_codigo AND up.cli_codigo = c.cli_codigo
+      WHERE COALESCE(UPPER(TRIM(v.ven_cumpremetas)), 'S') <> 'N'
+        AND (uv.ultima_data IS NULL OR uv.ultima_data < CURRENT_DATE - INTERVAL '60 days')
+      ORDER BY
+        CASE WHEN uv.ultima_data IS NULL THEN 0 ELSE 1 END,
+        uv.ultima_data ASC NULLS FIRST,
+        up.ultimo_pedido DESC
+      LIMIT 150
+    `);
+
+    res.json({ success: true, data: r.rows });
+  } catch (error: any) {
+    console.error('❌ [BI/abandono-campo]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── GET /api/bi/heatmap-visitas-pedidos ──────────────────────────────────────
+// Matriz semanal (últimos 14 dias) por vendedor × dia, com contagem
+// de visitas (check-ins distintos por cliente/dia) e pedidos.
+export async function heatmapVisitasPedidosHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const userId = getUserId(req);
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+    const allowFilter = allowedIndustries?.length
+      ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])`
+      : '';
+    const venFilter = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
+
+    const r = await db.query(`
+      WITH dias AS (
+        SELECT (CURRENT_DATE - i)::date AS dia
+        FROM generate_series(0, 13) AS g(i)
+      ),
+      vendedores_ativos AS (
+        SELECT ven_codigo, ven_nome
+        FROM vendedores
+        WHERE ven_status = 'A'
+          AND COALESCE(UPPER(TRIM(ven_cumpremetas)), 'S') <> 'N'
+          ${venInt ? `AND ven_codigo = ${venInt}` : ''}
+      ),
+      titular_por_cliente AS (
+        SELECT DISTINCT ON (p.ped_cliente)
+               p.ped_cliente  AS cli_codigo,
+               p.ped_vendedor AS ven_codigo
+        FROM pedidos p
+        WHERE p.ped_situacao IN ('P','F')
+          AND p.ped_data >= CURRENT_DATE - INTERVAL '180 days'
+          AND p.ped_vendedor > 0
+        ORDER BY p.ped_cliente, p.ped_data DESC, p.ped_pedido DESC
+      ),
+      visitas_dia AS (
+        -- Visitas atribuídas ao titular da carteira do cliente.
+        SELECT tc.ven_codigo,
+               rv.vis_datahora::date AS dia,
+               COUNT(DISTINCT (rv.vis_cliente_id, rv.vis_datahora::date)) AS qtd_visitas
+        FROM registro_visitas rv
+        JOIN titular_por_cliente tc ON tc.cli_codigo = rv.vis_cliente_id
+        JOIN vendedores_ativos v2   ON v2.ven_codigo = tc.ven_codigo
+        WHERE rv.vis_tipo = 'CHECKIN'
+          AND rv.vis_datahora >= CURRENT_DATE - INTERVAL '13 days'
+          AND rv.vis_datahora <  CURRENT_DATE + INTERVAL '1 day'
+        GROUP BY tc.ven_codigo, rv.vis_datahora::date
+      ),
+      pedidos_dia AS (
+        SELECT p.ped_vendedor AS ven_codigo,
+               p.ped_data::date AS dia,
+               COUNT(DISTINCT p.ped_pedido) AS qtd_pedidos
+        FROM pedidos p
+        WHERE p.ped_situacao IN ('P','F')
+          AND p.ped_data >= CURRENT_DATE - INTERVAL '13 days'
+          AND p.ped_data <  CURRENT_DATE + INTERVAL '1 day'
+          ${allowFilter} ${venFilter} ${CUMPRE_METAS_CLAUSE}
+        GROUP BY p.ped_vendedor, p.ped_data::date
+      )
+      SELECT
+        v.ven_codigo,
+        v.ven_nome,
+        d.dia,
+        EXTRACT(ISODOW FROM d.dia)::INT AS dow,
+        COALESCE(vd.qtd_visitas, 0) AS qtd_visitas,
+        COALESCE(pd.qtd_pedidos, 0) AS qtd_pedidos
+      FROM vendedores_ativos v
+      CROSS JOIN dias d
+      LEFT JOIN visitas_dia vd ON vd.ven_codigo = v.ven_codigo AND vd.dia = d.dia
+      LEFT JOIN pedidos_dia pd ON pd.ven_codigo = v.ven_codigo AND pd.dia = d.dia
+      WHERE EXISTS (
+        SELECT 1 FROM visitas_dia vx WHERE vx.ven_codigo = v.ven_codigo
+        UNION ALL
+        SELECT 1 FROM pedidos_dia px WHERE px.ven_codigo = v.ven_codigo
+      )
+      ORDER BY v.ven_nome, d.dia
+    `);
+
+    res.json({ success: true, data: r.rows });
+  } catch (error: any) {
+    console.error('❌ [BI/heatmap-visitas-pedidos]', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 }
@@ -624,6 +1115,7 @@ export async function abcClientesHandler(req: Request, res: Response): Promise<v
     const meses = parseMeses(req.query.meses as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const agruparRede = req.query.agrupar_rede === 'true';
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
@@ -645,7 +1137,7 @@ export async function abcClientesHandler(req: Request, res: Response): Promise<v
           ROW_NUMBER() OVER (ORDER BY SUM(i.ite_totliquido) DESC) AS rank
         FROM clientes c
         INNER JOIN pedidos p ON p.ped_cliente = c.cli_codigo
-          AND p.ped_situacao IN ('P','F','A')
+          AND p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = ANY($1::int[])
           ${mesesFilter}
           ${indFilter}
@@ -686,6 +1178,7 @@ export async function metasIndustriasHandler(req: Request, res: Response): Promi
     const userId = getUserId(req);
     const anos = parseAnos(req.query.anos as string);
     const meses = parseMeses(req.query.meses as string);
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
     const anoAtual = Math.max(...anos);
@@ -693,6 +1186,7 @@ export async function metasIndustriasHandler(req: Request, res: Response): Promi
 
     const mesesFilter = meses?.length ? `AND EXTRACT(MONTH FROM p.ped_data) = ANY(ARRAY[${meses.join(',')}]::int[])` : '';
     const allowFilter  = allowedIndustries?.length ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])` : '';
+    const venFilter   = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
 
     const r = await db.query(`
       WITH atual AS (
@@ -702,10 +1196,11 @@ export async function metasIndustriasHandler(req: Request, res: Response): Promi
           COUNT(DISTINCT p.ped_pedido)::INTEGER          AS pedidos
         FROM pedidos p
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = $1
           ${mesesFilter}
           ${allowFilter}
+          ${venFilter} ${CUMPRE_METAS_CLAUSE}
         GROUP BY p.ped_industria
       ),
       meta AS (
@@ -713,10 +1208,11 @@ export async function metasIndustriasHandler(req: Request, res: Response): Promi
           COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)::NUMERIC AS total
         FROM pedidos p
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = $2
           ${mesesFilter}
           ${allowFilter}
+          ${venFilter} ${CUMPRE_METAS_CLAUSE}
         GROUP BY p.ped_industria
       )
       SELECT
@@ -762,19 +1258,22 @@ export async function positivacaoHandler(req: Request, res: Response): Promise<v
     const userId = getUserId(req);
     const anos = parseAnos(req.query.anos as string);
     const meses = parseMeses(req.query.meses as string);
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
     const mesesFilter  = meses?.length ? `AND EXTRACT(MONTH FROM p.ped_data) = ANY(ARRAY[${meses.join(',')}]::int[])` : '';
     const allowFilter  = allowedIndustries?.length ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])` : '';
+    const venFilter    = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
 
     const r = await db.query(`
       WITH periodo AS (
         SELECT COUNT(DISTINCT p.ped_cliente)::INTEGER AS total_clientes
         FROM pedidos p
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = ANY($1::int[])
           ${mesesFilter}
           ${allowFilter}
+          ${venFilter} ${CUMPRE_METAS_CLAUSE}
       ),
       por_ind AS (
         SELECT
@@ -784,10 +1283,11 @@ export async function positivacaoHandler(req: Request, res: Response): Promise<v
           COUNT(DISTINCT p.ped_pedido)::INTEGER                 AS pedidos
         FROM pedidos p
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = ANY($1::int[])
           ${mesesFilter}
           ${allowFilter}
+          ${venFilter} ${CUMPRE_METAS_CLAUSE}
         GROUP BY p.ped_industria
       )
       SELECT
@@ -821,10 +1321,12 @@ export async function ticketMedioIndustriasHandler(req: Request, res: Response):
     const userId = getUserId(req);
     const anos = parseAnos(req.query.anos as string);
     const meses = parseMeses(req.query.meses as string);
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
     const mesesFilter = meses?.length ? `AND EXTRACT(MONTH FROM p.ped_data) = ANY(ARRAY[${meses.join(',')}]::int[])` : '';
     const allowFilter = allowedIndustries?.length ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])` : '';
+    const venFilter   = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
 
     const r = await db.query(`
       SELECT
@@ -839,10 +1341,11 @@ export async function ticketMedioIndustriasHandler(req: Request, res: Response):
       FROM pedidos p
       LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
       INNER JOIN fornecedores f ON f.for_codigo = p.ped_industria
-      WHERE p.ped_situacao IN ('P','F','A')
+      WHERE p.ped_situacao IN ('P','F')
         AND EXTRACT(YEAR FROM p.ped_data) = ANY($1::int[])
         ${mesesFilter}
         ${allowFilter}
+        ${venFilter} ${CUMPRE_METAS_CLAUSE}
         AND f.for_nomered IS NOT NULL
       GROUP BY f.for_codigo, f.for_nomered
       HAVING ROUND(SUM(COALESCE(i.ite_totliquido, 0))::NUMERIC, 2) > 0
@@ -865,10 +1368,12 @@ export async function churnAlertHandler(req: Request, res: Response): Promise<vo
     const db = req.db!;
     const userId = getUserId(req);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
     const allowFilter = allowedIndustries?.length ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])` : '';
     const forFilter   = forInt ? `AND p.ped_industria = ${forInt}` : '';
+    const venFilter   = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
 
     const r = await db.query(`
       SELECT
@@ -884,11 +1389,12 @@ export async function churnAlertHandler(req: Request, res: Response): Promise<vo
       LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
       INNER JOIN clientes c ON c.cli_codigo = p.ped_cliente
       INNER JOIN fornecedores f ON f.for_codigo = p.ped_industria
-      WHERE p.ped_situacao IN ('P','F','A')
+      WHERE p.ped_situacao IN ('P','F')
         AND p.ped_data >= CURRENT_DATE - INTERVAL '60 days'
         AND f.for_nomered IS NOT NULL
         ${allowFilter}
         ${forFilter}
+        ${venFilter} ${CUMPRE_METAS_CLAUSE}
       GROUP BY c.cli_codigo, c.cli_nome, f.for_codigo, f.for_nomered
       HAVING MAX(p.ped_data)::DATE < CURRENT_DATE - INTERVAL '30 days'
       ORDER BY dias_sem_comprar DESC
@@ -951,11 +1457,13 @@ export async function mixCategoriasHandler(req: Request, res: Response): Promise
     const anos = parseAnos(req.query.anos as string);
     const meses = parseMeses(req.query.meses as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
     const mesesFilter = meses?.length ? `AND EXTRACT(MONTH FROM p.ped_data) = ANY(ARRAY[${meses.join(',')}]::int[])` : '';
     const allowFilter = allowedIndustries?.length ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])` : '';
     const forFilter   = forInt ? `AND p.ped_industria = ${forInt}` : '';
+    const venFilter   = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
 
     const r = await db.query(`
       WITH base AS (
@@ -973,6 +1481,7 @@ export async function mixCategoriasHandler(req: Request, res: Response): Promise
           ${mesesFilter}
           ${allowFilter}
           ${forFilter}
+          ${venFilter} ${CUMPRE_METAS_CLAUSE}
         GROUP BY p.ped_cliente, grupo
       ),
       top_cli AS (
@@ -1020,6 +1529,7 @@ export async function atividadeClientesHandler(req: Request, res: Response): Pro
     const meses = parseMeses(req.query.meses as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const agruparRede = req.query.agrupar_rede === 'true';
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
@@ -1038,7 +1548,7 @@ export async function atividadeClientesHandler(req: Request, res: Response): Pro
           ROUND(SUM(i.ite_totliquido)::NUMERIC, 2) AS total
         FROM pedidos p
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = ANY($1::int[])
           ${mesesFilter}
           ${allowFilter}
@@ -1097,11 +1607,12 @@ export async function clientesRankingHandler(req: Request, res: Response): Promi
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const metrica  = String(req.query.metrica || 'financeiro');
     const orderCol = metrica === 'volume' ? 'quantidade' : metrica === 'skus' ? 'skus' : 'total';
     const agruparRede = req.query.agrupar_rede === 'true';
     const allowedIndustries = await getAllowedIndustries(db, userId);
-    const extraFilters = buildInlineFilters(meses, forInt, cliInt, allowedIndustries);
+    const extraFilters = buildInlineFilters(meses, forInt, cliInt, allowedIndustries, venInt);
 
     const groupField = agruparRede ? "COALESCE(NULLIF(TRIM(c.cli_redeloja), ''), c.cli_nome)" : "c.cli_nomred";
 
@@ -1119,7 +1630,7 @@ export async function clientesRankingHandler(req: Request, res: Response): Promi
         FROM pedidos p
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
         INNER JOIN clientes c ON c.cli_codigo = p.ped_cliente
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = ANY($1::int[])
           ${extraFilters}
         GROUP BY ${agruparRede ? "nome_exibicao" : "p.ped_cliente, nome_exibicao"}
@@ -1174,8 +1685,11 @@ export async function clientesQuedaMomHandler(req: Request, res: Response): Prom
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
-    const extraFilters = buildInlineFilters(meses, forInt, cliInt, allowedIndustries);
+    // Filtros SEM meses — CTE precisa do ano inteiro pra calcular a média trimestral.
+    // O recorte por mês é aplicado no SELECT da CTE `atual` via $2.
+    const extraFilters = buildInlineFilters(null, forInt, cliInt, allowedIndustries, venInt);
 
     // Mês de referência: mês atual ou último mês do filtro
     const mesRef = meses?.length
@@ -1191,7 +1705,7 @@ export async function clientesQuedaMomHandler(req: Request, res: Response): Prom
           COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)::NUMERIC AS total
         FROM pedidos p
         LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = $1
           ${extraFilters}
         GROUP BY p.ped_cliente, mes
@@ -1243,8 +1757,9 @@ export async function gruposLojasHandler(req: Request, res: Response): Promise<v
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
-    const extraFilters = buildInlineFilters(meses, forInt, cliInt, allowedIndustries);
+    const extraFilters = buildInlineFilters(meses, forInt, cliInt, allowedIndustries, venInt);
 
     const r = await db.query(`
       WITH base AS (
@@ -1259,7 +1774,7 @@ export async function gruposLojasHandler(req: Request, res: Response): Promise<v
         LEFT JOIN itens_ped  i ON i.ite_pedido = p.ped_pedido
         LEFT JOIN clientes   c ON c.cli_codigo  = p.ped_cliente
         LEFT JOIN fornecedores f ON f.for_codigo = p.ped_industria
-        WHERE p.ped_situacao IN ('P','F','A')
+        WHERE p.ped_situacao IN ('P','F')
           AND EXTRACT(YEAR FROM p.ped_data) = ANY($1::int[])
           AND c.cli_tipopes = 'A'
           ${extraFilters}
@@ -1312,8 +1827,16 @@ export async function cicloComprasHandler(req: Request, res: Response): Promise<
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
-    const extraFilters = buildInlineFilters(meses, forInt, cliInt, allowedIndustries);
+    // Filtros SEM meses na CTE base — LAG() precisa enxergar TODOS os pedidos
+    // do(s) ano(s) pra calcular data_ant corretamente. Se aplicarmos o filtro de
+    // meses aqui, um pedido em Mar não consegue ver seu antecessor em Fev e o
+    // gap fica errado. O recorte por mês fica DEPOIS, no filtro do gaps.
+    const extraFilters = buildInlineFilters(null, forInt, cliInt, allowedIndustries, venInt);
+    const mesesFilterGap = meses?.length
+      ? `AND mes = ANY(ARRAY[${meses.join(',')}]::int[])`
+      : '';
 
     const yearList = anos.map(Number).join(',');
 
@@ -1339,6 +1862,7 @@ export async function cicloComprasHandler(req: Request, res: Response): Promise<
         FROM ordered
         WHERE data_ant IS NOT NULL
           AND (data - data_ant) BETWEEN 1 AND 365
+          ${mesesFilterGap}
       )
       SELECT
         ano,
@@ -1372,8 +1896,9 @@ export async function mediaRecompraHandler(req: Request, res: Response): Promise
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
-    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
 
     const r = await db.query(`
       WITH cli_ped AS (
@@ -1414,6 +1939,7 @@ export async function vendasCategoriasHandler(req: Request, res: Response): Prom
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
     // Verifica se a tabela cad_prod tem as colunas de categoria
@@ -1427,7 +1953,7 @@ export async function vendasCategoriasHandler(req: Request, res: Response): Prom
       return;
     }
 
-    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
 
     const r = await db.query(`
       WITH vendas AS (
@@ -1476,6 +2002,48 @@ export async function vendasCategoriasHandler(req: Request, res: Response): Prom
   }
 }
 
+// ─── GET /api/bi/vendas-estados ────────────────────────────────────────────────
+// Faturamento, quantidade e SKUs distintos agrupados por UF do cliente.
+// Usado pelo gráfico de pizza "Vendas por Estado" na aba Visão Geral.
+// Métricas alternáveis no front via `visao` (financeiro/volume/skus) — o backend
+// devolve as 3, o front escolhe qual dimensiona o pie.
+export async function vendasEstadosHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db       = req.db!;
+    const userId   = getUserId(req);
+    const anos     = parseAnos(req.query.anos as string);
+    const meses    = parseMeses(req.query.meses as string);
+    const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
+
+    const r = await db.query(`
+      SELECT
+        UPPER(TRIM(c.cli_uf))                                          AS uf,
+        COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)::NUMERIC AS total,
+        COALESCE(SUM(i.ite_quant), 0)::NUMERIC                         AS quantidade,
+        COUNT(DISTINCT i.ite_produto)::INTEGER                         AS skus,
+        COUNT(DISTINCT p.ped_pedido)::INTEGER                          AS pedidos,
+        COUNT(DISTINCT p.ped_cliente)::INTEGER                         AS clientes
+      FROM itens_ped i
+      JOIN pedidos  p ON p.ped_pedido = i.ite_pedido
+      JOIN clientes c ON c.cli_codigo = p.ped_cliente
+      WHERE c.cli_uf IS NOT NULL AND TRIM(c.cli_uf) <> ''
+        AND ${where}
+      GROUP BY UPPER(TRIM(c.cli_uf))
+      ORDER BY total DESC
+    `, params);
+
+    res.json({ success: true, data: r.rows });
+  } catch (error: any) {
+    console.error('❌ [BI/vendas-estados]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // ─── ESTATÍSTICAS TAB ────────────────────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════════════════════
@@ -1490,13 +2058,14 @@ export async function statsResumoHandler(req: Request, res: Response): Promise<v
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
     const anoA = Math.max(...anos);
     const anoB = anos.length === 2 ? Math.min(...anos) : anoA - 1;
 
-    const { where: whereA, params: paramsA } = buildWhere([anoA], meses, forInt, cliInt, allowedIndustries);
-    const { where: whereB, params: paramsB } = buildWhere([anoB], meses, forInt, cliInt, allowedIndustries);
+    const { where: whereA, params: paramsA } = buildWhere([anoA], meses, forInt, cliInt, allowedIndustries, venInt);
+    const { where: whereB, params: paramsB } = buildWhere([anoB], meses, forInt, cliInt, allowedIndustries, venInt);
 
     const sql = (w: string) => `
       SELECT
@@ -1557,9 +2126,10 @@ export async function statsCurvaAbcHandler(req: Request, res: Response): Promise
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
-    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
 
     const r = await db.query(`
       WITH vendas_prod AS (
@@ -1620,6 +2190,7 @@ export async function statsUltimaCompraHandler(req: Request, res: Response): Pro
     const userId   = getUserId(req);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
     const limit    = parseInt(String(req.query.limit || 20));
 
@@ -1671,12 +2242,15 @@ export async function statsFatIndustriaMensalHandler(req: Request, res: Response
     const db       = req.db!;
     const userId   = getUserId(req);
     const anos     = parseAnos(req.query.anos as string);
-    const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
-    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    // Matrix mensal SEMPRE mostra os 12 meses do ano (independente do filtro de
+    // meses). O clique em mês no frontend serve só pra destacar/filtrar OUTROS
+    // cards — a matriz em si é o "panorama anual" e precisa do ano inteiro.
+    const { where, params } = buildWhere(anos, null, forInt, cliInt, allowedIndustries, venInt);
 
     const r = await db.query(`
       SELECT
@@ -1701,6 +2275,226 @@ export async function statsFatIndustriaMensalHandler(req: Request, res: Response
   }
 }
 
+// ─── GET /api/bi/stats-3anos-industria ────────────────────────────────────────
+// Comparativo 3 anos (base, base-1, base-2) por indústria.
+// Base = MAX(anos do filtro). Respeita meses (mesmo recorte nos 3 anos), forInt,
+// cliInt, venInt, allowedIndustries e cumpremetas. Usado pelo card "3 Anos" do BI.
+export async function stats3AnosIndustriaHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db       = req.db!;
+    const userId   = getUserId(req);
+    const anos     = parseAnos(req.query.anos as string);
+    const meses    = parseMeses(req.query.meses as string);
+    const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+
+    const anoBase = Math.max(...anos);
+    const janela = [anoBase - 2, anoBase - 1, anoBase];
+
+    // Monta filtros adicionais inline (sem anos — já estamos fixando a janela de 3)
+    const extraFilters = buildInlineFilters(meses, forInt, cliInt, allowedIndustries, venInt);
+
+    const r = await db.query(`
+      SELECT
+        TRIM(f.for_nomered)                                                AS industria,
+        p.ped_industria                                                    AS industria_codigo,
+        EXTRACT(YEAR FROM p.ped_data)::INTEGER                             AS ano,
+        COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)::NUMERIC    AS total,
+        COALESCE(SUM(i.ite_quant), 0)::NUMERIC                            AS quantidade,
+        COUNT(DISTINCT p.ped_cliente)::INTEGER                             AS clientes,
+        COUNT(DISTINCT p.ped_pedido)::INTEGER                              AS pedidos
+      FROM itens_ped i
+      JOIN pedidos     p ON p.ped_pedido = i.ite_pedido
+      JOIN fornecedores f ON f.for_codigo = p.ped_industria
+      WHERE p.ped_situacao IN ('P','F')
+        AND EXTRACT(YEAR FROM p.ped_data) = ANY($1::int[])
+        ${extraFilters}
+      GROUP BY f.for_nomered, p.ped_industria, EXTRACT(YEAR FROM p.ped_data)
+      ORDER BY p.ped_industria, ano
+    `, [janela]);
+
+    res.json({ success: true, data: r.rows, anos: janela });
+  } catch (error: any) {
+    console.error('❌ [BI/stats-3anos-industria]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── GET /api/bi/stats-clientes-yoy ───────────────────────────────────────────
+// Comparativo anual de clientes: classifica cada cliente em
+//   novo       — comprou no ano corrente, não no anterior
+//   perdido    — comprou no anterior, não no corrente
+//   crescendo  — comprou nos 2, valor corrente > 105% do anterior
+//   em_queda   — comprou nos 2, valor corrente < 95% do anterior
+//   estavel    — comprou nos 2, dentro da faixa 95-105%
+// Respeita filtros padrão; o filtro `meses` é aplicado nos DOIS anos (recorte
+// equivalente — ex: "Abr/2025 vs Abr/2026"). `anos` define o corrente (MAX).
+export async function statsClientesYoyHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db       = req.db!;
+    const userId   = getUserId(req);
+    const anos     = parseAnos(req.query.anos as string);
+    const meses    = parseMeses(req.query.meses as string);
+    const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+
+    const anoCurr = Math.max(...anos);
+    const anoPrev = anoCurr - 1;
+
+    const { where: whereCurr, params: paramsCurr } = buildWhere([anoCurr], meses, forInt, cliInt, allowedIndustries, venInt);
+    const { where: wherePrev, params: paramsPrev } = buildWhere([anoPrev], meses, forInt, cliInt, allowedIndustries, venInt);
+
+    // Re-numera os placeholders do segundo conjunto pra empilhar tudo numa query só
+    const offset = paramsCurr.length;
+    const wherePrevShifted = wherePrev.replace(/\$(\d+)/g, (_, n) => `$${parseInt(n) + offset}`);
+    const params = [...paramsCurr, ...paramsPrev];
+
+    const r = await db.query(`
+      WITH curr AS (
+        SELECT p.ped_cliente,
+               COALESCE(SUM(i.ite_totliquido), 0)::NUMERIC AS valor,
+               COALESCE(SUM(i.ite_quant), 0)::NUMERIC      AS qtd,
+               COUNT(DISTINCT p.ped_pedido)::INTEGER       AS pedidos
+        FROM itens_ped i JOIN pedidos p ON p.ped_pedido = i.ite_pedido
+        WHERE ${whereCurr}
+        GROUP BY p.ped_cliente
+      ),
+      prev AS (
+        SELECT p.ped_cliente,
+               COALESCE(SUM(i.ite_totliquido), 0)::NUMERIC AS valor,
+               COALESCE(SUM(i.ite_quant), 0)::NUMERIC      AS qtd,
+               COUNT(DISTINCT p.ped_pedido)::INTEGER       AS pedidos
+        FROM itens_ped i JOIN pedidos p ON p.ped_pedido = i.ite_pedido
+        WHERE ${wherePrevShifted}
+        GROUP BY p.ped_cliente
+      ),
+      yoy AS (
+        SELECT
+          COALESCE(c.ped_cliente, pr.ped_cliente)              AS cli_codigo,
+          COALESCE(pr.valor, 0)::NUMERIC                       AS valor_prev,
+          COALESCE(c.valor,  0)::NUMERIC                       AS valor_curr,
+          COALESCE(pr.qtd,   0)::NUMERIC                       AS qtd_prev,
+          COALESCE(c.qtd,    0)::NUMERIC                       AS qtd_curr,
+          COALESCE(pr.pedidos, 0)::INTEGER                     AS pedidos_prev,
+          COALESCE(c.pedidos,  0)::INTEGER                     AS pedidos_curr
+        FROM curr c
+        FULL OUTER JOIN prev pr ON pr.ped_cliente = c.ped_cliente
+      )
+      SELECT
+        y.cli_codigo,
+        TRIM(cli.cli_nomred) AS nome,
+        y.valor_prev, y.valor_curr, y.qtd_prev, y.qtd_curr, y.pedidos_prev, y.pedidos_curr,
+        CASE
+          WHEN y.valor_prev = 0 AND y.valor_curr > 0 THEN 'novo'
+          WHEN y.valor_prev > 0 AND y.valor_curr = 0 THEN 'perdido'
+          WHEN y.valor_curr > y.valor_prev * 1.05 THEN 'crescendo'
+          WHEN y.valor_curr < y.valor_prev * 0.95 THEN 'em_queda'
+          ELSE 'estavel'
+        END AS status,
+        CASE
+          WHEN y.valor_prev = 0 THEN NULL
+          ELSE ROUND(((y.valor_curr - y.valor_prev) / y.valor_prev * 100)::NUMERIC, 1)
+        END AS variacao_pct,
+        (y.valor_curr - y.valor_prev)::NUMERIC AS delta_abs
+      FROM yoy y
+      JOIN clientes cli ON cli.cli_codigo = y.cli_codigo
+      WHERE cli.cli_tipopes = 'A'
+        AND cli.cli_nomred IS NOT NULL
+      ORDER BY ABS(y.valor_curr - y.valor_prev) DESC
+      LIMIT 100
+    `, params);
+
+    // Resumo agregado por status
+    const resumo = { novo: 0, perdido: 0, crescendo: 0, em_queda: 0, estavel: 0 };
+    r.rows.forEach((row: any) => { if (resumo[row.status as keyof typeof resumo] !== undefined) resumo[row.status as keyof typeof resumo]++; });
+
+    res.json({ success: true, data: r.rows, anoCurr, anoPrev, resumo });
+  } catch (error: any) {
+    console.error('❌ [BI/stats-clientes-yoy]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── GET /api/bi/stats-cross-sell ─────────────────────────────────────────────
+// Matriz Cliente × Indústria do recorte — visualiza lacunas/oportunidades de
+// cross-sell. Cliente que compra de várias indústrias mas falta UMA = oportunidade
+// óbvia ("o cara já compra de 7 das 10 maiores, falta convencer ele em 3").
+//
+// Retorna até 25 top clientes (linhas) × 12 top indústrias (colunas) do recorte,
+// + valor de cada célula + total cliente + total indústria + coverage por cliente.
+export async function statsCrossSellHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db       = req.db!;
+    const userId   = getUserId(req);
+    const anos     = parseAnos(req.query.anos as string);
+    const meses    = parseMeses(req.query.meses as string);
+    const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+    const topClientes   = Math.min(50, Math.max(5, parseInt(String(req.query.top_clientes   || '25')) || 25));
+    const topIndustrias = Math.min(20, Math.max(3, parseInt(String(req.query.top_industrias || '12')) || 12));
+
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
+    params.push(topClientes, topIndustrias);
+    const pTC = params.length - 1;
+    const pTI = params.length;
+
+    const r = await db.query(`
+      WITH base AS (
+        SELECT
+          p.ped_cliente,
+          p.ped_industria,
+          COALESCE(SUM(i.ite_totliquido), 0)::NUMERIC AS total
+        FROM itens_ped i
+        JOIN pedidos   p ON p.ped_pedido = i.ite_pedido
+        WHERE ${where}
+        GROUP BY p.ped_cliente, p.ped_industria
+      ),
+      top_cli AS (
+        SELECT b.ped_cliente, TRIM(c.cli_nomred) AS nome, SUM(b.total)::NUMERIC AS total
+        FROM base b
+        JOIN clientes c ON c.cli_codigo = b.ped_cliente
+        WHERE c.cli_tipopes = 'A'
+        GROUP BY b.ped_cliente, c.cli_nomred
+        ORDER BY total DESC
+        LIMIT $${pTC}
+      ),
+      top_ind AS (
+        SELECT b.ped_industria, TRIM(f.for_nomered) AS nome, SUM(b.total)::NUMERIC AS total
+        FROM base b
+        JOIN fornecedores f ON f.for_codigo = b.ped_industria
+        GROUP BY b.ped_industria, f.for_nomered
+        ORDER BY total DESC
+        LIMIT $${pTI}
+      )
+      SELECT
+        tc.ped_cliente   AS cli_codigo,
+        tc.nome          AS cli_nome,
+        tc.total         AS cli_total,
+        ti.ped_industria AS for_codigo,
+        ti.nome          AS for_nome,
+        ti.total         AS for_total,
+        COALESCE(b.total, 0)::NUMERIC AS celula_total
+      FROM top_cli tc
+      CROSS JOIN top_ind ti
+      LEFT JOIN base b
+        ON b.ped_cliente = tc.ped_cliente
+       AND b.ped_industria = ti.ped_industria
+      ORDER BY tc.total DESC, ti.total DESC
+    `, params);
+
+    res.json({ success: true, data: r.rows });
+  } catch (error: any) {
+    console.error('❌ [BI/stats-cross-sell]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
 // ─── GET /api/bi/stats-classificacao-produtos ─────────────────────────────────
 // Ranking de produtos com curva ABC dinâmica e quantidade vendida
 export async function statsClassificacaoProdutosHandler(req: Request, res: Response): Promise<void> {
@@ -1711,12 +2505,13 @@ export async function statsClassificacaoProdutosHandler(req: Request, res: Respo
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
     const curvaFilter = req.query.curva ? String(req.query.curva).toUpperCase() : null;
     const limit = req.query.limit ? parseInt(String(req.query.limit)) : 50;
     const effectiveLimit = curvaFilter ? 100 : limit;
 
-    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
     params.push(effectiveLimit);
 
     const curvaWhere = curvaFilter ? `WHERE curva = '${curvaFilter}'` : '';
@@ -1774,6 +2569,7 @@ export async function statsStatusClientesHandler(req: Request, res: Response): P
     const anos     = parseAnos(req.query.anos as string);
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
     const anoAtual = Math.max(...anos);
@@ -1799,6 +2595,7 @@ export async function statsStatusClientesHandler(req: Request, res: Response): P
     const allowedClause = allowedIndustries?.length
       ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}]::int[])`
       : '';
+    const venFilter = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
 
     // Clientes do período atual
     const qAtual = await db.query(`
@@ -1807,7 +2604,7 @@ export async function statsStatusClientesHandler(req: Request, res: Response): P
       WHERE UPPER(TRIM(p.ped_situacao)) IN ('P','F')
         AND EXTRACT(YEAR FROM p.ped_data) = ${anoAtual}
         AND EXTRACT(MONTH FROM p.ped_data) IN (${mesesTrimAtual.join(',')})
-        ${indClause} ${allowedClause}
+        ${indClause} ${allowedClause} ${venFilter} ${CUMPRE_METAS_CLAUSE}
     `);
     const clientesAtual = new Set(qAtual.rows.map((r: any) => r.ped_cliente));
 
@@ -1818,7 +2615,7 @@ export async function statsStatusClientesHandler(req: Request, res: Response): P
       WHERE UPPER(TRIM(p.ped_situacao)) IN ('P','F')
         AND EXTRACT(YEAR FROM p.ped_data) = ${anoAnterior}
         AND EXTRACT(MONTH FROM p.ped_data) IN (${mesesTrimAnterior.join(',')})
-        ${indClause} ${allowedClause}
+        ${indClause} ${allowedClause} ${venFilter} ${CUMPRE_METAS_CLAUSE}
     `);
     const clientesAnterior = new Set(qAnterior.rows.map((r: any) => r.ped_cliente));
 
@@ -1832,7 +2629,7 @@ export async function statsStatusClientesHandler(req: Request, res: Response): P
           OR
           (EXTRACT(YEAR FROM p.ped_data) = ${anoAnterior} AND EXTRACT(MONTH FROM p.ped_data) IN (${mesesTrimAnterior.join(',')}))
         )
-        ${indClause} ${allowedClause}
+        ${indClause} ${allowedClause} ${venFilter} ${CUMPRE_METAS_CLAUSE}
     `);
     const clientesHistorico = new Set(qHistorico.rows.map((r: any) => r.ped_cliente));
 
@@ -1883,9 +2680,10 @@ export async function abcOverviewHandler(req: Request, res: Response): Promise<v
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
-    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
 
     // 1) Classificar todos os produtos e obter totais por classe
     const classesR = await db.query(`
@@ -1927,7 +2725,7 @@ export async function abcOverviewHandler(req: Request, res: Response): Promise<v
     `, params);
 
     // 2) Sparklines: venda mensal por classe
-    const { where: whereSp, params: paramsSp } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where: whereSp, params: paramsSp } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
     const sparklinesR = await db.query(`
       WITH vendas_prod AS (
         SELECT
@@ -1998,10 +2796,11 @@ export async function abcTicketMedioHandler(req: Request, res: Response): Promis
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
     const limit    = parseInt(String(req.query.limit || 30));
 
-    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
     params.push(limit);
 
     const r = await db.query(`
@@ -2055,11 +2854,12 @@ export async function abcRankingHandler(req: Request, res: Response): Promise<vo
     const meses    = parseMeses(req.query.meses as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
     const limit    = parseInt(String(req.query.limit || 50));
     const metrica  = String(req.query.metrica || 'financeiro');
 
-    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
     params.push(limit);
 
     const orderCol = metrica === 'volume' ? 'qtd' : 'fat';
@@ -2111,11 +2911,13 @@ export async function alertasHandler(req: Request, res: Response): Promise<void>
   try {
     const db = req.db!;
     const userId = getUserId(req);
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
     const allowedClause = allowedIndustries?.length
       ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}])`
       : '';
+    const venFilter = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
 
     const [rInativos, rMensal, rZeradas] = await Promise.all([
       // Alert 1 — Clientes sem compra há >60 dias (base: últimos 2 anos)
@@ -2127,11 +2929,15 @@ export async function alertasHandler(req: Request, res: Response): Promise<void>
           WHERE UPPER(TRIM(ped_situacao)) IN ('P','F')
             AND ped_data >= CURRENT_DATE - INTERVAL '2 years'
             ${allowedClause.replace(/p\./g, '')}
+            ${venFilter.replace(/p\./g, '')}
+            AND NOT EXISTS (SELECT 1 FROM vendedores v WHERE v.ven_codigo = pedidos.ped_vendedor AND v.ven_cumpremetas = 'N')
         ) sub
         WHERE sub.cli NOT IN (
           SELECT DISTINCT ped_cliente FROM pedidos
           WHERE UPPER(TRIM(ped_situacao)) IN ('P','F')
             AND ped_data > CURRENT_DATE - INTERVAL '60 days'
+            ${venFilter.replace(/p\./g, '')}
+            AND NOT EXISTS (SELECT 1 FROM vendedores v WHERE v.ven_codigo = pedidos.ped_vendedor AND v.ven_cumpremetas = 'N')
         )
       `),
 
@@ -2144,6 +2950,7 @@ export async function alertasHandler(req: Request, res: Response): Promise<void>
           WHERE UPPER(TRIM(p.ped_situacao)) IN ('P','F')
             AND p.ped_data >= DATE_TRUNC('month', CURRENT_DATE)
             ${allowedClause}
+            ${venFilter} ${CUMPRE_METAS_CLAUSE}
         ),
         anterior AS (
           SELECT COALESCE(SUM(i.ite_totliquido), 0) AS total
@@ -2153,6 +2960,7 @@ export async function alertasHandler(req: Request, res: Response): Promise<void>
             AND p.ped_data >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
             AND p.ped_data <  DATE_TRUNC('month', CURRENT_DATE)
             ${allowedClause}
+            ${venFilter} ${CUMPRE_METAS_CLAUSE}
         )
         SELECT
           atual.total    AS total_atual,
@@ -2174,12 +2982,14 @@ export async function alertasHandler(req: Request, res: Response): Promise<void>
             AND p.ped_data >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
             AND p.ped_data <  DATE_TRUNC('month', CURRENT_DATE)
             ${allowedClause}
+            ${venFilter} ${CUMPRE_METAS_CLAUSE}
           EXCEPT
           SELECT DISTINCT p.ped_industria
           FROM pedidos p
           WHERE UPPER(TRIM(p.ped_situacao)) IN ('P','F')
             AND p.ped_data >= DATE_TRUNC('month', CURRENT_DATE)
             ${allowedClause}
+            ${venFilter} ${CUMPRE_METAS_CLAUSE}
         ) sub
       `),
     ]);
@@ -2234,10 +3044,12 @@ export async function alertasDetalheHandler(req: Request, res: Response): Promis
     const db     = req.db!;
     const userId = getUserId(req);
     const tipo   = String(req.query.tipo || '');
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
     const allowedClause = allowedIndustries?.length
       ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}])`
       : '';
+    const venFilter = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
 
     if (tipo === 'clientes_inativos') {
       const result = await db.query(`
@@ -2256,6 +3068,7 @@ export async function alertasDetalheHandler(req: Request, res: Response): Promis
         WHERE UPPER(TRIM(p.ped_situacao)) IN ('P','F')
           AND p.ped_data >= CURRENT_DATE - INTERVAL '2 years'
           ${allowedClause}
+          ${venFilter} ${CUMPRE_METAS_CLAUSE}
         GROUP BY c.cli_codigo, c.cli_nomred, c.cli_nome, c.cli_cidade, c.cli_uf
         HAVING MAX(p.ped_data) < CURRENT_DATE - INTERVAL '60 days'
         ORDER BY dias_inativo DESC
@@ -2278,15 +3091,20 @@ export async function alertasDetalheHandler(req: Request, res: Response): Promis
           AND UPPER(TRIM(p.ped_situacao)) IN ('P','F')
           AND p.ped_data >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
           ${allowedClause}
+          ${venFilter} ${CUMPRE_METAS_CLAUSE}
         WHERE f.for_codigo IN (
           SELECT DISTINCT ped_industria FROM pedidos
           WHERE UPPER(TRIM(ped_situacao)) IN ('P','F')
             AND ped_data >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
             AND ped_data <  DATE_TRUNC('month', CURRENT_DATE)
+            ${venFilter.replace(/p\./g, '')}
+            AND NOT EXISTS (SELECT 1 FROM vendedores v WHERE v.ven_codigo = pedidos.ped_vendedor AND v.ven_cumpremetas = 'N')
           EXCEPT
           SELECT DISTINCT ped_industria FROM pedidos
           WHERE UPPER(TRIM(ped_situacao)) IN ('P','F')
             AND ped_data >= DATE_TRUNC('month', CURRENT_DATE)
+            ${venFilter.replace(/p\./g, '')}
+            AND NOT EXISTS (SELECT 1 FROM vendedores v WHERE v.ven_codigo = pedidos.ped_vendedor AND v.ven_cumpremetas = 'N')
         )
         GROUP BY f.for_codigo, f.for_nomered, f.for_nome
         ORDER BY faturamento_mes_ant DESC
@@ -2311,6 +3129,7 @@ export async function alertasDetalheHandler(req: Request, res: Response): Promis
           AND UPPER(TRIM(p.ped_situacao)) IN ('P','F')
           AND p.ped_data >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
           ${allowedClause}
+          ${venFilter} ${CUMPRE_METAS_CLAUSE}
         GROUP BY f.for_codigo, f.for_nomered, f.for_nome
         HAVING SUM(p.ped_totliq) FILTER (
           WHERE p.ped_data >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
@@ -2329,6 +3148,7 @@ export async function alertasDetalheHandler(req: Request, res: Response): Promis
 
 // ─── GET /api/bi/drilldown ────────────────────────────────────────────────────
 // Drill-down hierárquico: 0=Indústrias → 1=Meses → 2=Clientes → 3=Famílias → 4=Produtos
+// Aceita ?visao= 'financeiro' (default, R$) | 'volume' (qtd unidades) | 'skus' (distintos)
 export async function drilldownHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
@@ -2338,6 +3158,19 @@ export async function drilldownHandler(req: Request, res: Response): Promise<voi
     const nivel    = parseInt(String(req.query.nivel  || 0));
     const anos     = parseAnos(req.query.anos as string);
     const forInt   = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const visao    = (String(req.query.visao || 'financeiro').toLowerCase());
+
+    // Expressão de "total" conforme a métrica escolhida.
+    // No nível 4 (já é um SKU específico) 'skus' não faz sentido — fallback volume.
+    function metricExpr(currentLevel: number): string {
+      if (visao === 'volume') return 'COALESCE(SUM(i.ite_quant), 0)::NUMERIC';
+      if (visao === 'skus')   {
+        return currentLevel === 4
+          ? 'COALESCE(SUM(i.ite_quant), 0)::NUMERIC'   // no SKU individual cai pra volume
+          : 'COUNT(DISTINCT TRIM(i.ite_produto))::NUMERIC';
+      }
+      return 'COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)';
+    }
     // meses: global filter from PeriodSelector (comma-separated, e.g. "4" or "1,2,3")
     const mesesRaw    = req.query.meses as string | undefined;
     const mesesGlobal = mesesRaw
@@ -2346,7 +3179,10 @@ export async function drilldownHandler(req: Request, res: Response): Promise<voi
     // mes: single month from the drill-down stack (clicking a bar at nivel 1)
     const mesInt   = req.query.mes        ? parseInt(String(req.query.mes))        : null;
     const cliInt   = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt   = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const grupoInt = req.query.grupo      ? parseInt(String(req.query.grupo))      : null;
+    const redeStr  = req.query.cli_redeloja ? String(req.query.cli_redeloja).trim() : null;
+    const agruparRede = String(req.query.agrupar_rede || '') === 'true';
 
     const clauses: string[] = [`UPPER(TRIM(p.ped_situacao)) IN ('P','F')`];
     const params: any[] = [];
@@ -2371,6 +3207,12 @@ export async function drilldownHandler(req: Request, res: Response): Promise<voi
       params.push(cliInt);
       clauses.push(`p.ped_cliente = $${params.length}`);
     }
+    // Filtro alternativo por rede (quando o drill veio de uma rede agrupada
+    // no nivel 2). Usa JOIN com clientes pra resolver cli_redeloja.
+    if (redeStr) {
+      params.push(redeStr);
+      clauses.push(`EXISTS (SELECT 1 FROM clientes c2 WHERE c2.cli_codigo = p.ped_cliente AND TRIM(UPPER(COALESCE(c2.cli_redeloja, ''))) = TRIM(UPPER($${params.length}::varchar)))`);
+    }
 
     const where = clauses.join(' AND ');
 
@@ -2381,7 +3223,7 @@ export async function drilldownHandler(req: Request, res: Response): Promise<voi
         SELECT
           f.for_codigo                                                      AS codigo,
           COALESCE(f.for_nomered, f.for_nome)                              AS nome,
-          COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)           AS total,
+          ${metricExpr(0)}                                                  AS total,
           COUNT(DISTINCT p.ped_cliente)::INTEGER                           AS clientes,
           COUNT(DISTINCT p.ped_pedido)::INTEGER                            AS pedidos
         FROM pedidos p
@@ -2398,7 +3240,7 @@ export async function drilldownHandler(req: Request, res: Response): Promise<voi
         SELECT
           EXTRACT(MONTH FROM p.ped_data)::INTEGER                          AS codigo,
           EXTRACT(MONTH FROM p.ped_data)::INTEGER                          AS mes,
-          COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)           AS total,
+          ${metricExpr(1)}                                                  AS total,
           COUNT(DISTINCT p.ped_cliente)::INTEGER                           AS clientes,
           COUNT(DISTINCT p.ped_pedido)::INTEGER                            AS pedidos
         FROM pedidos p
@@ -2409,28 +3251,78 @@ export async function drilldownHandler(req: Request, res: Response): Promise<voi
       `, params);
       rows = r.rows;
     } else if (nivel === 2) {
-      const r = await db.query(`
-        SELECT
-          c.cli_codigo                                                      AS codigo,
-          COALESCE(c.cli_nomred, c.cli_nome)                              AS nome,
-          COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)           AS total,
-          COUNT(DISTINCT p.ped_pedido)::INTEGER                            AS pedidos
-        FROM pedidos p
-        JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-        JOIN clientes c ON c.cli_codigo = p.ped_cliente
-        WHERE ${where}
-        GROUP BY c.cli_codigo, c.cli_nomred, c.cli_nome
-        ORDER BY total DESC
-        LIMIT 30
-      `, params);
-      rows = r.rows;
+      if (agruparRede) {
+        // Modo "agrupar por rede": clientes com cli_redeloja preenchido viram
+        // 1 linha (rede), os sem rede continuam individuais. Útil pra ver
+        // "Mix Auto" como soma de todas as lojas Mix Auto.
+        const r = await db.query(`
+          SELECT
+            -- codigo = rede string OU cli_codigo (sem rede)
+            CASE
+              WHEN TRIM(COALESCE(c.cli_redeloja,'')) <> ''
+                THEN TRIM(UPPER(c.cli_redeloja))
+              ELSE 'CLI:' || c.cli_codigo::text
+            END                                                             AS codigo,
+            -- nome = rede com badge ou nome cliente individual
+            CASE
+              WHEN TRIM(COALESCE(c.cli_redeloja,'')) <> ''
+                THEN '🏢 ' || TRIM(c.cli_redeloja)
+              ELSE COALESCE(c.cli_nomred, c.cli_nome)
+            END                                                             AS nome,
+            -- rede separada (frontend usa pra filtrar nos próximos níveis)
+            CASE
+              WHEN TRIM(COALESCE(c.cli_redeloja,'')) <> ''
+                THEN TRIM(c.cli_redeloja)
+              ELSE NULL
+            END                                                             AS cli_redeloja,
+            ${metricExpr(2)}                                                 AS total,
+            COUNT(DISTINCT p.ped_pedido)::INTEGER                            AS pedidos,
+            COUNT(DISTINCT c.cli_codigo)::INTEGER                            AS clientes
+          FROM pedidos p
+          JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+          JOIN clientes c ON c.cli_codigo = p.ped_cliente
+          WHERE ${where}
+          GROUP BY
+            CASE
+              WHEN TRIM(COALESCE(c.cli_redeloja,'')) <> '' THEN TRIM(UPPER(c.cli_redeloja))
+              ELSE 'CLI:' || c.cli_codigo::text
+            END,
+            CASE
+              WHEN TRIM(COALESCE(c.cli_redeloja,'')) <> '' THEN '🏢 ' || TRIM(c.cli_redeloja)
+              ELSE COALESCE(c.cli_nomred, c.cli_nome)
+            END,
+            CASE
+              WHEN TRIM(COALESCE(c.cli_redeloja,'')) <> '' THEN TRIM(c.cli_redeloja)
+              ELSE NULL
+            END
+          ORDER BY total DESC
+          LIMIT 30
+        `, params);
+        rows = r.rows;
+      } else {
+        const r = await db.query(`
+          SELECT
+            c.cli_codigo                                                      AS codigo,
+            COALESCE(c.cli_nomred, c.cli_nome)                              AS nome,
+            ${metricExpr(2)}                                                  AS total,
+            COUNT(DISTINCT p.ped_pedido)::INTEGER                            AS pedidos
+          FROM pedidos p
+          JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+          JOIN clientes c ON c.cli_codigo = p.ped_cliente
+          WHERE ${where}
+          GROUP BY c.cli_codigo, c.cli_nomred, c.cli_nome
+          ORDER BY total DESC
+          LIMIT 30
+        `, params);
+        rows = r.rows;
+      }
     } else if (nivel === 3) {
       // nivel 3 — Famílias/Grupos de produto
       const r = await db.query(`
         SELECT
           COALESCE(g.gru_codigo, -1)::INTEGER                               AS codigo,
           COALESCE(NULLIF(TRIM(g.gru_nome), ''), '(Sem Família)')           AS nome,
-          COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)            AS total,
+          ${metricExpr(3)}                                                  AS total,
           COUNT(DISTINCT TRIM(i.ite_produto))::INTEGER                      AS quantidade,
           COUNT(DISTINCT p.ped_pedido)::INTEGER                             AS pedidos
         FROM pedidos p
@@ -2456,7 +3348,7 @@ export async function drilldownHandler(req: Request, res: Response): Promise<voi
           i.ite_produto                                                     AS codigo,
           CAST(i.ite_produto AS VARCHAR)                                    AS nome,
           MAX(cp.pro_nome)                                                  AS produto_nome,
-          COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)           AS total,
+          ${metricExpr(4)}                                                  AS total,
           COALESCE(SUM(i.ite_quant), 0)::NUMERIC                          AS quantidade
         FROM pedidos p
         JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
@@ -2471,7 +3363,7 @@ export async function drilldownHandler(req: Request, res: Response): Promise<voi
       rows = r.rows;
     }
 
-    res.json({ success: true, nivel, data: rows });
+    res.json({ success: true, nivel, visao, data: rows });
   } catch (error: any) {
     console.error('❌ [BI/drilldown]', error.message);
     res.status(500).json({ success: false, message: error.message });
@@ -2487,9 +3379,10 @@ export async function skusPorGrupoHandler(req: Request, res: Response): Promise<
     const meses   = parseMeses(req.query.meses as string);
     const forInt  = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt  = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt  = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
-    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
 
     const r = await db.query(`
       SELECT
@@ -2529,9 +3422,10 @@ export async function produtosOverviewHandler(req: Request, res: Response): Prom
     const meses  = parseMeses(req.query.meses as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
-    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
 
     let catalogoFilter = '';
     if (forInt) {
@@ -2583,6 +3477,7 @@ export async function produtosPorGrupoHandler(req: Request, res: Response): Prom
     const meses  = parseMeses(req.query.meses as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
     const metrica = String(req.query.metrica ?? 'financeiro');
     const orderCol = metrica === 'volume' ? 'quantidade_current' : metrica === 'skus' ? 'skus_count' : 'total_current';
@@ -2590,8 +3485,8 @@ export async function produtosPorGrupoHandler(req: Request, res: Response): Prom
     const anoA = Math.max(...anos);
     const anoB = anos.length === 2 ? Math.min(...anos) : anoA - 1;
 
-    const { where, params }                  = buildWhere([anoA], meses, forInt, cliInt, allowedIndustries);
-    const { where: whereB, params: paramsB } = buildWhere([anoB], meses, forInt, cliInt, allowedIndustries);
+    const { where, params }                  = buildWhere([anoA], meses, forInt, cliInt, allowedIndustries, venInt);
+    const { where: whereB, params: paramsB } = buildWhere([anoB], meses, forInt, cliInt, allowedIndustries, venInt);
 
     const [rA, rB] = await Promise.all([
       db.query(`
@@ -2662,11 +3557,12 @@ export async function topSkusHandler(req: Request, res: Response): Promise<void>
     const meses  = parseMeses(req.query.meses as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const metrica  = String(req.query.metrica || 'financeiro');
     const orderCol = metrica === 'volume' ? 'quantidade' : 'total';
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
-    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
 
     const r = await db.query(`
       WITH total_geral AS (
@@ -2728,6 +3624,7 @@ function buildSellOutConditions(
   anos: number[], meses: number[] | null,
   forInt: number | null, cliInt: number | null,
   allowedIndustries: number[] | null,
+  venInt: number | null = null,
 ): { where: string; params: any[] } {
   const clauses: string[] = [];
   const params: any[] = [];
@@ -2738,6 +3635,14 @@ function buildSellOutConditions(
   if (forInt)               { params.push(forInt);              clauses.push(`s.for_codigo = $${idx++}`); }
   if (allowedIndustries?.length) { params.push(allowedIndustries); clauses.push(`s.for_codigo = ANY($${idx++}::int[])`); }
   if (cliInt)               { params.push(cliInt);              clauses.push(`s.cli_codigo = $${idx++}`); }
+  // crm_sellout não tem coluna vendedor — filtra pela carteira do rep via EXISTS em clientes
+  if (venInt) {
+    params.push(venInt);
+    clauses.push(`EXISTS (SELECT 1 FROM clientes c WHERE c.cli_codigo = s.cli_codigo AND c.cli_vendedor = $${idx++})`);
+  }
+
+  // Exclui sellout cujo cliente está na carteira de vendedor com cumpremetas='N'
+  clauses.push(CUMPRE_METAS_CLAUSE_SELLOUT.replace(/^AND\s+/, ''));
 
   return { where: clauses.length ? clauses.join(' AND ') : '1=1', params };
 }
@@ -2760,12 +3665,13 @@ export async function sellInOutKpisHandler(req: Request, res: Response): Promise
     const meses = parseMeses(req.query.meses as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
-    const { where: siWhere, params: siParams } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
-    const { where: soWhere, params: soParams } = buildSellOutConditions(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where: siWhere, params: siParams } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
+    const { where: soWhere, params: soParams } = buildSellOutConditions(anos, meses, forInt, cliInt, allowedIndustries, venInt);
     const prev = getPrevPeriod(anos, meses);
-    const { where: soPrevWhere, params: soPrevParams } = buildSellOutConditions(prev.anos, prev.meses, forInt, cliInt, allowedIndustries);
+    const { where: soPrevWhere, params: soPrevParams } = buildSellOutConditions(prev.anos, prev.meses, forInt, cliInt, allowedIndustries, venInt);
 
     const perioDias = calcPeriodDays(anos, meses);
 
@@ -2832,11 +3738,12 @@ export async function sellInOutRankingHandler(req: Request, res: Response): Prom
     const meses = parseMeses(req.query.meses as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const agruparRede = req.query.agrupar_rede === 'true';
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
-    const { where: siWhere, params: siParams } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
-    const { where: soWhere, params: soParams } = buildSellOutConditions(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where: siWhere, params: siParams } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
+    const { where: soWhere, params: soParams } = buildSellOutConditions(anos, meses, forInt, cliInt, allowedIndustries, venInt);
 
     const nomeExpr = agruparRede
       ? `COALESCE(NULLIF(TRIM(c.cli_redeloja), ''), c.cli_nomred, c.cli_nome, 'EXCLUÍDO')`
@@ -2886,12 +3793,13 @@ export async function sellInOutCruzamentoHandler(req: Request, res: Response): P
     const meses = parseMeses(req.query.meses as string);
     const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
     const cliInt = req.query.cli_codigo ? parseInt(String(req.query.cli_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
-    const { where: siWhere, params: siParams } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries);
-    const { where: soWhere, params: soParams } = buildSellOutConditions(anos, meses, forInt, cliInt, allowedIndustries);
+    const { where: siWhere, params: siParams } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
+    const { where: soWhere, params: soParams } = buildSellOutConditions(anos, meses, forInt, cliInt, allowedIndustries, venInt);
     const prev = getPrevPeriod(anos, meses);
-    const { where: soPrevWhere, params: soPrevParams } = buildSellOutConditions(prev.anos, prev.meses, forInt, cliInt, allowedIndustries);
+    const { where: soPrevWhere, params: soPrevParams } = buildSellOutConditions(prev.anos, prev.meses, forInt, cliInt, allowedIndustries, venInt);
 
     const [siR, soR, soPrevR] = await Promise.all([
       db.query(`
@@ -2984,19 +3892,26 @@ export async function sellInOutCruzamentoHandler(req: Request, res: Response): P
 const NARRATIVE_SYSTEM = `Você é um analista de negócios especializado em representação comercial de autopeças no Brasil.
 Analise os dados fornecidos e gere uma narrativa concisa em português brasileiro.
 
+Os dados podem incluir os campos:
+- "periodo_analisado": o período (mês/ano) que está sendo analisado — use SEMPRE no início da linha 1
+- "comparado_com": o período de baseline (ex: mesmo mês do ano anterior) — use SEMPRE na linha 2 quando presente
+- "delta_*": variações percentuais já calculadas em relação ao baseline
+- demais campos: KPIs absolutos do período analisado
+
 Responda APENAS com JSON válido neste exato formato:
 {"lines": ["linha1", "linha2", "linha3_opcional"], "type": "success"}
 
-Regras das linhas (2 a 3 linhas, sem numeração):
-- Linha 1: o insight principal — o fato mais relevante para o representante agir agora
-- Linha 2: contexto — comparação com período anterior, causa ou tendência
-- Linha 3 (opcional): recomendação prática ou alerta específico
+Regras OBRIGATÓRIAS das linhas (2 a 3 linhas, sem numeração):
+- Linha 1: deve COMEÇAR com o período analisado entre vírgulas (ex: "Em Abril/2026, vendas..."). Trazer o insight principal e o KPI absoluto que sustenta o insight.
+- Linha 2: deve mencionar EXPLICITAMENTE o período de comparação (use o campo "comparado_com"). Ex: "Comparado com Abril/2025, o crescimento foi de 24,8%, impulsionado por...". Sem comparado_com, mencione "vs período anterior" ou similar.
+- Linha 3 (opcional): recomendação prática ou alerta específico ancorado nos números.
 
 Regras de estilo:
 - Linguagem direta, profissional, sem jargões técnicos
 - Valores monetários: "R$ 1.234.567" (nunca use K ou M)
 - Percentuais com vírgula decimal: "12,3%"
 - SEM markdown, bullets, asteriscos ou formatação especial
+- Cada linha tem que SUSTENTAR-SE sozinha (ler isolada, faz sentido)
 
 Regras do tipo:
 - "success": crescimento positivo, meta atingida, resultados acima do esperado
@@ -3049,5 +3964,59 @@ export async function narrativeHandler(req: Request, res: Response): Promise<voi
   } catch (error: any) {
     console.error('❌ [BI/narrative]', error.message);
     res.json({ success: true, lines: [], type: 'info' });
+  }
+}
+
+// ─── GET /api/bi/sellers-available ────────────────────────────────────────────
+// Lista de vendedores filtrada por permissão para popular o combobox do BI:
+//  - Master / gerência → todos os vendedores ativos (ven_status = 'A')
+//  - Rep com vendedor vinculado → APENAS o próprio (lista com 1 item, frontend
+//    auto-seleciona e desabilita o combobox)
+//  - Sem vendedor vinculado e sem master/gerência → lista vazia (segurança)
+export async function sellersAvailableHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const userId = getUserId(req);
+
+    // Detecta permissão lendo direto da tabela user_nomes
+    const userCheck = await db.query(
+      'SELECT master, gerencia FROM user_nomes WHERE codigo = $1',
+      [userId]
+    );
+    const isMasterOrGerencia =
+      userCheck.rows.length > 0 &&
+      (userCheck.rows[0].master === true || userCheck.rows[0].gerencia === true);
+
+    if (isMasterOrGerencia) {
+      const r = await db.query(`
+        SELECT ven_codigo, ven_nome
+        FROM vendedores
+        WHERE COALESCE(UPPER(TRIM(ven_status)), 'A') = 'A'
+          AND COALESCE(UPPER(TRIM(ven_cumpremetas)), 'S') <> 'N'
+        ORDER BY ven_nome
+      `);
+      res.json({ success: true, data: r.rows, locked: false });
+      return;
+    }
+
+    // Não-master: tenta vincular vendedor pelo userId
+    const linkedId = await getLinkedSellerId(db, userId);
+    if (linkedId == null) {
+      // Sem vínculo e sem master: lista vazia (não deve ver dado de ninguém)
+      res.json({ success: true, data: [], locked: true });
+      return;
+    }
+
+    // Mesmo o rep "locked" não aparece se ele próprio for cumpremetas='N'
+    const r = await db.query(
+      `SELECT ven_codigo, ven_nome FROM vendedores
+       WHERE ven_codigo = $1
+         AND COALESCE(UPPER(TRIM(ven_cumpremetas)), 'S') <> 'N'`,
+      [linkedId]
+    );
+    res.json({ success: true, data: r.rows, locked: true });
+  } catch (error: any) {
+    console.error('❌ [BI/sellers-available]', error.message);
+    res.status(500).json({ success: false, message: error.message, data: [], locked: true });
   }
 }

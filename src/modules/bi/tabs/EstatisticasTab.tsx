@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Info, TrendingDown, TrendingUp, Minus, UserPlus, UserMinus, RefreshCw, Shield, X, Filter } from 'lucide-react';
+import { Info, TrendingDown, TrendingUp, Minus, X, Filter } from 'lucide-react';
 import { api } from '@/shared/lib/api';
 import { useBIStore, buildBIParams } from '../store/useBIStore';
 import { BI, fmtBRL, fmtN, CHART_COLORS } from '../components/biTokens';
 import { SkeletonCard } from '../components/SkeletonCard';
+import ComparativoAnual from '../components/ComparativoAnual';
 
 const MES_LABEL: Record<number, string> = {
   1:'Jan',2:'Fev',3:'Mar',4:'Abr',5:'Mai',6:'Jun',
@@ -58,21 +59,23 @@ const EstatisticasTab = () => {
 
   // ── Data State ──────────────────────────────────────────────────────────────
   const [resumo,       setResumo]       = useState<any>(null);
-  const [curvaAbc,     setCurvaAbc]     = useState<{ data: any[]; total_skus: number }>({ data: [], total_skus: 0 });
   const [ultimaCompra, setUltimaCompra] = useState<any[]>([]);
   const [classProd,    setClassProd]    = useState<any[]>([]);
   const [fatMensal,    setFatMensal]    = useState<any[]>([]);
-  const [statusCli,    setStatusCli]    = useState<any>(null);
+  const [tresAnos,     setTresAnos]     = useState<{ data: any[]; anos: number[] }>({ data: [], anos: [] });
+  const [crossSell,    setCrossSell]    = useState<any[]>([]);
+  const [yoy,          setYoy]          = useState<{ data: any[]; anoCurr: number; anoPrev: number; resumo: any }>({ data: [], anoCurr: 0, anoPrev: 0, resumo: { novo: 0, perdido: 0, crescendo: 0, em_queda: 0, estavel: 0 } });
 
   const [loadR, setLoadR] = useState(true);
-  const [loadA, setLoadA] = useState(true);
   const [loadU, setLoadU] = useState(true);
   const [loadC, setLoadC] = useState(true);
   const [loadF, setLoadF] = useState(true);
-  const [loadS, setLoadS] = useState(true);
+  const [load3, setLoad3] = useState(true);
+  const [loadX, setLoadX] = useState(true);
+  const [loadY, setLoadY] = useState(true);
 
-  // Curva ABC → Classificação de Produtos link
-  const [selectedCurva, setSelectedCurva] = useState<'A' | 'B' | 'C' | null>(null);
+  // Filtro de status do card YoY (chip toggle)
+  const [yoyFilter, setYoyFilter] = useState<'todos' | 'novo' | 'crescendo' | 'em_queda' | 'perdido' | 'estavel'>('todos');
 
   // ── Fetches ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -80,13 +83,6 @@ const EstatisticasTab = () => {
     api.get(`/bi/stats-resumo?${p}`)
       .then(r => r.data.success && setResumo(r.data.data))
       .catch(console.error).finally(() => setLoadR(false));
-  }, [p]);
-
-  useEffect(() => {
-    setLoadA(true);
-    api.get(`/bi/stats-curva-abc?${p}`)
-      .then(r => { if (r.data.success) setCurvaAbc({ data: r.data.data || [], total_skus: r.data.total_skus || 0 }); })
-      .catch(console.error).finally(() => setLoadA(false));
   }, [p]);
 
   useEffect(() => {
@@ -98,11 +94,10 @@ const EstatisticasTab = () => {
 
   useEffect(() => {
     setLoadC(true);
-    const curvaParam = selectedCurva ? `&curva=${selectedCurva}` : '';
-    api.get(`/bi/stats-classificacao-produtos?${p}&limit=30${curvaParam}`)
+    api.get(`/bi/stats-classificacao-produtos?${p}&limit=30`)
       .then(r => r.data.success && setClassProd(r.data.data || []))
       .catch(console.error).finally(() => setLoadC(false));
-  }, [p, selectedCurva]);
+  }, [p]);
 
   useEffect(() => {
     setLoadF(true);
@@ -112,10 +107,31 @@ const EstatisticasTab = () => {
   }, [p]);
 
   useEffect(() => {
-    setLoadS(true);
-    api.get(`/bi/stats-status-clientes?${p}`)
-      .then(r => r.data.success && setStatusCli(r.data.data || null))
-      .catch(console.error).finally(() => setLoadS(false));
+    setLoad3(true);
+    api.get(`/bi/stats-3anos-industria?${p}`)
+      .then(r => { if (r.data.success) setTresAnos({ data: r.data.data || [], anos: r.data.anos || [] }); })
+      .catch(console.error).finally(() => setLoad3(false));
+  }, [p]);
+
+  useEffect(() => {
+    setLoadX(true);
+    api.get(`/bi/stats-cross-sell?${p}`)
+      .then(r => r.data.success && setCrossSell(r.data.data || []))
+      .catch(console.error).finally(() => setLoadX(false));
+  }, [p]);
+
+  useEffect(() => {
+    setLoadY(true);
+    api.get(`/bi/stats-clientes-yoy?${p}`)
+      .then(r => {
+        if (r.data.success) setYoy({
+          data:    r.data.data || [],
+          anoCurr: r.data.anoCurr,
+          anoPrev: r.data.anoPrev,
+          resumo:  r.data.resumo || { novo: 0, perdido: 0, crescendo: 0, em_queda: 0, estavel: 0 },
+        });
+      })
+      .catch(console.error).finally(() => setLoadY(false));
   }, [p]);
 
   // ── Derived: métrica-aware KPIs ────────────────────────────────────────────
@@ -151,7 +167,7 @@ const EstatisticasTab = () => {
 
   // ── Derived: Fat. Indústria Mensal pivot ───────────────────────────────────
   const fatPivot = useMemo(() => {
-    if (!fatMensal.length) return { industries: [], meses: [], matrix: new Map() };
+    if (!fatMensal.length) return { industries: [], meses: [], matrix: new Map(), rowTotals: new Map(), colTotals: new Map(), grandTotal: { total: 0, quantidade: 0, clientes: 0 }, maxCell: 0 };
 
     const indMap = new Map<number, { nome: string; total: number }>();
     const mesesSet = new Set<number>();
@@ -173,17 +189,109 @@ const EstatisticasTab = () => {
     const meses = Array.from(mesesSet).sort((a, b) => a - b);
 
     const matrix = new Map<string, { total: number; quantidade: number; clientes: number }>();
+    const rowTotals = new Map<number, { total: number; quantidade: number; clientes: number }>();
+    const colTotals = new Map<number, { total: number; quantidade: number; clientes: number }>();
+    let grandTotal = { total: 0, quantidade: 0, clientes: 0 };
+    let maxCell = 0;
+
     fatMensal.forEach(d => {
       const key = `${d.industria_codigo}-${d.mes}`;
-      matrix.set(key, {
-        total: parseFloat(d.total),
-        quantidade: parseFloat(d.quantidade),
-        clientes: d.clientes,
-      });
+      const total = parseFloat(d.total);
+      const quantidade = parseFloat(d.quantidade);
+      const clientes = d.clientes;
+      matrix.set(key, { total, quantidade, clientes });
+      maxCell = Math.max(maxCell, total);
+
+      const r = rowTotals.get(d.industria_codigo) ?? { total: 0, quantidade: 0, clientes: 0 };
+      rowTotals.set(d.industria_codigo, { total: r.total + total, quantidade: r.quantidade + quantidade, clientes: Math.max(r.clientes, clientes) });
+
+      const c = colTotals.get(d.mes) ?? { total: 0, quantidade: 0, clientes: 0 };
+      colTotals.set(d.mes, { total: c.total + total, quantidade: c.quantidade + quantidade, clientes: c.clientes + clientes });
+
+      grandTotal = { total: grandTotal.total + total, quantidade: grandTotal.quantidade + quantidade, clientes: grandTotal.clientes + clientes };
     });
 
-    return { industries, meses, matrix };
+    return { industries, meses, matrix, rowTotals, colTotals, grandTotal, maxCell };
   }, [fatMensal]);
+
+  // ── Derived: Pivot 3 Anos (linha = indústria, coluna = ano) ───────────────
+  const treAnosPivot = useMemo(() => {
+    if (!tresAnos.data.length || !tresAnos.anos.length) {
+      return { industries: [], anos: [], matrix: new Map(), rowTotal: new Map(), colTotal: new Map(), grandTotal: 0, maxCell: 0 };
+    }
+    const anosOrd = [...tresAnos.anos].sort((a, b) => a - b);
+    type Cell = { total: number; quantidade: number; clientes: number; pedidos: number };
+    const indMap = new Map<number, { nome: string; baseTotal: number }>();
+    const matrix = new Map<string, Cell>();
+    const rowTotal = new Map<number, number>(); // soma 3 anos por indústria
+    const colTotal = new Map<number, number>(); // soma todas indústrias por ano
+    let grandTotal = 0;
+    let maxCell = 0;
+
+    const baseAno = anosOrd[anosOrd.length - 1];
+
+    tresAnos.data.forEach((d: any) => {
+      const total = parseFloat(d.total) || 0;
+      const ano   = Number(d.ano);
+      const codigo = d.industria_codigo;
+      const key = `${codigo}-${ano}`;
+      matrix.set(key, {
+        total,
+        quantidade: parseFloat(d.quantidade) || 0,
+        clientes:   d.clientes || 0,
+        pedidos:    d.pedidos || 0,
+      });
+      maxCell = Math.max(maxCell, total);
+      grandTotal += total;
+      rowTotal.set(codigo, (rowTotal.get(codigo) ?? 0) + total);
+      colTotal.set(ano,    (colTotal.get(ano) ?? 0) + total);
+
+      const existing = indMap.get(codigo);
+      const baseT = ano === baseAno ? total : (existing?.baseTotal ?? 0);
+      if (!existing) {
+        indMap.set(codigo, { nome: d.industria, baseTotal: baseT });
+      } else if (ano === baseAno) {
+        existing.baseTotal = total;
+      }
+    });
+
+    // Ordena por faturamento do ano base (descrescente)
+    const industries = Array.from(indMap.entries())
+      .sort((a, b) => b[1].baseTotal - a[1].baseTotal)
+      .map(([codigo, { nome }]) => ({ codigo, nome }));
+
+    return { industries, anos: anosOrd, matrix, rowTotal, colTotal, grandTotal, maxCell };
+  }, [tresAnos]);
+
+  // ── Derived: Cross-Sell matrix (Cliente × Indústria) ──────────────────────
+  const crossPivot = useMemo(() => {
+    if (!crossSell.length) {
+      return { clientes: [], industrias: [], matrix: new Map(), maxCell: 0 };
+    }
+    const cliMap = new Map<number, { nome: string; total: number }>();
+    const indMap = new Map<number, { nome: string; total: number }>();
+    const matrix = new Map<string, number>(); // cli-ind → valor
+    let maxCell = 0;
+
+    crossSell.forEach((r: any) => {
+      const cli = r.cli_codigo as number;
+      const ind = r.for_codigo as number;
+      const val = parseFloat(r.celula_total) || 0;
+      if (!cliMap.has(cli)) cliMap.set(cli, { nome: r.cli_nome, total: parseFloat(r.cli_total) || 0 });
+      if (!indMap.has(ind)) indMap.set(ind, { nome: r.for_nome, total: parseFloat(r.for_total) || 0 });
+      matrix.set(`${cli}-${ind}`, val);
+      if (val > maxCell) maxCell = val;
+    });
+
+    const clientes = Array.from(cliMap.entries())
+      .sort((a, b) => b[1].total - a[1].total)
+      .map(([codigo, { nome, total }]) => ({ codigo, nome, total }));
+    const industrias = Array.from(indMap.entries())
+      .sort((a, b) => b[1].total - a[1].total)
+      .map(([codigo, { nome, total }]) => ({ codigo, nome, total }));
+
+    return { clientes, industrias, matrix, maxCell };
+  }, [crossSell]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -235,122 +343,11 @@ const EstatisticasTab = () => {
         }
       </div>
 
-      {/* ══ ROW 1: Curva ABC (left) + Status Clientes (right) ══════════════ */}
-      <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      {/* ══ Comparativo Anual (ano vs ano, mês a mês — valor/qtd) ═══════════════ */}
+      <ComparativoAnual />
 
-        {/* Curva ABC */}
-        <CardWrap accent={`linear-gradient(90deg, ${BI.success}, ${BI.warning})`}>
-          <SLabel label="Curva ABC de Produtos" accent={BI.success}
-            sub="Classificação dinâmica Pareto: A=80% · B=80-95% · C=95-100%" />
-          {loadA ? <SkeletonCard lines={4} /> : !curvaAbc.data.length ? <EmptyState /> : (
-            <div className="space-y-4">
-              {(['A', 'B', 'C'] as const).map(curva => {
-                const d = curvaAbc.data.find(r => r.curva === curva);
-                const vendidos = d ? d.vendidos : 0;
-                const total = d ? parseFloat(d.total) : 0;
-                const totalSkus = curvaAbc.total_skus || 1;
-                const pct = totalSkus > 0 ? ((vendidos / totalSkus) * 100).toFixed(0) : '0';
-                const color = CURVA_COLORS[curva];
-                const isSelected = selectedCurva === curva;
-
-                return (
-                  <div key={curva}
-                    onClick={() => setSelectedCurva(isSelected ? null : curva)}
-                    style={{
-                      borderRadius: 14, padding: '14px 16px',
-                      background: isSelected ? `${color}18` : `${color}08`,
-                      border: `1px solid ${isSelected ? `${color}60` : `${color}22`}`,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                      transform: isSelected ? 'scale(1.02)' : 'scale(1)',
-                      boxShadow: isSelected ? `0 0 16px ${color}25` : 'none',
-                    }}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <div style={{
-                          width: 40, height: 40, borderRadius: 12,
-                          background: isSelected ? `${color}30` : `${color}18`,
-                          border: `1px solid ${isSelected ? `${color}60` : `${color}35`}`,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 16, fontWeight: 900, color,
-                        }}>
-                          {curva}
-                        </div>
-                        <div>
-                          <p className="text-sm font-bold" style={{ color: BI.text }}>
-                            Produtos Classe {curva}
-                          </p>
-                          <p className="text-[10px]" style={{ color: BI.textMuted }}>
-                            {fmtBRL(total)} em faturamento
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xl font-black" style={{ color, fontFamily: 'monospace' }}>
-                          {fmtN(vendidos)}
-                        </p>
-                        <p className="text-[10px]" style={{ color: BI.textMuted }}>
-                          de {fmtN(totalSkus)} · {pct}%
-                        </p>
-                      </div>
-                    </div>
-                    {/* Progress bar */}
-                    <div style={{
-                      height: 5, borderRadius: 999,
-                      background: `${color}15`,
-                    }}>
-                      <div style={{
-                        height: '100%', borderRadius: 999,
-                        width: `${Math.min(parseFloat(pct), 100)}%`,
-                        background: color,
-                        transition: 'width 0.6s ease',
-                      }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardWrap>
-
-        {/* Status dos Clientes no Trimestre */}
-        <CardWrap accent={`linear-gradient(90deg, ${BI.info}, ${BI.teal})`}>
-          <SLabel label="Status dos Clientes no Trimestre" accent={BI.info}
-            sub={statusCli ? `${statusCli.trimestre} vs ${statusCli.trimestre_anterior}` : 'Carregando...'} />
-          {loadS ? <SkeletonCard lines={5} /> : !statusCli ? <EmptyState /> : (
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { label: 'Clientes Novos',       value: statusCli.novos,       color: BI.success, icon: <UserPlus size={18} />,   desc: 'Primeira compra — nunca compraram antes' },
-                { label: 'Clientes Perdidos',     value: statusCli.perdidos,    color: BI.danger,  icon: <UserMinus size={18} />,  desc: 'Compraram no trimestre anterior, não neste' },
-                { label: 'Clientes Reativados',   value: statusCli.reativados,  color: BI.warning, icon: <RefreshCw size={18} />,  desc: 'Voltaram a comprar após ausência' },
-                { label: 'Clientes Retidos',      value: statusCli.retidos,     color: BI.teal,    icon: <Shield size={18} />,     desc: 'Compraram neste e no trimestre anterior' },
-              ].map((card, i) => (
-                <div key={i} style={{
-                  borderRadius: 14, padding: '16px',
-                  background: `${card.color}08`, border: `1px solid ${card.color}22`,
-                  display: 'flex', flexDirection: 'column', gap: 6,
-                }}>
-                  <div className="flex items-center gap-2" style={{ color: card.color }}>
-                    {card.icon}
-                    <span className="text-[10px] font-bold uppercase tracking-wider">{card.label}</span>
-                  </div>
-                  <p className="text-3xl font-black" style={{
-                    color: BI.text, fontFamily: 'monospace', lineHeight: 1,
-                  }}>
-                    {fmtN(card.value)}
-                  </p>
-                  <p className="text-[9px] leading-tight" style={{ color: BI.textMuted }}>
-                    {card.desc}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardWrap>
-      </div>
-
-      {/* ══ ROW 2: Data Última Compra (left) + Classificação Produtos (right) */}
+      {/* ══ ROW 1: Data Última Compra (left) + Classificação Produtos (right)
+            (Curva ABC dedicada na aba "Curva ABC" — removida daqui) ═════════ */}
       <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
 
         {/* Data da última compra */}
@@ -392,25 +389,10 @@ const EstatisticasTab = () => {
           )}
         </CardWrap>
 
-        <CardWrap accent={selectedCurva ? CURVA_COLORS[selectedCurva] : `linear-gradient(90deg, ${BI.purple}, ${BI.info})`}
+        <CardWrap accent={`linear-gradient(90deg, ${BI.purple}, ${BI.info})`}
           style={{ display: 'flex', flexDirection: 'column' }}>
-          <div className="flex items-center justify-between mb-3">
-            <SLabel label={selectedCurva ? `Produtos Curva ${selectedCurva}` : 'Classificação de Produtos'}
-              accent={selectedCurva ? CURVA_COLORS[selectedCurva] : BI.purple}
-              sub="Ranking dinâmico com curva ABC e quantidade vendida" />
-            {selectedCurva && (
-              <button
-                onClick={() => setSelectedCurva(null)}
-                style={{
-                  fontSize: 10, fontWeight: 700, color: BI.textMuted,
-                  background: `${BI.border}60`, border: `1px solid ${BI.border}`,
-                  borderRadius: 6, padding: '3px 10px', cursor: 'pointer',
-                  whiteSpace: 'nowrap', marginBottom: 12,
-                }}>
-                × limpar filtro
-              </button>
-            )}
-          </div>
+          <SLabel label="Classificação de Produtos" accent={BI.purple}
+            sub="Ranking dinâmico com curva ABC e quantidade vendida" />
           {loadC ? <SkeletonCard lines={8} /> : !classProd.length ? <EmptyState /> : (
             <div style={{ flex: 1, overflowY: 'auto', maxHeight: 420, paddingRight: 8 }}>
               {/* Header */}
@@ -454,7 +436,351 @@ const EstatisticasTab = () => {
         </CardWrap>
       </div>
 
-      {/* ══ ROW 3: Faturamento e Clientes por Indústria (matrix mensal) ═════ */}
+      {/* ══ ROW 3: Comparativo 3 Anos por Indústria ════════════════════════ */}
+      <CardWrap accent={`linear-gradient(90deg, ${BI.teal}, ${BI.info})`}>
+        <SLabel
+          label="Comparativo 3 Anos por Indústria"
+          accent={BI.teal}
+          sub={treAnosPivot.anos.length
+            ? `Faturamento ${treAnosPivot.anos[0]} → ${treAnosPivot.anos[treAnosPivot.anos.length - 1]} · ordenado pelo ano mais recente${filters.meses?.length ? ` · recorte ${filters.meses.map(m => MES_LABEL[m]).join(', ')}` : ''}`
+            : 'Carregando...'} />
+        {load3 ? <SkeletonCard lines={8} /> : !treAnosPivot.industries.length ? <EmptyState /> : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${BI.border}` }}>
+                  <th style={{
+                    textAlign: 'left', padding: '8px 10px', position: 'sticky', left: 0,
+                    background: BI.panel, zIndex: 2, minWidth: 160,
+                    color: BI.textMuted, fontSize: 9, fontWeight: 800, textTransform: 'uppercase',
+                  }}>Indústria</th>
+                  {treAnosPivot.anos.map((ano, idx) => (
+                    <>
+                      <th key={`y-${ano}`} style={{
+                        textAlign: 'right', padding: '8px 10px', minWidth: 100,
+                        color: idx === treAnosPivot.anos.length - 1 ? BI.teal : BI.textMuted,
+                        fontSize: 10, fontWeight: 800, textTransform: 'uppercase',
+                        background: idx === treAnosPivot.anos.length - 1 ? `${BI.teal}10` : 'transparent',
+                      }}>{ano}</th>
+                      {idx < treAnosPivot.anos.length - 1 && (
+                        <th key={`d-${ano}`} style={{
+                          textAlign: 'center', padding: '8px 4px', minWidth: 60,
+                          color: BI.textMuted, fontSize: 9, fontWeight: 700,
+                        }}>Δ {treAnosPivot.anos[idx + 1] - ano}a</th>
+                      )}
+                    </>
+                  ))}
+                  <th style={{
+                    textAlign: 'right', padding: '8px 10px', minWidth: 100,
+                    color: BI.text, fontSize: 9, fontWeight: 900, textTransform: 'uppercase',
+                    background: `${BI.teal}18`, borderLeft: `2px solid ${BI.teal}55`,
+                  }}>Total 3 anos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {treAnosPivot.industries.map(ind => {
+                  const cellOf = (ano: number) => treAnosPivot.matrix.get(`${ind.codigo}-${ano}`)?.total ?? 0;
+                  return (
+                    <tr key={ind.codigo} style={{ borderBottom: `1px solid ${BI.border}30` }}>
+                      <td style={{
+                        padding: '6px 10px', fontWeight: 700, color: BI.text,
+                        position: 'sticky', left: 0, background: BI.panel, zIndex: 1,
+                        fontSize: 12,
+                      }}>{ind.nome}</td>
+                      {treAnosPivot.anos.map((ano, idx) => {
+                        const val = cellOf(ano);
+                        const heat = val > 0 && treAnosPivot.maxCell > 0
+                          ? Math.min(0.95, Math.pow(val / treAnosPivot.maxCell, 0.55)) : 0;
+                        const heatAlpha = Math.round(heat * 50).toString(16).padStart(2, '0');
+                        const bg = val > 0 ? `${BI.teal}${heatAlpha}` : 'transparent';
+                        return (
+                          <>
+                            <td key={`v-${ano}`} style={{
+                              padding: '6px 10px', textAlign: 'right',
+                              fontFamily: 'monospace', fontSize: 11, fontWeight: 600,
+                              color: val > 0 ? BI.text : BI.textMuted,
+                              background: bg,
+                              transition: 'background 0.15s',
+                            }}>{val > 0 ? fmtBRL(val) : '—'}</td>
+                            {idx < treAnosPivot.anos.length - 1 && (() => {
+                              const next = cellOf(treAnosPivot.anos[idx + 1]);
+                              if (val === 0 && next === 0) return <td key={`d-${ano}`} style={{ padding: '6px 4px', textAlign: 'center', color: BI.textMuted, fontSize: 9 }}>—</td>;
+                              if (val === 0)                 return <td key={`d-${ano}`} style={{ padding: '6px 4px', textAlign: 'center', color: BI.success, fontSize: 10, fontWeight: 800 }}>novo</td>;
+                              const pct = ((next - val) / val) * 100;
+                              const Up = pct > 0;
+                              const cor = pct > 0 ? BI.success : pct < 0 ? BI.danger : BI.textMuted;
+                              return (
+                                <td key={`d-${ano}`} style={{
+                                  padding: '6px 4px', textAlign: 'center', color: cor,
+                                  fontSize: 10, fontWeight: 800,
+                                }}>{Up ? '▲' : pct < 0 ? '▼' : '−'} {Math.abs(pct).toFixed(1)}%</td>
+                              );
+                            })()}
+                          </>
+                        );
+                      })}
+                      <td style={{
+                        padding: '6px 10px', textAlign: 'right',
+                        fontFamily: 'monospace', fontSize: 11, fontWeight: 800,
+                        color: BI.teal,
+                        background: `${BI.teal}10`,
+                        borderLeft: `2px solid ${BI.teal}55`,
+                      }}>{fmtBRL(treAnosPivot.rowTotal.get(ind.codigo) ?? 0)}</td>
+                    </tr>
+                  );
+                })}
+                {/* Totais */}
+                <tr style={{ borderTop: `2px solid ${BI.teal}55`, background: `${BI.teal}10` }}>
+                  <td style={{
+                    padding: '8px 10px', fontWeight: 900, fontSize: 11,
+                    color: BI.teal, textTransform: 'uppercase', letterSpacing: 0.5,
+                    position: 'sticky', left: 0, background: `${BI.teal}18`, zIndex: 1,
+                  }}>Total / ano</td>
+                  {treAnosPivot.anos.map((ano, idx) => (
+                    <>
+                      <td key={`tv-${ano}`} style={{
+                        padding: '8px 10px', textAlign: 'right',
+                        fontFamily: 'monospace', fontSize: 12, fontWeight: 900, color: BI.teal,
+                      }}>{fmtBRL(treAnosPivot.colTotal.get(ano) ?? 0)}</td>
+                      {idx < treAnosPivot.anos.length - 1 && (() => {
+                        const cur = treAnosPivot.colTotal.get(ano) ?? 0;
+                        const nxt = treAnosPivot.colTotal.get(treAnosPivot.anos[idx + 1]) ?? 0;
+                        if (cur === 0) return <td key={`td-${ano}`} style={{ padding: '8px 4px', textAlign: 'center', color: BI.textMuted, fontSize: 9 }}>—</td>;
+                        const pct = ((nxt - cur) / cur) * 100;
+                        const cor = pct > 0 ? BI.success : pct < 0 ? BI.danger : BI.textMuted;
+                        return (
+                          <td key={`td-${ano}`} style={{
+                            padding: '8px 4px', textAlign: 'center', color: cor,
+                            fontSize: 11, fontWeight: 900,
+                          }}>{pct > 0 ? '▲' : pct < 0 ? '▼' : '−'} {Math.abs(pct).toFixed(1)}%</td>
+                        );
+                      })()}
+                    </>
+                  ))}
+                  <td style={{
+                    padding: '8px 10px', textAlign: 'right',
+                    fontFamily: 'monospace', fontSize: 13, fontWeight: 900,
+                    color: BI.teal,
+                    background: `${BI.teal}22`,
+                    borderLeft: `2px solid ${BI.teal}80`,
+                  }}>{fmtBRL(treAnosPivot.grandTotal)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardWrap>
+
+      {/* ══ ROW 4: Cross-Sell — Matriz Cliente × Indústria (oportunidades) ═ */}
+      <CardWrap accent={`linear-gradient(90deg, ${BI.warning}, ${BI.success})`}>
+        <SLabel
+          label="Oportunidades de Cross-Sell · Cliente × Indústria"
+          accent={BI.warning}
+          sub="Linhas com mais lacunas (—) são oportunidades óbvias: cliente compra de várias indústrias mas falta UMA. Top 25 clientes × Top 12 indústrias do recorte." />
+        {loadX ? <SkeletonCard lines={10} /> : !crossPivot.clientes.length ? <EmptyState /> : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${BI.border}` }}>
+                  <th style={{
+                    textAlign: 'left', padding: '8px 10px',
+                    position: 'sticky', left: 0, background: BI.panel, zIndex: 2, minWidth: 170,
+                    color: BI.textMuted, fontSize: 9, fontWeight: 800, textTransform: 'uppercase',
+                  }}>Cliente</th>
+                  {crossPivot.industrias.map(ind => (
+                    <th key={ind.codigo} style={{
+                      textAlign: 'right', padding: '8px 6px', minWidth: 90,
+                      color: BI.textMuted, fontSize: 9, fontWeight: 800, textTransform: 'uppercase',
+                    }}>{ind.nome}</th>
+                  ))}
+                  <th style={{
+                    textAlign: 'center', padding: '8px 10px', minWidth: 90,
+                    color: BI.warning, fontSize: 9, fontWeight: 900, textTransform: 'uppercase',
+                    background: `${BI.warning}12`, borderLeft: `2px solid ${BI.warning}55`,
+                  }}>Cobertura</th>
+                </tr>
+              </thead>
+              <tbody>
+                {crossPivot.clientes.map(cli => {
+                  const compradas = crossPivot.industrias.filter(ind =>
+                    (crossPivot.matrix.get(`${cli.codigo}-${ind.codigo}`) ?? 0) > 0
+                  ).length;
+                  const totalCols = crossPivot.industrias.length;
+                  const pct = totalCols > 0 ? (compradas / totalCols) * 100 : 0;
+                  // Cor de cobertura: <50% crítico, <75% atenção, >=75% bom
+                  const covColor = pct >= 75 ? BI.success : pct >= 50 ? BI.warning : BI.danger;
+                  return (
+                    <tr key={cli.codigo} style={{ borderBottom: `1px solid ${BI.border}30` }}>
+                      <td style={{
+                        padding: '6px 10px', fontWeight: 700, color: BI.text,
+                        position: 'sticky', left: 0, background: BI.panel, zIndex: 1,
+                        fontSize: 12, whiteSpace: 'nowrap',
+                        maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis',
+                      }} title={`${cli.nome} · ${fmtBRL(cli.total)} no recorte`}>
+                        {cli.nome}
+                      </td>
+                      {crossPivot.industrias.map(ind => {
+                        const val = crossPivot.matrix.get(`${cli.codigo}-${ind.codigo}`) ?? 0;
+                        const heat = val > 0 && crossPivot.maxCell > 0
+                          ? Math.min(0.85, Math.pow(val / crossPivot.maxCell, 0.55)) : 0;
+                        const heatAlpha = Math.round(heat * 50).toString(16).padStart(2, '0');
+                        const bg = val > 0 ? `${BI.success}${heatAlpha}` : `${BI.danger}10`;
+                        const txtColor = val > 0 ? BI.text : `${BI.danger}99`;
+                        return (
+                          <td key={ind.codigo} style={{
+                            padding: '6px 6px', textAlign: 'right',
+                            fontFamily: 'monospace', fontSize: 10, fontWeight: 600,
+                            color: txtColor, background: bg,
+                            transition: 'background 0.15s',
+                          }} title={val > 0 ? `${cli.nome} compra de ${ind.nome}: ${fmtBRL(val)}` : `${cli.nome} NÃO compra de ${ind.nome} — oportunidade`}>
+                            {val > 0 ? fmtBRL(val) : '—'}
+                          </td>
+                        );
+                      })}
+                      <td style={{
+                        padding: '6px 10px', textAlign: 'center',
+                        background: `${BI.warning}08`, borderLeft: `2px solid ${BI.warning}40`,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                          <span style={{
+                            fontSize: 11, fontFamily: 'monospace', fontWeight: 800, color: covColor,
+                          }}>{compradas}/{totalCols}</span>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, color: covColor,
+                            padding: '2px 6px', borderRadius: 4,
+                            background: `${covColor}18`, border: `1px solid ${covColor}33`,
+                          }}>{pct.toFixed(0)}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {/* Legenda */}
+            <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 10, color: BI.textMuted }}>
+              <span><span style={{ display: 'inline-block', width: 10, height: 10, background: `${BI.success}30`, marginRight: 4, verticalAlign: 'middle' }} /> Compra (com heatmap por valor)</span>
+              <span><span style={{ display: 'inline-block', width: 10, height: 10, background: `${BI.danger}10`, marginRight: 4, verticalAlign: 'middle' }} /> Lacuna — oportunidade</span>
+              <span style={{ color: BI.warning }}>● Cobertura ≥ 75% bom · 50–74% atenção · &lt; 50% crítico</span>
+            </div>
+          </div>
+        )}
+      </CardWrap>
+
+      {/* ══ ROW 5: Clientes YoY — ganhos / crescendo / queda / perdidos ════ */}
+      <CardWrap accent={`linear-gradient(90deg, ${BI.success}, ${BI.danger})`}>
+        <SLabel
+          label={`Movimentação de Clientes · ${yoy.anoPrev || '?'} vs ${yoy.anoCurr || '?'}`}
+          accent={BI.success}
+          sub={`Cliente classificado pela variação de faturamento ano-a-ano${filters.meses?.length ? ` · recorte ${filters.meses.map(m => MES_LABEL[m]).join(', ')}` : ''}`} />
+        {loadY ? <SkeletonCard lines={8} /> : !yoy.data.length ? <EmptyState /> : (
+          <>
+            {/* KPIs por status — clicáveis pra filtrar a tabela */}
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3" style={{ marginBottom: 14 }}>
+              {([
+                { key: 'todos',    label: 'Todos',     count: yoy.data.length,        color: BI.textMuted, desc: 'Top 100 maiores variações' },
+                { key: 'novo',     label: 'Novos',     count: yoy.resumo.novo,        color: BI.success,   desc: `Só comprou em ${yoy.anoCurr}` },
+                { key: 'crescendo',label: 'Crescendo', count: yoy.resumo.crescendo,   color: BI.teal,      desc: '+5% vs ano anterior' },
+                { key: 'em_queda', label: 'Em Queda',  count: yoy.resumo.em_queda,    color: BI.warning,   desc: '−5% vs ano anterior' },
+                { key: 'perdido',  label: 'Perdidos',  count: yoy.resumo.perdido,     color: BI.danger,    desc: `Só comprou em ${yoy.anoPrev}` },
+              ] as const).map(s => {
+                const active = yoyFilter === s.key;
+                return (
+                  <button key={s.key}
+                    onClick={() => setYoyFilter(s.key)}
+                    style={{
+                      borderRadius: 12, padding: '12px 14px',
+                      background: active ? `${s.color}22` : `${s.color}08`,
+                      border: `1px solid ${active ? `${s.color}80` : `${s.color}22`}`,
+                      cursor: 'pointer', textAlign: 'left',
+                      transition: 'all 0.15s',
+                      transform: active ? 'scale(1.02)' : 'scale(1)',
+                      boxShadow: active ? `0 4px 16px ${s.color}28` : 'none',
+                    }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: s.color, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>
+                      {s.label}
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: BI.text, fontFamily: 'monospace', lineHeight: 1 }}>
+                      {s.count}
+                    </div>
+                    <div style={{ fontSize: 9, color: BI.textMuted, marginTop: 4 }}>
+                      {s.desc}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Tabela detalhada (filtrada pelo chip ativo) */}
+            <div style={{ overflowX: 'auto', maxHeight: 480, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead style={{ position: 'sticky', top: 0, background: BI.panel, zIndex: 1 }}>
+                  <tr style={{ borderBottom: `1px solid ${BI.border}` }}>
+                    <th style={{ textAlign: 'left',  padding: '8px 10px', color: BI.textMuted, fontSize: 9, fontWeight: 800, textTransform: 'uppercase' }}>Cliente</th>
+                    <th style={{ textAlign: 'center', padding: '8px 10px', color: BI.textMuted, fontSize: 9, fontWeight: 800, textTransform: 'uppercase' }}>Status</th>
+                    <th style={{ textAlign: 'right', padding: '8px 10px', color: BI.textMuted, fontSize: 9, fontWeight: 800, textTransform: 'uppercase' }}>{yoy.anoPrev}</th>
+                    <th style={{ textAlign: 'right', padding: '8px 10px', color: BI.textMuted, fontSize: 9, fontWeight: 800, textTransform: 'uppercase' }}>{yoy.anoCurr}</th>
+                    <th style={{ textAlign: 'right', padding: '8px 10px', color: BI.textMuted, fontSize: 9, fontWeight: 800, textTransform: 'uppercase' }}>Δ Valor</th>
+                    <th style={{ textAlign: 'right', padding: '8px 10px', color: BI.textMuted, fontSize: 9, fontWeight: 800, textTransform: 'uppercase' }}>%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {yoy.data
+                    .filter((row: any) => yoyFilter === 'todos' || row.status === yoyFilter)
+                    .map((row: any) => {
+                      const statusMap: any = {
+                        novo:      { color: BI.success,   label: 'Novo' },
+                        crescendo: { color: BI.teal,      label: 'Crescendo' },
+                        em_queda:  { color: BI.warning,   label: 'Em Queda' },
+                        perdido:   { color: BI.danger,    label: 'Perdido' },
+                        estavel:   { color: BI.textMuted, label: 'Estável' },
+                      };
+                      const st = statusMap[row.status] ?? statusMap.estavel;
+                      const valPrev = parseFloat(row.valor_prev);
+                      const valCurr = parseFloat(row.valor_curr);
+                      const delta   = valCurr - valPrev;
+                      const pct     = row.variacao_pct !== null ? parseFloat(row.variacao_pct) : null;
+                      const deltaColor = delta > 0 ? BI.success : delta < 0 ? BI.danger : BI.textMuted;
+                      return (
+                        <tr key={row.cli_codigo} style={{ borderBottom: `1px solid ${BI.border}25` }}>
+                          <td style={{ padding: '6px 10px', fontWeight: 700, color: BI.text, fontSize: 12, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {row.nome}
+                          </td>
+                          <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                            <span style={{
+                              fontSize: 9, fontWeight: 800, color: st.color,
+                              padding: '2px 8px', borderRadius: 5,
+                              background: `${st.color}15`, border: `1px solid ${st.color}30`,
+                              textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap',
+                            }}>{st.label}</span>
+                          </td>
+                          <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace', color: BI.textSec }}>
+                            {valPrev > 0 ? fmtBRL(valPrev) : '—'}
+                          </td>
+                          <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace', color: BI.text, fontWeight: 600 }}>
+                            {valCurr > 0 ? fmtBRL(valCurr) : '—'}
+                          </td>
+                          <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace', color: deltaColor, fontWeight: 700 }}>
+                            {delta > 0 ? '+' : ''}{fmtBRL(delta)}
+                          </td>
+                          <td style={{ padding: '6px 10px', textAlign: 'right', fontFamily: 'monospace', color: deltaColor, fontWeight: 800 }}>
+                            {pct === null
+                              ? <span style={{ color: BI.success }}>novo</span>
+                              : valCurr === 0
+                                ? <span style={{ color: BI.danger }}>−100%</span>
+                                : `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </CardWrap>
+
+      {/* ══ ROW 6: Faturamento e Clientes por Indústria (matrix mensal) ═════ */}
       <CardWrap accent={`linear-gradient(90deg, ${BI.teal}, ${BI.info})`}>
         <div className="flex items-start justify-between mb-3">
           <SLabel label="Faturamento e Quantidade de Clientes Atendidos" accent={BI.teal}
@@ -525,6 +851,12 @@ const EstatisticasTab = () => {
                       </th>
                     );
                   })}
+                  <th style={{
+                    textAlign: 'right', padding: '6px 10px', minWidth: 90,
+                    color: BI.teal, fontSize: 9, fontWeight: 900, textTransform: 'uppercase',
+                    background: `${BI.teal}15`, borderRadius: 6,
+                    borderLeft: `2px solid ${BI.teal}40`,
+                  }}>Total</th>
                 </tr>
               </thead>
               <tbody>
@@ -571,6 +903,14 @@ const EstatisticasTab = () => {
                           const cell = fatPivot.matrix.get(`${ind.codigo}-${m}`);
                           const val = cell ? (cell as any)[valField] : 0;
                           const mesActive = filters.meses.includes(m);
+                          // Heatmap: intensidade do fundo proporcional ao valor da célula vs maior valor da matrix
+                          const heat = val > 0 && fatPivot.maxCell > 0
+                            ? Math.min(0.95, Math.pow(val / fatPivot.maxCell, 0.55)) // gamma 0.55 dá realce para valores baixos
+                            : 0;
+                          const heatAlpha = Math.round(heat * 40).toString(16).padStart(2, '0'); // 0..40 em hex (0..64 alpha)
+                          const cellBg = mesActive
+                            ? `${BI.info}12`
+                            : val > 0 ? `${BI.teal}${heatAlpha}` : rowBg;
                           return (
                             <td key={m}
                               onClick={() => {
@@ -581,7 +921,7 @@ const EstatisticasTab = () => {
                                 padding: '4px 8px', textAlign: 'right',
                                 fontFamily: 'monospace', fontSize: 10, fontWeight: 600,
                                 color: val > 0 ? BI.text : BI.textMuted,
-                                background: mesActive ? `${BI.info}12` : rowBg,
+                                background: cellBg,
                                 cursor: val > 0 ? 'pointer' : 'default',
                                 transition: 'background 0.15s',
                               }}>
@@ -589,6 +929,20 @@ const EstatisticasTab = () => {
                             </td>
                           );
                         })}
+                        {/* Total da linha (valor/qtd/skus conforme visão) */}
+                        <td style={{
+                          padding: '4px 10px', textAlign: 'right',
+                          fontFamily: 'monospace', fontSize: 11, fontWeight: 800,
+                          color: BI.teal,
+                          background: `${BI.teal}12`,
+                          borderLeft: `2px solid ${BI.teal}40`,
+                        }}>
+                          {(() => {
+                            const rt = fatPivot.rowTotals.get(ind.codigo);
+                            const v  = rt ? (rt as any)[valField] : 0;
+                            return v > 0 ? fmtCell(v) : '—';
+                          })()}
+                        </td>
                       </tr>
                       {/* Clientes atendidos */}
                       <tr key={`${ind.codigo}-cli`}
@@ -613,10 +967,54 @@ const EstatisticasTab = () => {
                             </td>
                           );
                         })}
+                        {/* Total clientes (máx — clientes únicos) */}
+                        <td style={{
+                          padding: '4px 10px', textAlign: 'right',
+                          fontFamily: 'monospace', fontSize: 11, fontWeight: 800,
+                          color: BI.info,
+                          background: `${BI.teal}12`,
+                          borderLeft: `2px solid ${BI.teal}40`,
+                        }}>
+                          {fatPivot.rowTotals.get(ind.codigo)?.clientes ?? 0}
+                        </td>
                       </tr>
                     </>
                   );
                 })}
+                {/* Total por mês (rodapé) */}
+                <tr style={{ borderTop: `2px solid ${BI.teal}55`, background: `${BI.teal}10` }}>
+                  <td style={{
+                    padding: '8px', fontWeight: 900, fontSize: 11,
+                    color: BI.teal, textTransform: 'uppercase', letterSpacing: 0.6,
+                    position: 'sticky', left: 0, background: `${BI.teal}18`,
+                    zIndex: 1,
+                  }}>Total / mês</td>
+                  <td style={{ padding: '4px 8px', fontSize: 9, fontWeight: 700, color: BI.teal, textTransform: 'uppercase' }}>
+                    {visao === 'financeiro' ? 'Faturamento' : visao === 'volume' ? 'Quantidade' : 'SKUs'}
+                  </td>
+                  {fatPivot.meses.map(m => {
+                    const ct = fatPivot.colTotals.get(m);
+                    const v  = ct ? (ct as any)[(visao === 'financeiro' ? 'total' : visao === 'volume' ? 'quantidade' : 'clientes')] : 0;
+                    return (
+                      <td key={m} style={{
+                        padding: '8px', textAlign: 'right',
+                        fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: BI.teal,
+                      }}>
+                        {v > 0 ? (visao === 'financeiro' ? fmtBRL(v) : fmtN(v)) : '—'}
+                      </td>
+                    );
+                  })}
+                  <td style={{
+                    padding: '8px 10px', textAlign: 'right',
+                    fontFamily: 'monospace', fontSize: 12, fontWeight: 900, color: BI.teal,
+                    background: `${BI.teal}25`,
+                    borderLeft: `2px solid ${BI.teal}80`,
+                  }}>
+                    {visao === 'financeiro'
+                      ? fmtBRL(fatPivot.grandTotal.total)
+                      : visao === 'volume' ? fmtN(fatPivot.grandTotal.quantidade) : fmtN(fatPivot.grandTotal.clientes)}
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
