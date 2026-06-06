@@ -3,9 +3,169 @@ import { pool } from '../../config/database';
 import { getLinkedSellerId, buildIndustryFilterClause } from '../../shared/permissions';
 import sharp from 'sharp';
 import { callAI } from '../../shared/utils/ai_providers';
+import { resolveCompradorContact } from '../../shared/utils/comprador-resolver';
+import { carregarDescontosPorGrupo } from '../../shared/utils/preco-resolver';
+import { nextOrderNumber } from '../../shared/utils/orderSequence';
 
 function getUserId(req: Request) { return req.user?.userId; }
 function pInt(v: any): number | null { const n = parseInt(v); return isNaN(n) ? null : n; }
+
+// ─── GET /api/orders/cliente-historico-mensal ────────────────────────────────
+// Retorna faturamento + quantidade dos ÚLTIMOS 12 MESES corridos (mês atual
+// pra trás), deste cliente NESTA indústria. Fixo, não depende do filtro do
+// painel. Útil pra ver tendência recente independente de janela selecionada.
+export async function clienteHistoricoMensalHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const cli = parseInt(String(req.query.cli ?? ''), 10);
+    const ind = parseInt(String(req.query.ind ?? ''), 10);
+    if (!cli || !ind) {
+      res.status(400).json({ success: false, message: 'cli e ind são obrigatórios' });
+      return;
+    }
+    const db = req.db!;
+
+    const r = await db.query(`
+      WITH meses AS (
+        SELECT (date_trunc('month', CURRENT_DATE) - (INTERVAL '1 month' * n))::date AS mes_inicio
+        FROM generate_series(0, 11) AS n
+      ),
+      ped_alvo AS (
+        SELECT TRIM(ped_pedido) AS pid,
+               date_trunc('month', ped_data)::date AS mes_inicio,
+               ped_totliq
+        FROM pedidos
+        WHERE ped_cliente = $1 AND ped_industria = $2
+          AND ped_situacao IN ('P','F')
+          AND ped_data >= (SELECT MIN(mes_inicio) FROM meses)
+          AND ped_data <  (SELECT MAX(mes_inicio) + INTERVAL '1 month' FROM meses)
+      ),
+      ped_qtd AS (
+        SELECT TRIM(i.ite_pedido) AS pid, SUM(i.ite_quant)::numeric AS qtd
+        FROM itens_ped i
+        WHERE TRIM(i.ite_pedido) IN (SELECT pid FROM ped_alvo)
+        GROUP BY TRIM(i.ite_pedido)
+      ),
+      agreg AS (
+        SELECT pa.mes_inicio,
+               SUM(pa.ped_totliq)::numeric              AS fat,
+               COALESCE(SUM(pq.qtd), 0)::numeric        AS qtd
+        FROM ped_alvo pa
+        LEFT JOIN ped_qtd pq ON pq.pid = pa.pid
+        GROUP BY pa.mes_inicio
+      )
+      SELECT m.mes_inicio,
+             EXTRACT(MONTH FROM m.mes_inicio)::int AS mes_num,
+             EXTRACT(YEAR  FROM m.mes_inicio)::int AS ano,
+             COALESCE(a.fat, 0)::numeric AS fat,
+             COALESCE(a.qtd, 0)::numeric AS qtd
+      FROM meses m
+      LEFT JOIN agreg a ON a.mes_inicio = m.mes_inicio
+      ORDER BY m.mes_inicio
+    `, [cli, ind]);
+
+    const NOMES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const serie = r.rows.map(row => ({
+      mes:        `${NOMES[row.mes_num - 1]}/${String(row.ano).slice(-2)}`,
+      fat_atual:  Number(row.fat),
+      qtd_atual:  Number(row.qtd),
+    }));
+
+    res.json({ success: true, data: { serie } });
+  } catch (error: any) {
+    console.error('❌ [ORDERS] cliente-historico-mensal:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── GET /api/orders/cliente-curva-abc ───────────────────────────────────────
+// Retorna a curva ABC do cliente DENTRO da indústria no período (Pareto 80/95).
+// Query params: cli, ind, inicio (YYYY-MM-DD), fim (YYYY-MM-DD).
+export async function clienteCurvaAbcHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const cli    = parseInt(String(req.query.cli    ?? ''), 10);
+    const ind    = parseInt(String(req.query.ind    ?? ''), 10);
+    const inicio = String(req.query.inicio ?? '').trim();
+    const fim    = String(req.query.fim    ?? '').trim();
+    if (!cli || !ind || !inicio || !fim) {
+      res.status(400).json({ success: false, message: 'cli, ind, inicio e fim são obrigatórios' });
+      return;
+    }
+    const db = req.db!;
+
+    const r = await db.query(`
+      WITH base AS (
+        SELECT ped_cliente, SUM(ped_totliq)::numeric AS total
+        FROM pedidos
+        WHERE ped_industria = $1
+          AND ped_situacao IN ('P','F')
+          AND ped_data BETWEEN $2::date AND $3::date
+        GROUP BY ped_cliente
+      ),
+      ranked AS (
+        SELECT
+          ped_cliente, total,
+          SUM(total) OVER ()                              AS total_geral,
+          SUM(total) OVER (ORDER BY total DESC)           AS acumulado
+        FROM base
+      )
+      SELECT
+        ped_cliente,
+        total::numeric(15,2)                            AS total,
+        total_geral::numeric(15,2)                      AS total_geral,
+        CASE
+          WHEN total_geral = 0                          THEN 'C'
+          WHEN (acumulado / total_geral) <= 0.80        THEN 'A'
+          WHEN (acumulado / total_geral) <= 0.95        THEN 'B'
+          ELSE 'C'
+        END                                             AS curva
+      FROM ranked
+      WHERE ped_cliente = $4
+    `, [ind, inicio, fim, cli]);
+
+    if (!r.rows.length) {
+      res.json({ success: true, data: { curva: '—', total: 0, total_geral: 0, sem_compras: true } });
+      return;
+    }
+    const row = r.rows[0];
+    res.json({
+      success: true,
+      data: {
+        curva:       row.curva,
+        total:       Number(row.total),
+        total_geral: Number(row.total_geral),
+        sem_compras: false,
+      },
+    });
+  } catch (error: any) {
+    console.error('❌ [ORDERS] cliente-curva-abc:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── GET /api/orders/resolve-comprador?cli=X&ind=Y ───────────────────────────
+// Aplica a mesma regra do helper resolveCompradorContact para popular o
+// formulário de novo pedido: cli_ind (autoritativo) ou cli_aniv função 'compra*'.
+export async function resolveCompradorHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const cli = parseInt(String(req.query.cli ?? ''), 10);
+    const ind = parseInt(String(req.query.ind ?? ''), 10);
+    if (!cli || !ind) {
+      res.status(400).json({ success: false, message: 'cli e ind são obrigatórios' });
+      return;
+    }
+    const { nome, email } = await resolveCompradorContact(req.db!, cli, ind);
+    res.json({
+      success: true,
+      data: {
+        nome:  nome.slice(0, 30),
+        email: email.slice(0, 60),
+      },
+    });
+  } catch (error: any) {
+    console.error('❌ [ORDERS] resolve-comprador:', error.message);
+    res.json({ success: true, data: { nome: '', email: '' } });
+  }
+}
 
 // ─── GET /api/orders/count-whatsapp ──────────────────────────────────────────
 export async function countWhatsappHandler(req: Request, res: Response): Promise<void> {
@@ -26,17 +186,10 @@ export async function nextNumberHandler(req: Request, res: Response): Promise<vo
     const { initials } = req.query;
     const db = req.db!;
 
-    // Usar iniciais do usuário logado ou fallback
-    const userInitials = String(initials || req.user?.username?.substring(0, 2) || 'HS').toUpperCase().replace(/\s+/g, '');
+    // Iniciais persistidas no JWT (fallback no username pra JWT antigo sem `iniciais`)
+    const userInitials = String(initials || req.user?.iniciais || req.user?.username?.substring(0, 2) || 'HS').toUpperCase().replace(/\s+/g, '');
 
-    let seqResult;
-    try {
-      seqResult = await db.query("SELECT nextval('gen_pedidos_id') AS next_num");
-    } catch {
-      seqResult = await db.query("SELECT nextval('pedidos_ped_numero_seq') AS next_num");
-    }
-
-    const pedNumero = seqResult.rows[0].next_num;
+    const pedNumero = await nextOrderNumber(db, req.user!.schema);
     const pedPedido = userInitials + pedNumero.toString().padStart(6, '0');
 
     res.json({ success: true, data: { formatted_number: pedPedido, sequence: pedNumero } });
@@ -80,7 +233,14 @@ export async function listOrdersHandler(req: Request, res: Response): Promise<vo
     }
     if (cliente) { query += ` AND p.ped_cliente = $${idx++}`; params.push(parseInt(String(cliente))); }
     if (pesquisa) {
-      query += ` AND (p.ped_pedido ILIKE $${idx} OR c.cli_nomred ILIKE $${idx} OR p.ped_cliind ILIKE $${idx})`;
+      // Pesquisa cobre: nº do pedido interno, nome reduzido do cliente, ped_cliind,
+      // e a OC do cliente (ped_oc — campo único após consolidação).
+      query += ` AND (
+        p.ped_pedido ILIKE $${idx}
+        OR c.cli_nomred ILIKE $${idx}
+        OR p.ped_cliind ILIKE $${idx}
+        OR p.ped_oc ILIKE $${idx}
+      )`;
       params.push(`%${pesquisa}%`);
       idx++;
     }
@@ -174,18 +334,16 @@ export async function createOrderHandler(req: Request, res: Response): Promise<v
     const db = req.db!;
 
     if (!data.ped_cliente) { res.status(400).json({ success: false, message: 'Cliente é obrigatório' }); return; }
-    if (!data.ped_vendedor) { res.status(400).json({ success: false, message: 'Vendedor é obrigatório' }); return; }
     if (!data.ped_industria) { res.status(400).json({ success: false, message: 'Indústria é obrigatória' }); return; }
     if (!data.ped_tabela) { res.status(400).json({ success: false, message: 'Tabela de preço é obrigatória' }); return; }
+    // ped_vendedor é OPCIONAL — coage pra 0 quando ausente/null (cliente sem vendedor vinculado).
+    // Regra: nunca gravar NULL nessa coluna; 0 = sem vendedor atribuído.
+    const pedVendedor = Number(data.ped_vendedor) || 0;
 
-    // Usar initials do username logado
-    const userInitials = (req.user?.username?.substring(0, 2) || 'HS').toUpperCase();
+    // Iniciais persistidas no JWT (fallback no username pra JWT antigo sem `iniciais`)
+    const userInitials = (req.user?.iniciais || req.user?.username?.substring(0, 2) || 'HS').toUpperCase();
 
-    let seqResult;
-    try { seqResult = await db.query("SELECT nextval('gen_pedidos_id') AS next_num"); }
-    catch { seqResult = await db.query("SELECT nextval('pedidos_ped_numero_seq') AS next_num"); }
-
-    const pedNumero = seqResult.rows[0].next_num;
+    const pedNumero = await nextOrderNumber(db, req.user!.schema);
     const pedPedido = data.ped_pedido || (userInitials + pedNumero.toString().padStart(6, '0'));
 
     const result = await db.query(`
@@ -205,7 +363,7 @@ export async function createOrderHandler(req: Request, res: Response): Promise<v
       pedNumero, pedPedido,
       data.ped_data || new Date().toISOString().split('T')[0],
       data.ped_situacao || 'P',
-      data.ped_cliente, data.ped_transp || 0, data.ped_vendedor,
+      data.ped_cliente, data.ped_transp || 0, pedVendedor,
       data.ped_condpag || '', data.ped_comprador || '',
       String(data.ped_tipofrete || 'C').trim().substring(0, 1) || 'C', String(data.ped_tabela || '').substring(0, 60), data.ped_industria, data.ped_cliind || '',
       data.ped_pri || 0, data.ped_seg || 0, data.ped_ter || 0, data.ped_qua || 0,
@@ -234,18 +392,25 @@ export async function createMobileOrderHandler(req: Request, res: Response): Pro
 
     const venCodigo = await getLinkedSellerId(db, req.user?.userId) ?? 0;
 
-    // Usa tabela enviada pelo app; fallback para primeira disponível da indústria
+    // Usa tabela enviada pelo app; fallback para primeira tabela ATIVA da indústria
     let tabela = String(tabelaBody || '').trim();
     if (!tabela) {
       const tabelaRes = await db.query(
-        `SELECT itab_tabela FROM cad_tabelaspre WHERE itab_idindustria = $1 LIMIT 1`,
+        `SELECT itab_tabela FROM cad_tabelaspre
+          WHERE itab_idindustria = $1 AND COALESCE(itab_status, true) = true
+          LIMIT 1`,
         [ped_industria]
       );
       tabela = tabelaRes.rows[0]?.itab_tabela || '';
     }
 
-    // Buscar descontos do cli_ind para gravar nos itens
-    let descontos: number[] = new Array(11).fill(0);
+    // Cascata padrão de cli_ind (fallback / Prio 3)
+    let descontosCliInd: number[] = new Array(11).fill(0);
+    // Prio 1: cli_descpro indexado por pro_grupo do produto
+    let descontosPorGrupoCliente: Record<number, number[]> = {};
+    // Prio 2: grupo_desc indexado por itab_grupodesconto da tabela
+    let descontosPorGrupoTabela: Record<number, number[]> = {};
+
     if (ped_cliente) {
       try {
         const cliRes = await db.query(
@@ -256,16 +421,51 @@ export async function createMobileOrderHandler(req: Request, res: Response): Pro
         );
         if (cliRes.rows.length > 0) {
           const r = cliRes.rows[0];
-          descontos = Array.from({ length: 11 }, (_, i) => parseFloat(r[`cli_desc${i + 1}`] || '0') || 0);
+          descontosCliInd = Array.from({ length: 11 }, (_, i) => parseFloat(r[`cli_desc${i + 1}`] || '0') || 0);
         }
       } catch { /* descontos opcionais */ }
+      try {
+        const m = await carregarDescontosPorGrupo(db, ped_cliente, ped_industria);
+        descontosPorGrupoCliente = m.descontosPorGrupoCliente;
+        descontosPorGrupoTabela  = m.descontosPorGrupoTabela;
+      } catch { /* grupo opcional */ }
     }
 
-    const userInitials = (req.user?.username?.substring(0, 2) || 'MB').toUpperCase();
-    let seqResult;
-    try { seqResult = await db.query("SELECT nextval('gen_pedidos_id') AS next_num"); }
-    catch { seqResult = await db.query("SELECT nextval('pedidos_ped_numero_seq') AS next_num"); }
-    const pedNumero = seqResult.rows[0].next_num;
+    // Pré-busca: pro_grupo e itab_grupodesconto de cada produto do pedido pra escolher
+    // qual cascata gravar nos ite_des1..11 (Prio 1 > Prio 2 > Prio 3 cli_ind).
+    const codigosItens = [...new Set((itens as any[]).map((i: any) => String(i.pro_codprod || '').toUpperCase()))];
+    const grupoPorCodigo = new Map<string, { proGrupo: number | null; itabGrupo: number | null }>();
+    if (codigosItens.length > 0 && (Object.keys(descontosPorGrupoCliente).length > 0 || Object.keys(descontosPorGrupoTabela).length > 0)) {
+      const gRes = await db.query(`
+        SELECT UPPER(p.pro_codprod) AS codigo,
+               p.pro_grupo,
+               (SELECT t.itab_grupodesconto FROM cad_tabelaspre t
+                WHERE t.itab_idprod = p.pro_id LIMIT 1) AS itab_grupodesconto
+        FROM cad_prod p
+        WHERE p.pro_industria = $1
+          AND UPPER(p.pro_codprod) = ANY($2::text[])`,
+        [ped_industria, codigosItens]);
+      gRes.rows.forEach((r: any) => grupoPorCodigo.set(r.codigo, {
+        proGrupo: r.pro_grupo, itabGrupo: r.itab_grupodesconto,
+      }));
+    }
+
+    // Helper local: escolhe a cascata correta dado um produto.
+    // Retorna array de 11 posições (zera as 2 últimas quando vem de cli_descpro/grupo_desc que têm 9).
+    const escolherCascata = (codigo: string): number[] => {
+      const ctx = grupoPorCodigo.get(codigo.toUpperCase());
+      if (!ctx) return descontosCliInd;
+      const proG  = ctx.proGrupo  != null ? Number(ctx.proGrupo)  : null;
+      const itabG = ctx.itabGrupo != null ? Number(ctx.itabGrupo) : null;
+      const c1 = proG  != null ? descontosPorGrupoCliente[proG]  : undefined;
+      const c2 = itabG != null ? descontosPorGrupoTabela[itabG] : undefined;
+      if (c1 && c1.some(d => d > 0)) return [...c1, 0, 0];      // 9 → 11
+      if (c2 && c2.some(d => d > 0)) return [...c2, 0, 0];      // 9 → 11
+      return descontosCliInd;
+    };
+
+    const userInitials = (req.user?.iniciais || req.user?.username?.substring(0, 2) || 'MB').toUpperCase();
+    const pedNumero = await nextOrderNumber(db, req.user!.schema);
     const pedPedido = userInitials + pedNumero.toString().padStart(6, '0');
 
     const totBruto = (itens as any[]).reduce((s: number, i: any) =>
@@ -300,6 +500,7 @@ export async function createMobileOrderHandler(req: Request, res: Response): Pro
         const qtd   = Number(it.qtd)   || 0;
         const preco = Number(it.preco) || 0;
         const total = preco * qtd;
+        const descontos = escolherCascata(produto);
 
         await client.query(`
           INSERT INTO itens_ped (
@@ -375,8 +576,8 @@ export async function updateOrderHandler(req: Request, res: Response): Promise<v
         ped_sex=$16, ped_set=$17, ped_oit=$18, ped_nov=$19,
         ped_totbruto=$20, ped_totliq=$21, ped_totalipi=$22, ped_obs=$23,
         ped_oc=$24, ped_consolidado_id=$25, ped_situacao_original=$26,
-        ped_pedcli=$27, ped_pedindustria=$28
-      WHERE TRIM(ped_pedido)=TRIM($29)
+        ped_pedindustria=$27
+      WHERE TRIM(ped_pedido)=TRIM($28)
     `, [
       data.ped_data, sit1(data.ped_situacao, 'P'), data.ped_cliente, data.ped_transp || 0,
       data.ped_vendedor, data.ped_condpag || '', data.ped_comprador || '',
@@ -385,7 +586,7 @@ export async function updateOrderHandler(req: Request, res: Response): Promise<v
       data.ped_sex || 0, data.ped_set || 0, data.ped_oit || 0, data.ped_nov || 0,
       data.ped_totbruto || 0, data.ped_totliq || 0, data.ped_totalipi || 0, data.ped_obs || '',
       data.ped_oc || null, data.ped_consolidado_id || null, data.ped_situacao_original || null,
-      data.ped_pedcli || '', data.ped_pedindustria || '',
+      data.ped_pedindustria || '',
       id,
     ]);
 
@@ -450,9 +651,10 @@ export async function orderStatsHandler(req: Request, res: Response): Promise<vo
       params.push(parseInt(String(industria)));
     }
     if (cliente) { conditions.push(`p.ped_cliente = $${idx++}`); params.push(parseInt(String(cliente))); }
-    // Quando há filtro de situação específico, aplica ele; caso contrário exclui apenas excluídos
+    // Faturamento/quantidade/ticket = SÓ vendas reais 'P' e 'F' (regra da casa: 'E' excluído,
+    // cotações 'C' NÃO contam como faturamento). Se vier situação específica, respeita ela.
     const baseSitFilter = (situacao && situacao !== 'Z')
-      ? `p.ped_situacao = $${idx++}` : `p.ped_situacao NOT IN ('E')`;
+      ? `p.ped_situacao = $${idx++}` : `p.ped_situacao IN ('P','F')`;
     if (situacao && situacao !== 'Z') params.push(situacao);
 
     if (dataInicio) { conditions.push(`p.ped_data >= $${idx++}`); params.push(dataInicio); }
@@ -460,17 +662,26 @@ export async function orderStatsHandler(req: Request, res: Response): Promise<vo
 
     const where = conditions.length ? `AND ${conditions.join(' AND ')}` : '';
 
+    // Faturamento = SUM(ped_totliq) do CABEÇALHO (padrão do sistema: Mapa, ABC, PDF) — não a
+    // soma dos itens, que pode ter resíduo de float. CTE 1-linha-por-pedido evita o JOIN
+    // multiplicar o ped_totliq; a quantidade vem por subquery sobre os mesmos pedidos.
     const result = await db.query(`
+      WITH ped AS (
+        SELECT p.ped_pedido, p.ped_cliente, p.ped_industria, p.ped_totliq
+        FROM pedidos p
+        WHERE ${baseSitFilter} ${where}
+      )
       SELECT
-        COUNT(DISTINCT p.ped_pedido)            AS total_pedidos,
-        COUNT(DISTINCT p.ped_cliente)           AS total_clientes,
-        COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)      AS total_faturamento,
-        COALESCE(SUM(i.ite_quant), 0)           AS total_quantidade,
-        COALESCE(ROUND(AVG(p.ped_totliq)::NUMERIC, 2), 0)          AS ticket_medio,
-        COUNT(DISTINCT p.ped_industria)         AS total_industrias
-      FROM pedidos p
-      LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
-      WHERE ${baseSitFilter} ${where}
+        COUNT(*)                                          AS total_pedidos,
+        COUNT(DISTINCT ped_cliente)                       AS total_clientes,
+        COALESCE(ROUND(SUM(ped_totliq)::NUMERIC, 2), 0)   AS total_faturamento,
+        COALESCE((
+          SELECT SUM(i.ite_quant) FROM itens_ped i
+          WHERE i.ite_pedido IN (SELECT ped_pedido FROM ped)
+        ), 0)                                             AS total_quantidade,
+        COALESCE(ROUND(AVG(ped_totliq)::NUMERIC, 2), 0)   AS ticket_medio,
+        COUNT(DISTINCT ped_industria)                     AS total_industrias
+      FROM ped
     `, params);
 
     res.json({ success: true, data: result.rows[0] });
@@ -536,7 +747,7 @@ export async function printDataHandler(req: Request, res: Response): Promise<voi
         c.cli_cidade, c.cli_uf, c.cli_cep, c.cli_cnpj AS client_cnpj, c.cli_inscricao,
         c.cli_fone1 AS cli_fone, c.cli_fone2 AS cli_fax,
         c.cli_email, c.cli_emailnfe, c.cli_emailfinanc AS cli_emailfinanceiro,
-        c.cli_cxpostal, c.cli_suframa,
+        c.cli_cxpostal, c.cli_suframa, c.cli_regiao2,
         f.for_nome, f.for_nomered, f.for_fone, f.for_cidade, f.for_uf, f.for_email,
         f.for_logotipo, f.for_locimagem,
         i.cli_comprador       AS ind_comprador,
@@ -611,10 +822,10 @@ export async function printDataHandler(req: Request, res: Response): Promise<voi
     const itemsResult = await db.query(`
       SELECT
         ip.*,
-        p.pro_aplicacao, p.pro_aplicacao2, p.pro_codigooriginal, p.gru_nome
+        p.pro_nome, p.pro_aplicacao, p.pro_aplicacao2, p.pro_codigooriginal, p.gru_nome
       FROM itens_ped ip
       LEFT JOIN LATERAL (
-        SELECT cp.pro_aplicacao, cp.pro_aplicacao2, cp.pro_codigooriginal, cp.pro_conversao, cp.pro_embalagem, g.gru_nome
+        SELECT cp.pro_nome, cp.pro_aplicacao, cp.pro_aplicacao2, cp.pro_codigooriginal, cp.pro_conversao, cp.pro_embalagem, g.gru_nome
         FROM cad_prod cp
         LEFT JOIN grupos g ON cp.pro_grupo = g.gru_codigo
         WHERE cp.pro_codprod = ip.ite_produto AND cp.pro_industria = ip.ite_industria
@@ -714,7 +925,7 @@ export async function cloneOrderHandler(req: Request, res: Response): Promise<vo
   try {
     await client.query(`SET search_path TO ${schema}, public`);
     const pedPedido = String(req.params.id);
-    const userInitials = (req.user?.username?.substring(0, 2) || 'HS').toUpperCase().replace(/\s+/g, '');
+    const userInitials = (req.user?.iniciais || req.user?.username?.substring(0, 2) || 'HS').toUpperCase().replace(/\s+/g, '');
 
     await client.query('BEGIN');
 
@@ -729,14 +940,8 @@ export async function cloneOrderHandler(req: Request, res: Response): Promise<vo
     }
     const orig = origResult.rows[0];
 
-    // 2. Gerar novo número sequencial
-    let seqResult;
-    try {
-      seqResult = await client.query("SELECT nextval('gen_pedidos_id') AS next_num");
-    } catch {
-      seqResult = await client.query("SELECT nextval('pedidos_ped_numero_seq') AS next_num");
-    }
-    const newPedNumero = seqResult.rows[0].next_num;
+    // 2. Gerar novo número sequencial (qualificado com schema do tenant pra não cair em public)
+    const newPedNumero = await nextOrderNumber(client, schema);
     const newPedPedido = (userInitials + String(newPedNumero).padStart(6, '0')).replace(/\s+/g, '');
 
     // helper: trunca string para max 1 char — campos varchar(1) do schema V1
@@ -1357,18 +1562,16 @@ export async function createOrderFromPortalHandler(req: Request, res: Response):
     );
 
     // Gerar número de pedido (fora da transação — sequência não revertível)
-    let seqResult: any;
-    try   { seqResult = await db.query("SELECT nextval('gen_pedidos_id') AS next_num"); }
-    catch { seqResult = await db.query("SELECT nextval('pedidos_ped_numero_seq') AS next_num"); }
-    const pedNumero = seqResult.rows[0].next_num;
-    const initials  = (user_initials || 'IMP').toUpperCase().replace(/\s+/g, '');
+    const pedNumero = await nextOrderNumber(db, req.user!.schema);
+    // JWT é a fonte autoritativa; user_initials do body é fallback pra defender JWT antigo.
+    const initials  = (req.user?.iniciais || user_initials || 'IMP').toUpperCase().replace(/\s+/g, '');
     const pedPedido = initials + pedNumero.toString().padStart(6, '0');
 
     // Buscar vínculo cli_ind (fora da transação — somente leitura)
-    let transportadora = 0, condPag = '', tipoFrete = 'C', pedCliInd = '', pedComprador = '';
+    let transportadora = 0, condPag = '', tipoFrete = 'C', pedCliInd = '';
     try {
       const vinculo = await db.query(
-        `SELECT cli_transportadora, cli_prazopg, cli_frete, cli_codcliind, cli_comprador
+        `SELECT cli_transportadora, cli_prazopg, cli_frete, cli_codcliind
          FROM cli_ind WHERE cli_codigo = $1 AND cli_forcodigo = $2 LIMIT 1`,
         [cli_codigo, industria_id]
       );
@@ -1378,9 +1581,11 @@ export async function createOrderFromPortalHandler(req: Request, res: Response):
         condPag        = v.cli_prazopg || '';
         tipoFrete      = v.cli_frete === 'FOB' ? 'F' : 'C';
         pedCliInd      = v.cli_codcliind || '';
-        pedComprador   = v.cli_comprador || '';
       }
     } catch { /* vínculo não obrigatório */ }
+
+    // Resolve comprador + email: cli_ind (autoritativo) ou cli_aniv com função "compra*"
+    const comprador = await resolveCompradorContact(db, cli_codigo, industria_id);
 
     const totLiq = items.reduce((s, i) => s + (i.preco_unitario * i.quantidade), 0);
 
@@ -1393,18 +1598,19 @@ export async function createOrderFromPortalHandler(req: Request, res: Response):
           ped_data, ped_situacao, ped_numero, ped_pedido,
           ped_cliente, ped_industria, ped_vendedor, ped_transp,
           ped_tabela, ped_totbruto, ped_totliq,
-          ped_condpag, ped_tipofrete, ped_cliind, ped_comprador, ped_obs
+          ped_condpag, ped_tipofrete, ped_cliind, ped_comprador, ped_emailcomp, ped_obs
         ) VALUES (
           CURRENT_DATE, 'P', $1, $2,
           $3, $4, $5, $6,
           $7, $8, $8,
-          $9, $10, $11, $12, $13
+          $9, $10, $11, $12, $13, $14
         )
       `, [
         pedNumero, pedPedido,
         cli_codigo, industria_id, userId, transportadora,
         tabela || '', totLiq,
-        condPag, tipoFrete, pedCliInd, pedComprador,
+        condPag, tipoFrete, pedCliInd,
+        comprador.nome, comprador.email,
         `Importado via Portal Industrial`,
       ]);
 
