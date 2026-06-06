@@ -1,6 +1,7 @@
 # BI — Comparativo Anual (mês a mês) — Design
 
-**Data:** 2026-06-06 · **Aba:** BI → Estatísticos
+**Data:** 2026-06-06 · **Aba:** BI → Estatísticos · **Pedido por:** tenant **Target**
+(exemplo enviado: matriz cliente×mês×ano da VIEMAR — formato ilustrativo, não a fonte da verdade)
 
 ## Objetivo
 Comparar dois anos **mês a mês**, em **valor (R$)** ou **quantidade**, mostrando os
