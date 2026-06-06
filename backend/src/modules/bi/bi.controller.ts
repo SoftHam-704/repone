@@ -303,8 +303,9 @@ export async function comparativoAnualHandler(req: Request, res: Response): Prom
 }
 
 // ─── GET /api/bi/matriz-clientes-anual ───────────────────────────────────────
-// Matriz cliente × mês × ano (modelo da Target / planilha VIEMAR). VALOR = SUM(ped_totliq);
-// QTD = SUM(ite_quant). Só P/F. Retorna, por ano, as linhas {cliente, mês, valor, qtd}; o
+// Matriz GRUPO/cliente × mês × ano (modelo da Target / planilha VIEMAR). Por padrão agrupa
+// por GRUPO DE LOJAS (cli_redeloja) quando rede=1; senão por cliente. VALOR = SUM(ped_totliq);
+// QTD = SUM(ite_quant). Só P/F. Retorna, por ano, linhas {grupo_id, grupo, mês, valor, qtd}; o
 // frontend pivota nos blocos de ano lado a lado. Escopo pela indústria/vendedor.
 export async function matrizClientesAnualHandler(req: Request, res: Response): Promise<void> {
   try {
@@ -315,37 +316,47 @@ export async function matrizClientesAnualHandler(req: Request, res: Response): P
     const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
     const allowedIndustries = await getAllowedIndustries(db, userId);
 
+    const rede = req.query.rede === '1' || req.query.agrupar_rede === 'true';
     const indFilter     = forInt ? `AND p.ped_industria = ${forInt}` : '';
     const venFilter     = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
     const allowedFilter = allowedIndustries ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}])` : '';
+
+    // Agrupa por GRUPO DE LOJAS (cli_redeloja — modelo da Target) ou por cliente.
+    // Sem rede definida, cai no nome reduzido do próprio cliente.
+    const keyExpr = rede
+      ? `COALESCE(NULLIF(TRIM(c.cli_redeloja), ''), c.cli_nomred, p.ped_cliente::text)`
+      : `p.ped_cliente::text`;
+    const labelExpr = rede
+      ? `COALESCE(NULLIF(TRIM(c.cli_redeloja), ''), c.cli_nomred, p.ped_cliente::text)`
+      : `COALESCE(c.cli_nomred, p.ped_cliente::text)`;
 
     const rows: any[] = [];
     for (const ano of anos) {
       const r = await db.query(`
         WITH ped AS (
-          SELECT p.ped_pedido, p.ped_cliente,
+          SELECT p.ped_pedido,
+                 ${keyExpr}   AS grupo_id,
+                 ${labelExpr} AS grupo,
                  EXTRACT(MONTH FROM p.ped_data)::INTEGER AS mes,
                  p.ped_totliq
           FROM pedidos p
+          LEFT JOIN clientes c ON c.cli_codigo = p.ped_cliente
           WHERE p.ped_situacao IN ('P','F')
             AND EXTRACT(YEAR FROM p.ped_data) = $1
             ${indFilter} ${venFilter} ${allowedFilter}
         ),
         qtd AS (
-          SELECT ped.ped_cliente, ped.mes, SUM(i.ite_quant)::NUMERIC AS quantidade
+          SELECT ped.grupo_id, ped.mes, SUM(i.ite_quant)::NUMERIC AS quantidade
           FROM ped JOIN itens_ped i ON i.ite_pedido = ped.ped_pedido
-          GROUP BY ped.ped_cliente, ped.mes
+          GROUP BY ped.grupo_id, ped.mes
         )
-        SELECT ped.ped_cliente                                              AS cli_codigo,
-               COALESCE(NULLIF(TRIM(c.cli_nomred), ''), c.cli_nome, ped.ped_cliente::text) AS cli_nome,
-               ped.mes,
+        SELECT ped.grupo_id, ped.grupo, ped.mes,
                COALESCE(ROUND(SUM(ped.ped_totliq)::NUMERIC, 2), 0)::NUMERIC AS total,
                COALESCE(q.quantidade, 0)::NUMERIC                           AS quantidade
         FROM ped
-        LEFT JOIN clientes c ON c.cli_codigo = ped.ped_cliente
-        LEFT JOIN qtd q ON q.ped_cliente = ped.ped_cliente AND q.mes = ped.mes
-        GROUP BY ped.ped_cliente, c.cli_nomred, c.cli_nome, ped.mes, q.quantidade
-        ORDER BY ped.ped_cliente, ped.mes
+        LEFT JOIN qtd q ON q.grupo_id = ped.grupo_id AND q.mes = ped.mes
+        GROUP BY ped.grupo_id, ped.grupo, ped.mes, q.quantidade
+        ORDER BY ped.grupo, ped.mes
       `, [ano]);
       rows.push({ ano, linhas: r.rows });
     }
