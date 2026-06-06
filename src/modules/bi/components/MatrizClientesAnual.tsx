@@ -71,7 +71,7 @@ export default function MatrizClientesAnual() {
   const totDelta = totaisGeral[anoAtual] - totaisGeral[anoAnterior]
   const totPct = totaisGeral[anoAnterior] ? (totDelta / totaisGeral[anoAnterior]) * 100 : (totaisGeral[anoAtual] ? 100 : 0)
   const up = totDelta >= 0
-  const rotuloLinha = agrup === 'rede' ? 'Grupo de Lojas' : 'Cliente'
+  const rotuloLinha = agrup === 'rede' ? 'Grupo' : 'Filial'
 
   const totColStyle: CSSProperties = { ...cell('right'), background: BI.accentSoft, fontWeight: 700, color: BI.text }
   const linhaColStyle: CSSProperties = { ...cell('left'), position: 'sticky', left: 0, background: STICKY_BG, zIndex: 1, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }
@@ -105,7 +105,7 @@ export default function MatrizClientesAnual() {
           <p className="text-[10px]" style={{ color: BI.textMuted }}>{anoAnterior} vs {anoAtual} · mês a mês · só vendas (P/F){filters.for_codigo ? ' · indústria filtrada' : ''}</p>
         </div>
         <div className="flex items-center gap-2">
-          {toggleGroup([{ v: 'rede', label: 'Grupo de Lojas' }, { v: 'cliente', label: 'Cliente' }], agrup, setAgrup)}
+          {toggleGroup([{ v: 'rede', label: 'Grupo' }, { v: 'cliente', label: 'Filial' }], agrup, setAgrup)}
           {toggleGroup([{ v: 'valor', label: 'Valor (R$)' }, { v: 'qtd', label: 'Quantidade' }], metric, setMetric)}
         </div>
       </div>
@@ -163,7 +163,7 @@ export default function MatrizClientesAnual() {
       {!loading && grupos.length > 0 && (
         <div className="mt-4 flex items-center gap-3 flex-wrap" style={{ padding: '12px 16px', borderRadius: 12, background: up ? 'rgba(180,255,157,0.08)' : 'rgba(255,138,122,0.08)', border: `1px solid ${up ? BI.success : BI.danger}33` }}>
           {up ? <TrendingUp size={20} color={BI.success} /> : <TrendingDown size={20} color={BI.danger} />}
-          <span style={{ color: BI.text, fontWeight: 700 }}>{agrup === 'rede' ? 'Redes' : 'Carteira'} {anoAtual} vs {anoAnterior}: {up ? 'cresceu' : 'caiu'} {Math.abs(totPct).toFixed(1)}%</span>
+          <span style={{ color: BI.text, fontWeight: 700 }}>{agrup === 'rede' ? 'Grupos' : 'Filiais'} {anoAtual} vs {anoAnterior}: {up ? 'cresceu' : 'caiu'} {Math.abs(totPct).toFixed(1)}%</span>
           <span style={{ color: BI.textMuted, fontSize: 13 }}>{fmtTot(totaisGeral[anoAnterior])} → {fmtTot(totaisGeral[anoAtual])} ({up ? '+' : '−'}{fmtTot(Math.abs(totDelta))})</span>
         </div>
       )}
