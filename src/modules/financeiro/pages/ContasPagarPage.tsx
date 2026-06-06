@@ -584,23 +584,28 @@ function NovaContaModal({ onClose, onSaved, fornecedores, planoContas, centrosCu
 function BaixaModal({ conta, parcela, onClose, onSaved }: {
   conta: Conta; parcela: Parcela; onClose: () => void; onSaved: () => void
 }) {
+  const jaPago = Number(parcela.valor_pago || 0)
+  const saldoParcela = Math.max(0, Number(parcela.valor) - jaPago)
+  const pctPago = Number(parcela.valor) > 0 ? Math.round((jaPago / Number(parcela.valor)) * 100) : 0
   const [form, setForm] = useState({
-    data_pagamento: todayISO(), valor_pago: String(Math.round(Number(parcela.valor) * 100)),
-    juros: '', desconto: '', observacoes: '', gerar_residuo: true,
-    id_conta_caixa: '', valor_sem_imposto: String(Math.round(Number(parcela.valor) * 100)), valor_com_imposto: '',
+    data_pagamento: todayISO(), valor_pago: String(Math.round(saldoParcela * 100)),
+    juros: '', desconto: '', observacoes: '',
+    id_conta_caixa: '', valor_sem_imposto: String(Math.round(saldoParcela * 100)), valor_com_imposto: '',
   })
   const [contasCaixa, setContasCaixa] = useState<{ id: number; conta_nome: string }[]>([])
   const [teto, setTeto] = useState(0)
   const [accMes, setAccMes] = useState(0)
+  const [movs, setMovs] = useState<any[]>([])
   useEffect(() => {
     api.get('/livro-caixa/contas').then(r => setContasCaixa(r.data.data)).catch(() => {})
     api.get('/livro-caixa/config').then(r => { setTeto(Number(r.data.data.teto_com_imposto_mensal) || 0); setAccMes(Number(r.data.data.acumulado_mes) || 0) }).catch(() => {})
+    api.get(`/financeiro/contas-pagar/${conta.id}/extrato`).then(r => setMovs((r.data.data || []).filter((m: any) => m.id_parcela === parcela.id))).catch(() => {})
   }, [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }))
   const vPago = digitsToReais(form.valor_pago)
-  const residual = parcela.valor - vPago - digitsToReais(form.desconto)
+  const saldoDepois = saldoParcela - vPago - digitsToReais(form.desconto)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError('')
@@ -613,7 +618,6 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
         juros: digitsToReais(form.juros),
         desconto: digitsToReais(form.desconto),
         observacoes: form.observacoes,
-        gerar_residuo: form.gerar_residuo,
         id_conta_caixa: Number(form.id_conta_caixa),
         valor_sem_imposto: digitsToReais(form.valor_sem_imposto),
         valor_com_imposto: digitsToReais(form.valor_com_imposto),
@@ -629,14 +633,37 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
+      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 460, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: G.text }}>Registrar Pagamento</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted }}><X size={18} /></button>
         </div>
-        <div style={{ fontSize: 12, color: G.muted, marginBottom: 14, padding: '8px 12px', background: G.bg, borderRadius: 6 }}>
-          Parcela {parcela.numero_parcela} · {fmtBRL(parcela.valor)} · venc. {fmtDate(parcela.data_vencimento)}
+        <div style={{ marginBottom: 14, padding: '12px 14px', background: G.bg, borderRadius: 8, border: `1px solid ${G.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: G.muted }}>
+            <span>Parcela {parcela.numero_parcela} · venc. {fmtDate(parcela.data_vencimento)}</span>
+            <span>{fmtBRL(parcela.valor)}</span>
+          </div>
+          <div style={{ height: 6, borderRadius: 4, background: '#E5E0D5', marginTop: 8, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${Math.min(100, pctPago)}%`, background: G.green, transition: 'width .2s' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 12 }}>
+            <span style={{ color: G.green }}>Já pago {fmtBRL(jaPago)} ({pctPago}%)</span>
+            <span style={{ color: G.text, fontWeight: 700 }}>Saldo {fmtBRL(saldoParcela)}</span>
+          </div>
         </div>
+        {movs.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: G.muted, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.04em' }}>Histórico desta parcela</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 100, overflowY: 'auto' }}>
+              {movs.map((m: any) => (
+                <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 9px', background: G.bg, borderRadius: 6, opacity: m.estornada ? 0.5 : 1 }}>
+                  <span style={{ color: G.muted }}>{fmtDate(m.data)} · <span style={{ color: m.tipo === 'ESTORNO' ? G.amber : G.green, fontWeight: 600 }}>{m.tipo === 'ESTORNO' ? 'Estorno' : 'Baixa'}</span>{m.caixa_nome ? ` · ${m.caixa_nome}` : ''}</span>
+                  <span style={{ color: G.text, fontWeight: 600 }}>{m.tipo === 'ESTORNO' ? '− ' : ''}{fmtBRL(m.valor_pago)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {error && <div style={{ background: '#FEE2E2', color: G.red, padding: '8px 12px', borderRadius: 6, fontSize: 13 }}>{error}</div>}
           <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Data Pagamento
@@ -674,15 +701,15 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
               <input value={maskBRLFromDigits(form.desconto)} onChange={e => set('desconto', e.target.value.replace(/\D/g, ''))} style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" />
             </label>
           </div>
-          {residual > 0.01 && (
+          {vPago > 0 && (saldoDepois > 0.01 ? (
             <div style={{ background: '#FEF9C3', border: '1px solid #FCD34D', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: '#92400E' }}>
-              Saldo residual: {fmtBRL(residual)}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                <input type="checkbox" checked={form.gerar_residuo} onChange={e => set('gerar_residuo', e.target.checked)} />
-                Gerar parcela para o saldo residual
-              </label>
+              <strong>Pagamento parcial.</strong> Sobra <strong>{fmtBRL(saldoDepois)}</strong> nesta parcela — você baixa o resto quando quiser.
             </div>
-          )}
+          ) : (
+            <div style={{ background: '#DCFCE7', border: '1px solid #86EFAC', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: '#166534' }}>
+              ✓ Esta baixa <strong>quita a parcela</strong>.
+            </div>
+          ))}
           <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Observações
             <textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)} style={{ ...inputStyle, height: 60, resize: 'vertical' }} />
           </label>
