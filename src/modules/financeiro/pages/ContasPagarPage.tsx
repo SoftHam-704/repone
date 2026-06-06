@@ -392,9 +392,11 @@ function NovaContaModal({ onClose, onSaved, fornecedores, planoContas, centrosCu
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     const valorReais = digitsToReais(form.valor_total)
-    if (!form.descricao || valorReais <= 0 || !form.data_vencimento) { setError('Preencha os campos obrigatórios.'); return }
-    if (parcelasGrid.length === 0) { setError('Calcule as parcelas antes de salvar.'); return }
-    if (isEdit && hasPago && !confirm('Esta conta já tem pagamentos registrados. Editar irá APAGAR todas as parcelas (inclusive as pagas) e regenerar. Continuar?')) return
+    if (!form.descricao) { setError('Informe a descrição.'); return }
+    if (!isEdit) {
+      if (valorReais <= 0 || !form.data_vencimento) { setError('Preencha os campos obrigatórios.'); return }
+      if (parcelasGrid.length === 0) { setError('Calcule as parcelas antes de salvar.'); return }
+    }
     setSaving(true); setError('')
     try {
       const payload = {
@@ -437,9 +439,9 @@ function NovaContaModal({ onClose, onSaved, fornecedores, planoContas, centrosCu
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Carregando...</div> : (
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {error && <div style={{ background: '#FEE2E2', color: G.red, padding: '10px 14px', borderRadius: 8, fontSize: 13, borderLeft: `4px solid ${G.red}` }}>{error}</div>}
-          {isEdit && hasPago && (
-            <div style={{ background: '#FEF3C7', border: '1px solid #F59E0B', color: '#92400E', padding: '10px 14px', borderRadius: 8, fontSize: 12, borderLeft: '4px solid #F59E0B' }}>
-              ⚠ Esta conta tem pagamentos registrados. Salvar irá <strong>apagar todas as parcelas (inclusive as pagas)</strong> e regenerar a partir dos novos valores.
+          {isEdit && (
+            <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1E40AF', padding: '10px 14px', borderRadius: 8, fontSize: 12, borderLeft: '4px solid #3B82F6' }}>
+              Edição do <strong>cabeçalho</strong> (descrição, fornecedor, classificação). As parcelas e os pagamentos são <strong>preservados</strong> — valor e parcelas não mudam aqui. Para alterar valores/parcelas, exclua e recrie a conta.
             </div>
           )}
 
@@ -514,14 +516,16 @@ function NovaContaModal({ onClose, onSaved, fornecedores, planoContas, centrosCu
             placeholder="— Selecionar Centro de Custo —"
           />
 
-          {/* Parcelas — gerador com prévia editável */}
-          <ParcelasEditor
-            valorTotal={digitsToReais(form.valor_total)}
-            dataVencimentoInicial={form.data_vencimento}
-            accent={G.red}
-            value={parcelasGrid}
-            onChange={setParcelasGrid}
-          />
+          {/* Parcelas — gerador SÓ no INSERT (no edit as parcelas/pagamentos são preservados) */}
+          {!isEdit && (
+            <ParcelasEditor
+              valorTotal={digitsToReais(form.valor_total)}
+              dataVencimentoInicial={form.data_vencimento}
+              accent={G.red}
+              value={parcelasGrid}
+              onChange={setParcelasGrid}
+            />
+          )}
 
           {/* Observações */}
           <FormTextarea

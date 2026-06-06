@@ -401,76 +401,25 @@ export async function createContaPagarHandler(req: Request, res: Response): Prom
 // PUT /contas-pagar/:id — edição completa (Hamilton 2026-05-25). Regenera as parcelas
 // a partir do parcelas[] explícitas (editor) ou numero_parcelas+intervalo (fallback).
 // Se a conta tinha pagamentos, estes são RESETADOS. Frontend mostra aviso antes.
+// EDIT = só metadados do cabeçalho. As parcelas NÃO são tocadas (preserva o ledger de
+// baixas/estornos e os lançamentos de caixa). O gerador de parcelas só existe no INSERT;
+// para mudar valor/parcelas, exclua e recrie a conta.
 export async function updateContaPagarHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
     const { id } = req.params;
-    const { descricao, id_fornecedor, numero_documento, data_emissao, data_vencimento,
-            observacoes, id_plano_contas, id_centro_custo,
-            numero_parcelas = 1, intervalo_dias = 30,
-            parcelas: parcelasExplicitas } = req.body;
-    let { valor_total } = req.body;
+    const { descricao, id_fornecedor, numero_documento, data_emissao,
+            observacoes, id_plano_contas, id_centro_custo } = req.body;
 
-    // Se vieram parcelas explícitas do editor, o valor_total é a soma delas
-    const temParcelasExplicitas = Array.isArray(parcelasExplicitas) && parcelasExplicitas.length > 0;
-    if (temParcelasExplicitas) {
-      valor_total = parcelasExplicitas.reduce((s: number, p: any) => s + Number(p.valor), 0);
-    }
-    const valorTotalNum = Number(valor_total) || 0;
-    const nParcelas = temParcelasExplicitas ? parcelasExplicitas.length : (Number(numero_parcelas) || 1);
-
-    const updated = await db.transaction(async client => {
-      const r = await client.query(`
-        UPDATE fin_contas_pagar SET
-          descricao=$1, id_fornecedor=$2, numero_documento=$3, valor_total=$4,
-          data_emissao=$5, data_vencimento=$6, observacoes=$7,
-          id_plano_contas=$8, id_centro_custo=$9,
-          valor_pago=0, status='ABERTO', data_pagamento=NULL
-        WHERE id=$10 RETURNING *
-      `, [descricao, id_fornecedor || null, numero_documento, valorTotalNum, data_emissao, data_vencimento,
-          observacoes, id_plano_contas || null, id_centro_custo || null, id]);
-      if (!r.rows.length) return null;
-
-      // Regenera parcelas: apaga todas (inclusive pagas) e cria novas
-      // As parcelas (inclusive pagas) serão apagadas e regeneradas → remove os lançamentos de caixa delas.
-      await client.query(`
-        DELETE FROM livro_caixa_lancamentos
-        WHERE origem='CP' AND id_parcela_origem IN (SELECT id FROM fin_parcelas_pagar WHERE id_conta_pagar=$1)
-      `, [id]);
-      await client.query('DELETE FROM fin_parcelas_pagar WHERE id_conta_pagar = $1', [id]);
-
-      if (temParcelasExplicitas) {
-        for (const p of parcelasExplicitas) {
-          await client.query(
-            `INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
-            [id, p.numero_parcela, Number(p.valor), p.data_vencimento]
-          );
-        }
-      } else if (nParcelas > 1) {
-        const valorParcela = parseFloat((valorTotalNum / nParcelas).toFixed(2));
-        let soma = 0;
-        for (let i = 1; i <= nParcelas; i++) {
-          const isUltima = i === nParcelas;
-          const valor = isUltima ? valorTotalNum - soma : valorParcela;
-          const dt = new Date(data_vencimento);
-          dt.setDate(dt.getDate() + (i - 1) * Number(intervalo_dias));
-          await client.query(
-            `INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
-            [id, i, valor, dt.toISOString().split('T')[0]]
-          );
-          soma += valor;
-        }
-      } else {
-        await client.query(
-          `INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento) VALUES ($1,1,$2,$3)`,
-          [id, valorTotalNum, data_vencimento]
-        );
-      }
-      return r.rows[0];
-    });
-
-    if (!updated) { res.status(404).json({ success: false, message: 'Conta não encontrada' }); return; }
-    res.json({ success: true, message: `Conta atualizada com ${nParcelas} parcela(s)`, data: updated });
+    const r = await db.query(`
+      UPDATE fin_contas_pagar SET
+        descricao = $1, id_fornecedor = $2, numero_documento = $3, data_emissao = $4,
+        observacoes = $5, id_plano_contas = $6, id_centro_custo = $7
+      WHERE id = $8 RETURNING *
+    `, [descricao, id_fornecedor || null, numero_documento, data_emissao || null,
+        observacoes, id_plano_contas || null, id_centro_custo || null, id]);
+    if (!r.rows.length) { res.status(404).json({ success: false, message: 'Conta não encontrada' }); return; }
+    res.json({ success: true, message: 'Conta atualizada', data: r.rows[0] });
   } catch (e) { err(res, e, 'update conta-pagar'); }
 }
 
