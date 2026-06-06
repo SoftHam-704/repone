@@ -299,11 +299,13 @@ export async function lancarBaixaNoCaixa(client: any, p: {
   conta_id: number; data: string; valor: number; tipo: 'C' | 'D';
   origem: 'CP' | 'CR'; id_parcela_origem: number; historico: string;
   id_plano_contas?: number | null; id_centro_custo?: number | null; documento?: string | null;
-}): Promise<void> {
-  await client.query(`
+}): Promise<number> {
+  const r = await client.query(`
     INSERT INTO livro_caixa_lancamentos
       (conta_id, data, historico, tipo, valor, id_plano_contas, id_centro_custo, documento, origem, id_parcela_origem)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    RETURNING id
   `, [p.conta_id, p.data, p.historico, p.tipo, p.valor,
       p.id_plano_contas ?? null, p.id_centro_custo ?? null, p.documento ?? null, p.origem, p.id_parcela_origem]);
+  return r.rows[0].id;
 }

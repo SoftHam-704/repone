@@ -249,32 +249,69 @@ export async function deleteFinSupplierHandler(req: Request, res: Response): Pro
 export async function listContasPagarHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
-    const { dataInicio, dataFim, status, idFornecedor, idPlanoContas, idCentroCusto } = req.query as Record<string, string>;
-
-    let query = `
-      SELECT cp.id, cp.descricao, cp.numero_documento, cp.valor_total, cp.valor_pago,
-             cp.data_emissao, cp.data_vencimento, cp.data_pagamento, cp.status, cp.observacoes,
-             f.nome_razao AS fornecedor_nome,
-             pc.descricao AS plano_contas_descricao,
-             cc.descricao AS centro_custo_descricao,
-             (cp.valor_total - cp.valor_pago) AS saldo
-      FROM fin_contas_pagar cp
-      LEFT JOIN fin_fornecedores f  ON cp.id_fornecedor  = f.id
-      LEFT JOIN fin_plano_contas pc ON cp.id_plano_contas = pc.id
-      LEFT JOIN fin_centro_custo cc ON cp.id_centro_custo = cc.id
-      WHERE 1=1
-    `;
+    const { dataInicio, dataFim, status, idFornecedor, idPlanoContas, idCentroCusto, filtrarPor } = req.query as Record<string, string>;
     const params: any[] = [];
     let i = 1;
+    let query: string;
 
-    if (dataInicio)    { query += ` AND cp.data_vencimento >= $${i++}`; params.push(dataInicio); }
-    if (dataFim)       { query += ` AND cp.data_vencimento <= $${i++}`; params.push(dataFim); }
-    if (status)        { query += ` AND cp.status = $${i++}`;           params.push(status); }
-    if (idFornecedor)  { query += ` AND cp.id_fornecedor = $${i++}`;    params.push(idFornecedor); }
-    if (idPlanoContas) { query += ` AND cp.id_plano_contas = $${i++}`;  params.push(idPlanoContas); }
-    if (idCentroCusto) { query += ` AND cp.id_centro_custo = $${i++}`;  params.push(idCentroCusto); }
+    if (filtrarPor === 'pagamento') {
+      // Modo PAGAMENTO: o que foi efetivamente PAGO (baixa integral OU parcial) no período.
+      // pago_periodo = soma das parcelas pagas com data_pagamento dentro do intervalo. O filtro
+      // de datas aqui é sobre a DATA DO PAGAMENTO (não o vencimento).
+      const subConds: string[] = [`status = 'PAGO'`, `valor_pago > 0`];
+      if (dataInicio) { subConds.push(`data_pagamento >= $${i++}`); params.push(dataInicio); }
+      if (dataFim)    { subConds.push(`data_pagamento <= $${i++}`); params.push(dataFim); }
 
-    query += ` ORDER BY cp.data_vencimento DESC, cp.id DESC`;
+      const outConds: string[] = [];
+      if (status)        { outConds.push(`cp.status = $${i++}`);          params.push(status); }
+      if (idFornecedor)  { outConds.push(`cp.id_fornecedor = $${i++}`);   params.push(idFornecedor); }
+      if (idPlanoContas) { outConds.push(`cp.id_plano_contas = $${i++}`); params.push(idPlanoContas); }
+      if (idCentroCusto) { outConds.push(`cp.id_centro_custo = $${i++}`); params.push(idCentroCusto); }
+
+      query = `
+        SELECT cp.id, cp.descricao, cp.numero_documento, cp.valor_total, cp.valor_pago,
+               cp.data_emissao, cp.data_vencimento, cp.data_pagamento, cp.status, cp.observacoes,
+               f.nome_razao AS fornecedor_nome,
+               pc.descricao AS plano_contas_descricao,
+               cc.descricao AS centro_custo_descricao,
+               (cp.valor_total - cp.valor_pago) AS saldo,
+               per.pago_periodo
+        FROM fin_contas_pagar cp
+        JOIN (
+          SELECT id_conta_pagar, SUM(valor_pago) AS pago_periodo
+          FROM fin_parcelas_pagar
+          WHERE ${subConds.join(' AND ')}
+          GROUP BY id_conta_pagar
+        ) per ON per.id_conta_pagar = cp.id
+        LEFT JOIN fin_fornecedores f  ON cp.id_fornecedor  = f.id
+        LEFT JOIN fin_plano_contas pc ON cp.id_plano_contas = pc.id
+        LEFT JOIN fin_centro_custo cc ON cp.id_centro_custo = cc.id
+        ${outConds.length ? 'WHERE ' + outConds.join(' AND ') : ''}
+        ORDER BY cp.data_vencimento DESC, cp.id DESC
+      `;
+    } else {
+      // Modo VENCIMENTO (padrão): contas com vencimento dentro do período.
+      query = `
+        SELECT cp.id, cp.descricao, cp.numero_documento, cp.valor_total, cp.valor_pago,
+               cp.data_emissao, cp.data_vencimento, cp.data_pagamento, cp.status, cp.observacoes,
+               f.nome_razao AS fornecedor_nome,
+               pc.descricao AS plano_contas_descricao,
+               cc.descricao AS centro_custo_descricao,
+               (cp.valor_total - cp.valor_pago) AS saldo
+        FROM fin_contas_pagar cp
+        LEFT JOIN fin_fornecedores f  ON cp.id_fornecedor  = f.id
+        LEFT JOIN fin_plano_contas pc ON cp.id_plano_contas = pc.id
+        LEFT JOIN fin_centro_custo cc ON cp.id_centro_custo = cc.id
+        WHERE 1=1
+      `;
+      if (dataInicio)    { query += ` AND cp.data_vencimento >= $${i++}`; params.push(dataInicio); }
+      if (dataFim)       { query += ` AND cp.data_vencimento <= $${i++}`; params.push(dataFim); }
+      if (status)        { query += ` AND cp.status = $${i++}`;           params.push(status); }
+      if (idFornecedor)  { query += ` AND cp.id_fornecedor = $${i++}`;    params.push(idFornecedor); }
+      if (idPlanoContas) { query += ` AND cp.id_plano_contas = $${i++}`;  params.push(idPlanoContas); }
+      if (idCentroCusto) { query += ` AND cp.id_centro_custo = $${i++}`;  params.push(idCentroCusto); }
+      query += ` ORDER BY cp.data_vencimento DESC, cp.id DESC`;
+    }
 
     const result = await db.query(query, params);
     res.json({ success: true, data: result.rows });
@@ -437,67 +474,95 @@ export async function updateContaPagarHandler(req: Request, res: Response): Prom
   } catch (e) { err(res, e, 'update conta-pagar'); }
 }
 
+// ─── Conta Corrente da Parcela: recálculo derivado do ledger (fin_baixas_pagar) ───
+// pago = Σ BAIXA.valor_pago − Σ ESTORNO.valor_pago (casa com a invariante da migration 069).
+// quitada quando (pago + desconto líquido) cobre o valor da parcela.
+async function recomputeParcelaFromLedger(client: any, idParcela: number): Promise<number> {
+  const r = await client.query(`
+    SELECT
+      COALESCE(SUM(CASE WHEN tipo='BAIXA' THEN valor_pago ELSE -valor_pago END), 0) AS pago,
+      COALESCE(SUM(CASE WHEN tipo='BAIXA' THEN desconto  ELSE -desconto  END), 0) AS descontos,
+      MAX(CASE WHEN tipo='BAIXA' THEN data END)                                    AS ult_pgto
+    FROM fin_baixas_pagar WHERE id_parcela = $1
+  `, [idParcela]);
+  const pago = Number(r.rows[0].pago) || 0;
+  const desc = Number(r.rows[0].descontos) || 0;
+  const ult  = r.rows[0].ult_pgto;
+  const pr = await client.query('SELECT valor, id_conta_pagar FROM fin_parcelas_pagar WHERE id = $1', [idParcela]);
+  const valor   = Number(pr.rows[0].valor) || 0;
+  const idConta = pr.rows[0].id_conta_pagar;
+  const quitada = (pago + desc) >= valor - 0.01 && (pago + desc) > 0;
+  await client.query(
+    `UPDATE fin_parcelas_pagar SET valor_pago = $1, status = $2, data_pagamento = $3 WHERE id = $4`,
+    [pago, quitada ? 'PAGO' : 'ABERTO', quitada ? ult : null, idParcela]
+  );
+  return idConta;
+}
+
+async function recomputeContaFromParcelas(client: any, idConta: number): Promise<void> {
+  const t = await client.query(`
+    SELECT COUNT(*) AS total, COUNT(CASE WHEN status='PAGO' THEN 1 END) AS pagas,
+           COALESCE(SUM(valor_pago),0) AS total_pago
+    FROM fin_parcelas_pagar WHERE id_conta_pagar = $1
+  `, [idConta]);
+  const { total, pagas, total_pago } = t.rows[0];
+  const status = parseInt(total) > 0 && parseInt(total) === parseInt(pagas) ? 'PAGO' : 'ABERTO';
+  await client.query(`
+    UPDATE fin_contas_pagar SET valor_pago = $1, status = $2,
+      data_pagamento = CASE WHEN $2 = 'PAGO'
+        THEN (SELECT MAX(data_pagamento) FROM fin_parcelas_pagar WHERE id_conta_pagar = $3)
+        ELSE NULL END
+    WHERE id = $3
+  `, [total_pago, status, idConta]);
+}
+
+// POST /contas-pagar/:id/baixa — registra UMA baixa (integral ou parcial) no ledger.
+// A parcela NÃO é mais sobrescrita: vira um movimento BAIXA que alimenta o caixa.
 export async function baixaContaPagarHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
     const { id } = req.params;
-    const { id_parcela, data_pagamento, valor_pago, juros = 0, desconto = 0, observacoes, gerar_residuo = true, id_conta_caixa } = req.body;
+    const { id_parcela, data_pagamento, valor_pago, juros = 0, desconto = 0, observacoes, id_conta_caixa } = req.body;
     if (!id_conta_caixa) { res.status(400).json({ success: false, message: 'Informe a conta de caixa do pagamento.' }); return; }
     if (!data_pagamento) { res.status(400).json({ success: false, message: 'Informe a data do pagamento.' }); return; }
+    if (!id_parcela)     { res.status(400).json({ success: false, message: 'Parcela inválida.' }); return; }
+    if (!(Number(valor_pago) > 0)) { res.status(400).json({ success: false, message: 'O valor pago deve ser maior que zero.' }); return; }
     const valor_com_imposto = Number(req.body.valor_com_imposto) || 0;
     const valor_sem_imposto = Number(req.body.valor_sem_imposto) || 0;
+    const userId = (req as any).user?.userId ?? (req as any).user?.id ?? null;
 
     await db.transaction(async client => {
-      await client.query(`
-        UPDATE fin_parcelas_pagar
-        SET data_pagamento=$1, valor_pago=$2, juros=$3, desconto=$4, status='PAGO', observacoes=$5,
-            valor_com_imposto=$7, valor_sem_imposto=$8
-        WHERE id=$6
-      `, [data_pagamento, valor_pago, juros, desconto, observacoes, id_parcela, valor_com_imposto, valor_sem_imposto]);
+      // 1) movimento BAIXA no ledger
+      const ins = await client.query(`
+        INSERT INTO fin_baixas_pagar
+          (id_parcela, tipo, data, valor_pago, juros, desconto, valor_com_imposto, valor_sem_imposto,
+           id_conta_caixa, observacoes, created_by)
+        VALUES ($1,'BAIXA',$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        RETURNING id
+      `, [id_parcela, data_pagamento, Number(valor_pago), Number(juros), Number(desconto),
+          valor_com_imposto, valor_sem_imposto, Number(id_conta_caixa), observacoes ?? null, userId]);
+      const idBaixa = ins.rows[0].id;
 
-      const orig = await client.query('SELECT valor FROM fin_parcelas_pagar WHERE id = $1', [id_parcela]);
-      const residual = parseFloat(orig.rows[0].valor) - Number(valor_pago) - Number(desconto);
-
-      if (gerar_residuo && residual > 0.01) {
-        const maxNum = await client.query('SELECT MAX(numero_parcela) AS mx FROM fin_parcelas_pagar WHERE id_conta_pagar = $1', [id]);
-        const nextNum = (maxNum.rows[0].mx || 0) + 1;
-        await client.query(`
-          INSERT INTO fin_parcelas_pagar (id_conta_pagar,numero_parcela,valor,data_vencimento,status)
-          VALUES ($1,$2,$3,(SELECT data_vencimento FROM fin_parcelas_pagar WHERE id=$4),'ABERTO')
-        `, [id, nextNum, residual, id_parcela]);
-      }
-
-      const totals = await client.query(`
-        SELECT COUNT(*) AS total, COUNT(CASE WHEN status='PAGO' THEN 1 END) AS pagas, COALESCE(SUM(valor_pago),0) AS total_pago
-        FROM fin_parcelas_pagar WHERE id_conta_pagar = $1
-      `, [id]);
-      const { total, pagas, total_pago } = totals.rows[0];
-      const novStatus = parseInt(total) === parseInt(pagas) ? 'PAGO' : 'ABERTO';
-
-      await client.query(`
-        UPDATE fin_contas_pagar SET valor_pago=$1, status=$2::varchar,
-          data_pagamento = CASE WHEN $2::varchar='PAGO' THEN $3::date ELSE NULL END
-        WHERE id=$4
-      `, [total_pago, novStatus, data_pagamento, id]);
-
-      // Espelha o pagamento no Livro Caixa (débito). Dinheiro que saiu = valor_pago + juros.
-      // Só lança se houver caixa movimentado (>0); baixa quitada só por desconto não gera lançamento.
+      // 2) espelha no caixa (saída = valor_pago + juros) e linka pro extrato
       const valorCaixa = Number(valor_pago) + Number(juros);
       if (valorCaixa > 0) {
         const cab = await client.query(
           'SELECT descricao, numero_documento, id_plano_contas, id_centro_custo FROM fin_contas_pagar WHERE id=$1', [id]);
         const c = cab.rows[0] || {};
         const histDoc = c.numero_documento ? ` • Doc ${c.numero_documento}` : '';
-        await lancarBaixaNoCaixa(client, {
-          conta_id: Number(id_conta_caixa),
-          data: data_pagamento,
-          valor: valorCaixa,
+        const idLanc = await lancarBaixaNoCaixa(client, {
+          conta_id: Number(id_conta_caixa), data: data_pagamento, valor: valorCaixa,
           tipo: 'D', origem: 'CP', id_parcela_origem: Number(id_parcela),
           historico: `Pagto: ${c.descricao ?? 'conta a pagar'}${histDoc}`,
           id_plano_contas: c.id_plano_contas, id_centro_custo: c.id_centro_custo,
           documento: c.numero_documento ?? null,
         });
+        await client.query('UPDATE fin_baixas_pagar SET id_lancamento_caixa = $1 WHERE id = $2', [idLanc, idBaixa]);
       }
+
+      // 3) recalcula parcela + conta a partir do ledger (sem resíduo)
+      const idConta = await recomputeParcelaFromLedger(client, Number(id_parcela));
+      await recomputeContaFromParcelas(client, idConta);
     });
 
     // Aviso de teto "com imposto" do mês (só avisa, nunca trava). 0 = desligado.
@@ -507,10 +572,10 @@ export async function baixaContaPagarHandler(req: Request, res: Response): Promi
       const teto = Number(cfg.rows[0]?.teto || 0);
       if (teto > 0 && valor_com_imposto > 0) {
         const acc = await db.query(`
-          SELECT COALESCE(SUM(valor_com_imposto),0) AS acc FROM fin_parcelas_pagar
-          WHERE status='PAGO'
-            AND data_pagamento >= date_trunc('month', $1::date)
-            AND data_pagamento <  date_trunc('month', $1::date) + INTERVAL '1 month'
+          SELECT COALESCE(SUM(CASE WHEN tipo='BAIXA' THEN valor_com_imposto ELSE -valor_com_imposto END),0) AS acc
+          FROM fin_baixas_pagar
+          WHERE data >= date_trunc('month', $1::date)
+            AND data <  date_trunc('month', $1::date) + INTERVAL '1 month'
         `, [data_pagamento]);
         const acumulado = Number(acc.rows[0].acc);
         if (acumulado > teto) aviso_teto_imposto = { teto, acumulado };
@@ -519,6 +584,77 @@ export async function baixaContaPagarHandler(req: Request, res: Response): Promi
 
     res.json({ success: true, message: 'Pagamento registrado com sucesso', aviso_teto_imposto });
   } catch (e) { err(res, e, 'baixa conta-pagar'); }
+}
+
+// POST /contas-pagar/baixa/:idBaixa/estornar — estorna uma baixa, revertendo no caixa.
+export async function estornoBaixaPagarHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { idBaixa } = req.params;
+    const { data, observacoes } = req.body || {};
+    const userId = (req as any).user?.userId ?? (req as any).user?.id ?? null;
+
+    await db.transaction(async client => {
+      const b = await client.query('SELECT * FROM fin_baixas_pagar WHERE id = $1', [idBaixa]);
+      if (!b.rows.length) throw new Error('Baixa não encontrada.');
+      const mov = b.rows[0];
+      if (mov.tipo !== 'BAIXA') throw new Error('Só é possível estornar um pagamento (baixa).');
+      const jaEst = await client.query('SELECT 1 FROM fin_baixas_pagar WHERE estorno_de = $1 LIMIT 1', [idBaixa]);
+      if (jaEst.rows.length) throw new Error('Esta baixa já foi estornada.');
+
+      const dataEstorno = data || new Date().toISOString().split('T')[0];
+
+      // 1) movimento ESTORNO (espelha a baixa estornada)
+      const ins = await client.query(`
+        INSERT INTO fin_baixas_pagar
+          (id_parcela, tipo, data, valor_pago, juros, desconto, valor_com_imposto, valor_sem_imposto,
+           id_conta_caixa, estorno_de, observacoes, created_by)
+        VALUES ($1,'ESTORNO',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        RETURNING id
+      `, [mov.id_parcela, dataEstorno, mov.valor_pago, mov.juros, mov.desconto,
+          mov.valor_com_imposto, mov.valor_sem_imposto, mov.id_conta_caixa, idBaixa,
+          observacoes ?? `Estorno do pagamento #${idBaixa}`, userId]);
+      const idEst = ins.rows[0].id;
+
+      // 2) reverte no caixa (entrada = valor_pago + juros)
+      const valorCaixa = Number(mov.valor_pago) + Number(mov.juros);
+      if (valorCaixa > 0 && mov.id_conta_caixa) {
+        const idLanc = await lancarBaixaNoCaixa(client, {
+          conta_id: Number(mov.id_conta_caixa), data: dataEstorno, valor: valorCaixa,
+          tipo: 'C', origem: 'CP', id_parcela_origem: Number(mov.id_parcela),
+          historico: `Estorno de pagamento (baixa #${idBaixa})`,
+        });
+        await client.query('UPDATE fin_baixas_pagar SET id_lancamento_caixa = $1 WHERE id = $2', [idLanc, idEst]);
+      }
+
+      // 3) recalcula parcela + conta
+      const idConta = await recomputeParcelaFromLedger(client, Number(mov.id_parcela));
+      await recomputeContaFromParcelas(client, idConta);
+    });
+
+    res.json({ success: true, message: 'Baixa estornada com sucesso' });
+  } catch (e) { err(res, e, 'estorno baixa-pagar'); }
+}
+
+// GET /contas-pagar/:id/extrato — conta corrente: todos os movimentos (baixas/estornos) da conta.
+export async function extratoContaPagarHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { id } = req.params;
+    const r = await db.query(`
+      SELECT b.id, b.id_parcela, p.numero_parcela, b.tipo, b.data,
+             b.valor_pago, b.juros, b.desconto,
+             b.id_conta_caixa, cx.conta_nome AS caixa_nome, b.id_lancamento_caixa,
+             b.estorno_de, b.observacoes, b.created_at,
+             EXISTS (SELECT 1 FROM fin_baixas_pagar e WHERE e.estorno_de = b.id) AS estornada
+      FROM fin_baixas_pagar b
+      JOIN fin_parcelas_pagar p ON p.id = b.id_parcela
+      LEFT JOIN livro_caixa_contas cx ON cx.id = b.id_conta_caixa
+      WHERE p.id_conta_pagar = $1
+      ORDER BY b.data DESC, b.id DESC
+    `, [id]);
+    res.json({ success: true, data: r.rows });
+  } catch (e) { err(res, e, 'extrato conta-pagar'); }
 }
 
 export async function deleteContaPagarHandler(req: Request, res: Response): Promise<void> {

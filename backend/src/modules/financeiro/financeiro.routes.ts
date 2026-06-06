@@ -14,6 +14,7 @@ import {
   // Contas a Pagar
   listContasPagarHandler, getContaPagarHandler, createContaPagarHandler, updateContaPagarHandler,
   baixaContaPagarHandler, deleteContaPagarHandler,
+  estornoBaixaPagarHandler, extratoContaPagarHandler,
   // Contas a Receber
   listContasReceberHandler, getContaReceberHandler, createContaReceberHandler, updateContaReceberHandler,
   baixaContaReceberHandler, deleteContaReceberHandler,
@@ -68,6 +69,8 @@ router.post  ('/contas-pagar',         createContaPagarHandler);
 router.get   ('/contas-pagar/:id',     getContaPagarHandler);
 router.put   ('/contas-pagar/:id',     updateContaPagarHandler);
 router.post  ('/contas-pagar/:id/baixa', baixaContaPagarHandler);
+router.get   ('/contas-pagar/:id/extrato', extratoContaPagarHandler);
+router.post  ('/contas-pagar/baixa/:idBaixa/estornar', estornoBaixaPagarHandler);
 router.delete('/contas-pagar/:id',     deleteContaPagarHandler);
 
 // Contas a Receber
