@@ -6,6 +6,7 @@ import {
   overviewHandler,
   monthlyHandler,
   comparativoAnualHandler,
+  matrizClientesAnualHandler,
   marketShareHandler,
   rankingIndustriasHandler,
   abcClientesHandler,
@@ -72,6 +73,7 @@ router.use(authMiddleware, tenantMiddleware, requireLevel(LEVEL.GERENCIA));
 router.get('/overview',            overviewHandler);
 router.get('/monthly',             monthlyHandler);
 router.get('/comparativo-anual',   comparativoAnualHandler);
+router.get('/matriz-clientes-anual', matrizClientesAnualHandler);
 router.get('/market-share',        marketShareHandler);
 router.get('/ranking-industrias',  rankingIndustriasHandler);
 router.get('/abc-clientes',        abcClientesHandler);

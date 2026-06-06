@@ -302,6 +302,61 @@ export async function comparativoAnualHandler(req: Request, res: Response): Prom
   }
 }
 
+// ─── GET /api/bi/matriz-clientes-anual ───────────────────────────────────────
+// Matriz cliente × mês × ano (modelo da Target / planilha VIEMAR). VALOR = SUM(ped_totliq);
+// QTD = SUM(ite_quant). Só P/F. Retorna, por ano, as linhas {cliente, mês, valor, qtd}; o
+// frontend pivota nos blocos de ano lado a lado. Escopo pela indústria/vendedor.
+export async function matrizClientesAnualHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const userId = getUserId(req);
+    const anos = parseAnos(req.query.anos as string);
+    const forInt = req.query.for_codigo ? parseInt(String(req.query.for_codigo)) : null;
+    const venInt = req.query.ven_codigo ? parseInt(String(req.query.ven_codigo)) : null;
+    const allowedIndustries = await getAllowedIndustries(db, userId);
+
+    const indFilter     = forInt ? `AND p.ped_industria = ${forInt}` : '';
+    const venFilter     = venInt ? `AND p.ped_vendedor = ${venInt}` : '';
+    const allowedFilter = allowedIndustries ? `AND p.ped_industria = ANY(ARRAY[${allowedIndustries.join(',')}])` : '';
+
+    const rows: any[] = [];
+    for (const ano of anos) {
+      const r = await db.query(`
+        WITH ped AS (
+          SELECT p.ped_pedido, p.ped_cliente,
+                 EXTRACT(MONTH FROM p.ped_data)::INTEGER AS mes,
+                 p.ped_totliq
+          FROM pedidos p
+          WHERE p.ped_situacao IN ('P','F')
+            AND EXTRACT(YEAR FROM p.ped_data) = $1
+            ${indFilter} ${venFilter} ${allowedFilter}
+        ),
+        qtd AS (
+          SELECT ped.ped_cliente, ped.mes, SUM(i.ite_quant)::NUMERIC AS quantidade
+          FROM ped JOIN itens_ped i ON i.ite_pedido = ped.ped_pedido
+          GROUP BY ped.ped_cliente, ped.mes
+        )
+        SELECT ped.ped_cliente                                              AS cli_codigo,
+               COALESCE(NULLIF(TRIM(c.cli_nomred), ''), c.cli_nome, ped.ped_cliente::text) AS cli_nome,
+               ped.mes,
+               COALESCE(ROUND(SUM(ped.ped_totliq)::NUMERIC, 2), 0)::NUMERIC AS total,
+               COALESCE(q.quantidade, 0)::NUMERIC                           AS quantidade
+        FROM ped
+        LEFT JOIN clientes c ON c.cli_codigo = ped.ped_cliente
+        LEFT JOIN qtd q ON q.ped_cliente = ped.ped_cliente AND q.mes = ped.mes
+        GROUP BY ped.ped_cliente, c.cli_nomred, c.cli_nome, ped.mes, q.quantidade
+        ORDER BY ped.ped_cliente, ped.mes
+      `, [ano]);
+      rows.push({ ano, linhas: r.rows });
+    }
+
+    res.json({ success: true, data: rows });
+  } catch (error: any) {
+    console.error('❌ [BI/matriz-clientes-anual]', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
 // ─── Helper: monta filtros inline para market-share / ranking ────────────────
 function buildInlineFilters(
   meses: number[] | null,

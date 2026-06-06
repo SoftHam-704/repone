@@ -5,6 +5,7 @@ import { useBIStore, buildBIParams } from '../store/useBIStore';
 import { BI, fmtBRL, fmtN, CHART_COLORS } from '../components/biTokens';
 import { SkeletonCard } from '../components/SkeletonCard';
 import ComparativoAnual from '../components/ComparativoAnual';
+import MatrizClientesAnual from '../components/MatrizClientesAnual';
 
 const MES_LABEL: Record<number, string> = {
   1:'Jan',2:'Fev',3:'Mar',4:'Abr',5:'Mai',6:'Jun',
@@ -345,6 +346,9 @@ const EstatisticasTab = () => {
 
       {/* ══ Comparativo Anual (ano vs ano, mês a mês — valor/qtd) ═══════════════ */}
       <ComparativoAnual />
+
+      {/* ══ Matriz por Cliente · Anual (modelo Target/VIEMAR — lado a lado) ═════ */}
+      <MatrizClientesAnual />
 
       {/* ══ ROW 1: Data Última Compra (left) + Classificação Produtos (right)
             (Curva ABC dedicada na aba "Curva ABC" — removida daqui) ═════════ */}

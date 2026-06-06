@@ -33,9 +33,17 @@ Comparar dois anos **mês a mês**, em **valor (R$)** ou **quantidade**, mostran
   (sem refetch). Frontend pivota nos 12 meses e calcula Δ/Δ%.
 - Respeita os filtros globais do BI (indústria/vendedor) quando presentes.
 
+## Visão 2 — Matriz por Cliente (modelo Target / planilha VIEMAR)
+Aprovada 2026-06-06: reproduz a planilha da Target — **clientes (linhas) × meses (colunas) ×
+2 anos lado a lado**, TOTAL por ano (destacado) + linha TOTAL. Comparação **YTD** (mostra
+Jan→último mês com dado no ano atual, nos dois anos). Toggle Valor/Qtd, escopo pela indústria.
+- Endpoint `GET /bi/matriz-clientes-anual` (mesma regra: P/F, `ped_totliq`/`ite_quant`).
+- Componente `MatrizClientesAnual.tsx` (coluna Cliente sticky, rolagem horizontal).
+- Ordenado pelo total do ano atual (desc). Resumo de evolução da carteira no rodapé.
+
 ## Fora de escopo (futuro)
-- Detalhe por cliente/indústria (drill expansível).
 - Mais de 2 anos simultâneos.
+- Export Excel da matriz (se a Target pedir).
 
 ## Arquivos
 - Backend: handler `comparativoAnualHandler` em `bi.controller.ts` + rota em `bi.routes.ts`.
