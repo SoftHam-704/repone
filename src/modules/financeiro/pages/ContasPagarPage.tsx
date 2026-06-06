@@ -72,6 +72,7 @@ interface Conta {
   status: Status
   fornecedor_nome: string
   plano_contas_descricao: string
+  pago_periodo?: number
   parcelas?: Parcela[]
 }
 
@@ -695,17 +696,33 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
   )
 }
 
-function DetalhesModal({ contaId, onClose, onBaixa }: {
-  contaId: number; onClose: () => void; onBaixa: (conta: Conta, parcela: Parcela) => void
+function DetalhesModal({ contaId, onClose, onBaixa, onChanged }: {
+  contaId: number; onClose: () => void; onBaixa: (conta: Conta, parcela: Parcela) => void; onChanged?: () => void
 }) {
   const [conta, setConta] = useState<Conta | null>(null)
+  const [extrato, setExtrato] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [estornando, setEstornando] = useState<number | null>(null)
 
-  useEffect(() => {
-    api.get(`/financeiro/contas-pagar/${contaId}`)
-      .then(r => r.data.success && setConta(r.data.data))
-      .catch(() => {}).finally(() => setLoading(false))
+  const reload = useCallback(() => {
+    setLoading(true)
+    Promise.all([
+      api.get(`/financeiro/contas-pagar/${contaId}`).then(r => r.data.success && setConta(r.data.data)).catch(() => {}),
+      api.get(`/financeiro/contas-pagar/${contaId}/extrato`).then(r => r.data.success && setExtrato(r.data.data || [])).catch(() => setExtrato([])),
+    ]).finally(() => setLoading(false))
   }, [contaId])
+
+  useEffect(() => { reload() }, [reload])
+
+  const estornar = async (idBaixa: number) => {
+    if (!confirm('Estornar este pagamento?\n\nO valor volta ao saldo da parcela e é revertido no caixa.')) return
+    setEstornando(idBaixa)
+    try {
+      await api.post(`/financeiro/contas-pagar/baixa/${idBaixa}/estornar`, {})
+      reload(); onChanged?.()
+    } catch (e: any) { alert(e?.response?.data?.message || 'Erro ao estornar.') }
+    finally { setEstornando(null) }
+  }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -753,6 +770,48 @@ function DetalhesModal({ contaId, onClose, onBaixa }: {
                 ))}
               </tbody>
             </table>
+
+            {/* Conta corrente — extrato de baixas/estornos */}
+            {extrato.length > 0 && (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 600, color: G.text, margin: '22px 0 10px' }}>Conta Corrente · Extrato de Baixas</div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: G.bg }}>
+                      {['Data', 'Parc.', 'Tipo', 'Valor', 'Caixa', ''].map(h => (
+                        <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: G.muted, fontWeight: 600, fontSize: 11 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {extrato.map((m: any) => {
+                      const isEstorno = m.tipo === 'ESTORNO'
+                      const cor = isEstorno ? G.amber : G.green
+                      return (
+                        <tr key={m.id} style={{ borderBottom: `1px solid ${G.border}`, opacity: m.estornada ? 0.5 : 1 }}>
+                          <td style={{ padding: '8px 10px', color: G.text }}>{fmtDate(m.data)}</td>
+                          <td style={{ padding: '8px 10px', color: G.muted }}>{m.numero_parcela}</td>
+                          <td style={{ padding: '8px 10px' }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 5, color: cor, background: cor + '1a' }}>{isEstorno ? 'ESTORNO' : 'BAIXA'}</span>
+                          </td>
+                          <td style={{ padding: '8px 10px', color: isEstorno ? G.amber : G.text, fontWeight: 600 }}>{isEstorno ? '− ' : ''}{fmtBRL(m.valor_pago)}</td>
+                          <td style={{ padding: '8px 10px', color: G.muted }}>{m.caixa_nome || '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                            {!isEstorno && !m.estornada && (
+                              <button onClick={() => estornar(m.id)} disabled={estornando === m.id}
+                                style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11, color: G.red, borderColor: `${G.red}55` }}>
+                                {estornando === m.id ? '...' : 'Estornar'}
+                              </button>
+                            )}
+                            {m.estornada && <span style={{ fontSize: 11, color: G.muted }}>estornada</span>}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </>
+            )}
           </>
         ) : <div style={{ color: G.red, textAlign: 'center' }}>Conta não encontrada.</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
@@ -770,7 +829,7 @@ export default function ContasPagarPage() {
   const [planoContas, setPlanoContas]     = useState<PlanoContas[]>([])
   const [centrosCusto, setCentrosCusto]   = useState<any[]>([])
   const [filters, setFilters] = useState({
-    dataInicio: firstOfMonth(), dataFim: todayISO(), status: '', idFornecedor: '', idCentroCusto: '',
+    dataInicio: firstOfMonth(), dataFim: todayISO(), status: '', idFornecedor: '', idCentroCusto: '', filtrarPor: 'vencimento',
   })
   const [search, setSearch]         = useState('')
   const [showNova, setShowNova]     = useState(false)
@@ -789,6 +848,7 @@ export default function ContasPagarPage() {
     if (filters.status)       params.set('status',       filters.status)
     if (filters.idFornecedor)  params.set('idFornecedor',  filters.idFornecedor)
     if (filters.idCentroCusto) params.set('idCentroCusto', filters.idCentroCusto)
+    params.set('filtrarPor', filters.filtrarPor)
     api.get(`/financeiro/contas-pagar?${params}`)
       .then(r => r.data.success && setContas(r.data.data))
       .catch(() => {}).finally(() => setLoading(false))
@@ -815,7 +875,9 @@ export default function ContasPagarPage() {
     total: acc.total + Number(c.valor_total),
     pago:  acc.pago  + Number(c.valor_pago),
     saldo: acc.saldo + Number(c.saldo),
-  }), { total: 0, pago: 0, saldo: 0 })
+    pagoPeriodo: acc.pagoPeriodo + Number(c.pago_periodo || 0),
+  }), { total: 0, pago: 0, saldo: 0, pagoPeriodo: 0 })
+  const porPagamento = filters.filtrarPor === 'pagamento'
 
   const vencidas = filtered.filter(c => c.status === 'ABERTO' && new Date(c.data_vencimento) < new Date(todayISO())).length
   const isVencida = (c: Conta) => c.status === 'ABERTO' && new Date(c.data_vencimento) < new Date(todayISO())
@@ -855,12 +917,17 @@ export default function ContasPagarPage() {
       {/* KPI Strip */}
       <div style={{ padding: '0 28px', marginTop: -28, position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
-          {[
+          {(porPagamento ? [
+            { label: 'Pago no Período',  value: fmtBRL(totais.pagoPeriodo), color: G.green },
+            { label: 'Total das Contas', value: fmtBRL(totais.total),       color: G.navy },
+            { label: 'Saldo Pendente',   value: fmtBRL(totais.saldo),       color: totais.saldo > 0 ? G.amber : G.muted },
+            { label: 'Contas',           value: String(filtered.length),    color: G.muted },
+          ] : [
             { label: 'Total a Pagar',   value: fmtBRL(totais.total), color: G.navy },
             { label: 'Já Pago',         value: fmtBRL(totais.pago),  color: G.green },
             { label: 'Saldo Pendente',  value: fmtBRL(totais.saldo), color: totais.saldo > 0 ? G.amber : G.muted },
             { label: 'Vencidas',        value: String(vencidas),     color: vencidas > 0 ? G.red : G.muted },
-          ].map(({ label, value, color }) => (
+          ]).map(({ label, value, color }) => (
             <div key={label} style={{
               background: G.card, borderRadius: 10, padding: '14px 18px',
               borderLeft: `4px solid ${color}`, boxShadow: '0 2px 8px rgba(0,0,0,.08)',
@@ -876,11 +943,19 @@ export default function ContasPagarPage() {
       <div style={{ padding: '20px 28px 28px' }}>
 
         <p style={{ margin: '0 0 12px', fontSize: 12, color: G.muted }}>
-          Os totais acima refletem o <strong>período</strong> e os <strong>filtros</strong> selecionados — não o histórico todo.
+          {porPagamento
+            ? <>Mostrando o que foi <strong>pago no período</strong> (pela data do pagamento) — inclui baixas integrais e parciais.</>
+            : <>Os totais refletem o <strong>vencimento</strong> no período e os filtros selecionados — não o histórico todo.</>}
         </p>
 
         {/* Filters */}
         <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, padding: '14px 18px', marginBottom: 14, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+          <label style={{ fontSize: 12, color: G.muted }}>Filtrar por
+            <select value={filters.filtrarPor} onChange={e => setFilter('filtrarPor', e.target.value)} style={{ ...inputStyle, width: 130 }}>
+              <option value="vencimento">Vencimento</option>
+              <option value="pagamento">Pagamento</option>
+            </select>
+          </label>
           <label style={{ fontSize: 12, color: G.muted }}>De
             <input type="date" value={filters.dataInicio} onChange={e => setFilter('dataInicio', e.target.value)} style={{ ...inputStyle, width: 140 }} />
           </label>
@@ -924,7 +999,7 @@ export default function ContasPagarPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: G.bg, borderBottom: `1px solid ${G.border}` }}>
-                  {['Descrição', 'Fornecedor', 'Vencimento', 'Valor Total', 'Pago', 'Saldo', 'Status', ''].map(h => (
+                  {['Descrição', 'Fornecedor', 'Vencimento', 'Valor Total', 'Pago', ...(porPagamento ? ['Pago no período'] : []), 'Saldo', 'Status', ''].map(h => (
                     <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: G.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                   ))}
                 </tr>
@@ -940,6 +1015,7 @@ export default function ContasPagarPage() {
                     <td style={{ padding: '10px 12px', color: isVencida(c) ? G.red : G.text, fontWeight: isVencida(c) ? 600 : 400 }}>{fmtDate(c.data_vencimento)}</td>
                     <td style={{ padding: '10px 12px' }}>{fmtBRL(c.valor_total)}</td>
                     <td style={{ padding: '10px 12px', color: G.green }}>{fmtBRL(c.valor_pago)}</td>
+                    {porPagamento && <td style={{ padding: '10px 12px', color: G.green, fontWeight: 700 }}>{fmtBRL(c.pago_periodo || 0)}</td>}
                     <td style={{ padding: '10px 12px', color: Number(c.saldo) > 0 ? G.amber : G.muted, fontWeight: 600 }}>{fmtBRL(c.saldo)}</td>
                     <td style={{ padding: '10px 12px' }}><StatusBadge status={c.status} /></td>
                     <td style={{ padding: '10px 12px' }}>
@@ -989,7 +1065,7 @@ export default function ContasPagarPage() {
       )}
       {detalhesId !== null && (
         <DetalhesModal contaId={detalhesId} onClose={() => setDetalhesId(null)}
-          onBaixa={(conta, parcela) => setBaixaData({ conta, parcela })} />
+          onBaixa={(conta, parcela) => setBaixaData({ conta, parcela })} onChanged={load} />
       )}
       {baixaData && (
         <BaixaModal conta={baixaData.conta} parcela={baixaData.parcela}
