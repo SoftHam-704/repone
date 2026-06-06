@@ -770,7 +770,7 @@ export default function ContasPagarPage() {
   const [planoContas, setPlanoContas]     = useState<PlanoContas[]>([])
   const [centrosCusto, setCentrosCusto]   = useState<any[]>([])
   const [filters, setFilters] = useState({
-    dataInicio: firstOfMonth(), dataFim: todayISO(), status: '', idFornecedor: '',
+    dataInicio: firstOfMonth(), dataFim: todayISO(), status: '', idFornecedor: '', idCentroCusto: '',
   })
   const [search, setSearch]         = useState('')
   const [showNova, setShowNova]     = useState(false)
@@ -787,7 +787,8 @@ export default function ContasPagarPage() {
     if (filters.dataInicio)   params.set('dataInicio',   filters.dataInicio)
     if (filters.dataFim)      params.set('dataFim',      filters.dataFim)
     if (filters.status)       params.set('status',       filters.status)
-    if (filters.idFornecedor) params.set('idFornecedor', filters.idFornecedor)
+    if (filters.idFornecedor)  params.set('idFornecedor',  filters.idFornecedor)
+    if (filters.idCentroCusto) params.set('idCentroCusto', filters.idCentroCusto)
     api.get(`/financeiro/contas-pagar?${params}`)
       .then(r => r.data.success && setContas(r.data.data))
       .catch(() => {}).finally(() => setLoading(false))
@@ -874,6 +875,10 @@ export default function ContasPagarPage() {
       {/* Content */}
       <div style={{ padding: '20px 28px 28px' }}>
 
+        <p style={{ margin: '0 0 12px', fontSize: 12, color: G.muted }}>
+          Os totais acima refletem o <strong>período</strong> e os <strong>filtros</strong> selecionados — não o histórico todo.
+        </p>
+
         {/* Filters */}
         <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, padding: '14px 18px', marginBottom: 14, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
           <label style={{ fontSize: 12, color: G.muted }}>De
@@ -895,6 +900,14 @@ export default function ContasPagarPage() {
             <select value={filters.idFornecedor} onChange={e => setFilter('idFornecedor', e.target.value)} style={{ ...inputStyle, width: 180 }}>
               <option value="">Todos</option>
               {fornecedores.map(f => <option key={f.id} value={f.id}>{f.nome_razao}</option>)}
+            </select>
+          </label>
+          <label style={{ fontSize: 12, color: G.muted }}>Centro de Custo
+            <select value={filters.idCentroCusto} onChange={e => setFilter('idCentroCusto', e.target.value)} style={{ ...inputStyle, width: 180 }}>
+              <option value="">Todos</option>
+              {centrosCusto.filter((c: any) => c.ativo !== false).map((c: any) => (
+                <option key={c.id} value={c.id}>{c.codigo ? `${c.codigo} · ` : ''}{c.descricao}</option>
+              ))}
             </select>
           </label>
           <div style={{ position: 'relative', marginLeft: 'auto' }}>
