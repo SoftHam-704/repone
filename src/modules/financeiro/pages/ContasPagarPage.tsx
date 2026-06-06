@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, Search, Eye, Check, Trash2, ArrowUpCircle, X, Pencil, ChevronDown, ChevronUp, FileText, Layers } from 'lucide-react'
+import { Plus, Search, Eye, Check, Trash2, ArrowUpCircle, X, Pencil, ChevronDown, ChevronUp, FileText, Layers, HelpCircle, Wallet, RotateCcw, CalendarClock } from 'lucide-react'
 import { api } from '@/shared/lib/api'
 import ParcelasEditor, { type ParcelaLinha } from '../components/ParcelasEditor'
 import LancamentoLoteModal from '../components/LancamentoLoteModal'
@@ -837,6 +837,7 @@ export default function ContasPagarPage() {
   const [editingId, setEditingId]   = useState<number | null>(null)
   const [detalhesId, setDetalhesId] = useState<number | null>(null)
   const [baixaData, setBaixaData]   = useState<{ conta: Conta; parcela: Parcela } | null>(null)
+  const [helpOpen, setHelpOpen]     = useState(false)
 
   const setFilter = (k: string, v: string) => setFilters(f => ({ ...f, [k]: v }))
 
@@ -904,6 +905,10 @@ export default function ContasPagarPage() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setHelpOpen(true)} title="Ajuda"
+              style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid rgba(255,255,255,.2)', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,.7)' }}>
+              <HelpCircle size={17} />
+            </button>
             <button onClick={() => setShowLote(true)} style={{ ...btnPrimary(G.navy), border: `1px solid ${G.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Layers size={15} /> Lançamento em Lote
             </button>
@@ -1070,6 +1075,46 @@ export default function ContasPagarPage() {
       {baixaData && (
         <BaixaModal conta={baixaData.conta} parcela={baixaData.parcela}
           onClose={() => setBaixaData(null)} onSaved={() => { setBaixaData(null); load() }} />
+      )}
+
+      {helpOpen && (
+        <div onClick={() => setHelpOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(40,55,74,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: G.card, borderRadius: 16, width: '100%', maxWidth: 580, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.22)' }}>
+            <div style={{ padding: '20px 24px 16px', borderBottom: `1px solid ${G.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: G.navy, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <HelpCircle size={20} color="#fff" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: G.text }}>Como usar o Contas a Pagar</h2>
+                  <p style={{ margin: 0, fontSize: 11, color: G.muted }}>Guia rápido da funcionalidade</p>
+                </div>
+              </div>
+              <button onClick={() => setHelpOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: G.muted, padding: 4 }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {[
+                { icon: Plus, color: G.navy, title: 'Lançar a conta', desc: 'Informe descrição, fornecedor, valor e vencimento — e classifique por Plano de Contas e Centro de Custo. Você pode parcelar OU lançar uma única parcela com o valor total e ir baixando aos poucos.' },
+                { icon: Check, color: G.green, title: 'Baixa: integral ou parcial', desc: 'Registre o pagamento escolhendo a conta de caixa, o valor, juros e desconto. Pague parcialmente quantas vezes precisar até quitar — sem precisar criar várias parcelas.' },
+                { icon: Wallet, color: '#7C3AED', title: 'Conta Corrente · Extrato', desc: 'Toda baixa entra no caixa automaticamente e fica registrada no extrato da conta. Abra os Detalhes (ícone 👁) para ver o histórico completo de pagamentos.' },
+                { icon: RotateCcw, color: G.amber, title: 'Estornar um pagamento', desc: 'Errou uma baixa? Clique em Estornar no extrato: o valor volta ao saldo da parcela e é revertido no caixa, mantendo tudo conciliado.' },
+                { icon: CalendarClock, color: G.red, title: 'Filtrar por Vencimento ou Pagamento', desc: '“Vencimento” mostra o que vence no período; “Pagamento” mostra o que você efetivamente pagou no período (baixas integrais e parciais). Filtre também por Centro de Custo e Fornecedor.' },
+              ].map(({ icon: Icon, color, title, desc }) => (
+                <div key={title} style={{ display: 'flex', gap: 14, padding: '14px 16px', borderRadius: 10, background: G.bg, border: `1px solid ${G.border}` }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: color + '18', border: `1px solid ${color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon size={17} color={color} />
+                  </div>
+                  <div>
+                    <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 700, color: G.text }}>{title}</p>
+                    <p style={{ margin: 0, fontSize: 12, color: G.muted, lineHeight: 1.6 }}>{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
