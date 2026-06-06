@@ -1090,13 +1090,8 @@ export default function ContasPagarPage() {
                           <Pencil size={14} />
                         </button>
                         {(c.status === 'ABERTO' || isVencida(c)) && (
-                          <button title="Registrar pagamento" onClick={async () => {
-                            const r = await api.get(`/financeiro/contas-pagar/${c.id}`)
-                            if (r.data.success) {
-                              const parcela = r.data.data.parcelas?.find((p: Parcela) => p.status === 'ABERTO' || p.status === 'VENCIDO')
-                              if (parcela) setBaixaData({ conta: r.data.data, parcela })
-                            }
-                          }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.green, padding: 4 }}>
+                          <button title="Baixar (escolher a parcela)" onClick={() => setDetalhesId(c.id)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.green, padding: 4 }}>
                             <Check size={15} />
                           </button>
                         )}
