@@ -581,35 +581,53 @@ function NovaContaModal({ onClose, onSaved, fornecedores, planoContas, centrosCu
   )
 }
 
-function BaixaModal({ conta, parcela, onClose, onSaved }: {
-  conta: Conta; parcela: Parcela; onClose: () => void; onSaved: () => void
+function BaixaModal({ conta, parcela, onClose, onSaved, onChanged }: {
+  conta: Conta; parcela: Parcela; onClose: () => void; onSaved: () => void; onChanged?: () => void
 }) {
-  const jaPago = Number(parcela.valor_pago || 0)
-  const saldoParcela = Math.max(0, Number(parcela.valor) - jaPago)
-  const pctPago = Number(parcela.valor) > 0 ? Math.round((jaPago / Number(parcela.valor)) * 100) : 0
+  const valorParcela = Number(parcela.valor)
+  const saldoInicial = Math.max(0, valorParcela - Number(parcela.valor_pago || 0))
+  const [movs, setMovs] = useState<any[]>([])
+  const [movsLoaded, setMovsLoaded] = useState(false)
   const [form, setForm] = useState({
-    data_pagamento: todayISO(), valor_pago: String(Math.round(saldoParcela * 100)),
+    data_pagamento: todayISO(), valor_pago: String(Math.round(saldoInicial * 100)),
     juros: '', desconto: '', observacoes: '',
-    id_conta_caixa: '', valor_sem_imposto: String(Math.round(saldoParcela * 100)), valor_com_imposto: '',
+    id_conta_caixa: '', valor_sem_imposto: String(Math.round(saldoInicial * 100)), valor_com_imposto: '',
   })
   const [contasCaixa, setContasCaixa] = useState<{ id: number; conta_nome: string }[]>([])
   const [teto, setTeto] = useState(0)
   const [accMes, setAccMes] = useState(0)
-  const [movs, setMovs] = useState<any[]>([])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const carregarExtrato = () =>
+    api.get(`/financeiro/contas-pagar/${conta.id}/extrato`)
+      .then(r => { setMovs((r.data.data || []).filter((m: any) => m.id_parcela === parcela.id)); setMovsLoaded(true) })
+      .catch(() => setMovsLoaded(true))
+
   useEffect(() => {
     api.get('/livro-caixa/contas').then(r => setContasCaixa(r.data.data)).catch(() => {})
     api.get('/livro-caixa/config').then(r => { setTeto(Number(r.data.data.teto_com_imposto_mensal) || 0); setAccMes(Number(r.data.data.acumulado_mes) || 0) }).catch(() => {})
-    api.get(`/financeiro/contas-pagar/${conta.id}/extrato`).then(r => setMovs((r.data.data || []).filter((m: any) => m.id_parcela === parcela.id))).catch(() => {})
+    carregarExtrato()
   }, [])
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }))
+  const sgn = (m: any) => (m.tipo === 'ESTORNO' ? -1 : 1)
+  // Saldo derivado do ledger AO VIVO; antes de carregar usa o valor_pago da parcela.
+  const abatido = movsLoaded
+    ? movs.reduce((s, m) => s + sgn(m) * (Number(m.valor_pago || 0) + Number(m.desconto || 0)), 0)
+    : Number(parcela.valor_pago || 0)
+  const jaPago = movsLoaded
+    ? movs.reduce((s, m) => s + sgn(m) * Number(m.valor_pago || 0), 0)
+    : Number(parcela.valor_pago || 0)
+  const saldoParcela = Math.max(0, valorParcela - abatido)
+  const pctPago = valorParcela > 0 ? Math.round((abatido / valorParcela) * 100) : 0
   const vPago = digitsToReais(form.valor_pago)
   const saldoDepois = saldoParcela - vPago - digitsToReais(form.desconto)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError('')
     if (!form.id_conta_caixa) { setError('Selecione a conta de caixa do pagamento.'); setSaving(false); return }
+    if (!(vPago > 0)) { setError('Informe o valor pago.'); setSaving(false); return }
     try {
       const resp = await api.post(`/financeiro/contas-pagar/${conta.id}/baixa`, {
         id_parcela: parcela.id,
@@ -626,7 +644,16 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
       if (aviso) {
         alert(`⚠️ Teto mensal de pagamento COM IMPOSTO ultrapassado.\nAcumulado no mês: ${fmtBRL(aviso.acumulado)}\nTeto: ${fmtBRL(aviso.teto)}`)
       }
-      onSaved()
+      onChanged?.()
+      // Recarrega o grid das filhas e recalcula o saldo — o modal CONTINUA ABERTO (conta corrente).
+      const ext = await api.get(`/financeiro/contas-pagar/${conta.id}/extrato`)
+      const novos = (ext.data.data || []).filter((m: any) => m.id_parcela === parcela.id)
+      setMovs(novos); setMovsLoaded(true)
+      const novoAbatido = novos.reduce((s: number, m: any) => s + (m.tipo === 'ESTORNO' ? -1 : 1) * (Number(m.valor_pago || 0) + Number(m.desconto || 0)), 0)
+      const novoSaldo = Math.max(0, valorParcela - novoAbatido)
+      if (novoSaldo <= 0.01) { onSaved(); return }   // quitou → fecha
+      // ainda tem saldo → prepara o próximo pagamento parcial
+      setForm(f => ({ ...f, valor_pago: String(Math.round(novoSaldo * 100)), valor_sem_imposto: String(Math.round(novoSaldo * 100)), juros: '', desconto: '', observacoes: '' }))
     } catch (err: any) { setError(err?.response?.data?.message ?? 'Erro') }
     finally { setSaving(false) }
   }
@@ -714,7 +741,7 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
             <textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)} style={{ ...inputStyle, height: 60, resize: 'vertical' }} />
           </label>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={btnSecondary}>Cancelar</button>
+            <button type="button" onClick={onClose} style={btnSecondary}>Fechar</button>
             <button type="submit" disabled={saving} style={btnPrimary(G.red)}>{saving ? 'Salvando...' : 'Confirmar Pagamento'}</button>
           </div>
         </form>
@@ -1101,7 +1128,7 @@ export default function ContasPagarPage() {
       )}
       {baixaData && (
         <BaixaModal conta={baixaData.conta} parcela={baixaData.parcela}
-          onClose={() => setBaixaData(null)} onSaved={() => { setBaixaData(null); load() }} />
+          onClose={() => setBaixaData(null)} onSaved={() => { setBaixaData(null); load() }} onChanged={load} />
       )}
 
       {helpOpen && (
