@@ -1662,16 +1662,24 @@ A tela inicial do módulo mostra quatro KPIs em destaque:
 
 | KPI | O que representa |
 |-----|-----------------|
-| **A Receber** | Total de contas a receber em aberto (não vencidas + vencidas) |
-| **A Pagar** | Total de contas a pagar em aberto |
+| **A Receber** | Saldo a receber em aberto das **parcelas que vencem no período** |
+| **A Pagar** | Saldo a pagar em aberto das **parcelas que vencem no período** |
 | **Saldo Previsto** | A Receber − A Pagar (pode ser negativo se houver mais compromissos do que receitas) |
 | **Inadimplência** | Valor das contas a receber com vencimento no passado |
 
-Logo abaixo dos KPIs aparece o **Gráfico de Evolução dos Últimos 6 Meses** comparando receitas e despesas lançadas.
+> **Importante — apuração por parcela:** os valores consideram **cada parcela pela sua própria data de vencimento**, não o valor cheio da conta. Uma despesa parcelada em 7× lançada com cabeçalho em junho **não** joga o total em junho: cada parcela conta no seu mês. É o número real do período.
 
-À direita do gráfico ficam dois painéis de alerta:
-- **Atenção — A Pagar:** mostra os valores vencidos, que vencem hoje e que vencem nos próximos 7 dias.
-- **Atenção — A Receber:** mesma leitura para o lado das receitas.
+#### Filtro de período (Ano + Meses)
+
+Logo abaixo dos KPIs há a faixa **Período**: escolha o **ano** e marque um ou mais **meses** (ou **Todos** para o ano inteiro). **Todos os cards e gráficos respeitam esse filtro** — você decide o recorte. Quer junho/2026? O painel mostra junho/2026.
+
+#### Em aberto por Centro de Custo (roscas)
+
+Uma **rosca para cada centro de custo**, mostrando o **valor** daquele centro e o **% que ele representa** no período. A soma das roscas **confere** com os cards A Pagar / A Receber. No rodapé, os totais de despesas e receitas em aberto.
+
+#### Próximos vencimentos
+
+Um card único com **A Pagar** e **A Receber** lado a lado, cada um com **Vencidas**, **Vencem hoje** e **Próximos 7 dias** — com atalho para abrir a tela correspondente.
 
 ---
 
@@ -1710,9 +1718,18 @@ Errou um pagamento? Abra os **Detalhes** da conta → no **Conta Corrente · Ext
 - **Período** (De / Até), **Status**, **Fornecedor**, **Centro de Custo** e **busca** por descrição.
 - Os **cards** do topo refletem **sempre o período e os filtros** — não o histórico todo.
 
-#### Relatório por Centro de Custo
+#### Relatório (impresso em PDF ou Excel)
 
-Clique em **Relatório** (topo). Abre um relatório **agrupado por Centro de Custo**, com cada parcela listada e as **pagas destacadas em amarelo**, **subtotal por centro** (Valor / Pago / A Pagar) e **Total Geral**. Respeita os filtros da tela. O botão **Exportar Excel** gera a planilha com o mesmo agrupamento e destaque.
+Clique em **Relatório** (topo). O relatório tem **filtros próprios** — você não precisa mexer na listagem:
+
+- **De / Até**, **Fornecedor**, **Centro de Custo** e **Status** (Todas / Em aberto / Pagas).
+- **Agrupar por:** escolha entre **Centro de Custo** ou **Fornecedor** — o relatório se reorganiza na hora, com **subtotais** por grupo.
+- Deixe os filtros em **"Todos"** para uma **posição geral do período** (considera só as datas).
+
+Cada parcela é listada, com as **pagas destacadas em amarelo**, **subtotal por grupo** (Valor / Pago / Saldo) e **Total Geral**. Dois botões de saída:
+
+- **Imprimir / PDF** — gera um documento A4 com o **logotipo e os dados da representação** no cabeçalho, período, filtros aplicados, paginação e **linha de assinatura** (Responsável Financeiro · Diretoria). Abre em nova aba, pronto pra imprimir ou salvar — ideal quando a diretoria pede o relatório na mão.
+- **Excel** — gera a planilha com o mesmo agrupamento e destaque.
 
 #### Status das contas
 
@@ -1762,9 +1779,18 @@ No topo da lista, **Filtrar por**:
 
 Filtre também por **Centro de Custo** e **Cliente**.
 
-#### Relatório (Excel)
+#### Relatório (impresso em PDF ou Excel)
 
-O botão **Relatório** abre o relatório **por Centro de Custo**, respeitando os filtros, com as parcelas **recebidas destacadas em amarelo** (estilo planilha) e subtotais por centro. Exporte em **Excel** com um clique.
+Clique em **Relatório** (topo). O relatório tem **filtros próprios** (independentes da listagem):
+
+- **De / Até**, **Cliente**, **Centro de Custo** e **Status** (Todas / Em aberto / Recebidas).
+- **Agrupar por:** **Centro de Custo** ou **Cliente** — com **subtotais** por grupo.
+- Filtros em **"Todos"** = **posição geral do período** (só as datas).
+
+Parcelas **recebidas destacadas em amarelo**, subtotal por grupo (Valor / Recebido / Saldo) e **Total Geral**. Saídas:
+
+- **Imprimir / PDF** — documento A4 com **logotipo e dados da representação** no cabeçalho, período, filtros, paginação e **linha de assinatura**. Abre em nova aba, pronto pra imprimir/salvar.
+- **Excel** — planilha com o mesmo agrupamento e destaque.
 
 > **Dica:** quando a indústria paga a comissão parcelada, cada parcela pode ser baixada individualmente sem afetar as demais.
 
@@ -1799,6 +1825,8 @@ Ao fim da tabela aparece a **linha TOTAL** com os somatórios. Clique em **Expor
 ### DRE Gerencial
 
 A Demonstração do Resultado do Exercício mostra a performance financeira de um mês específico classificada pelo **Plano de Contas**.
+
+> **Regime de caixa:** o DRE considera o que foi **efetivamente recebido/pago no mês** (pela data da baixa no Livro Caixa), incluindo **baixas parciais** e descontando **estornos** — não o vencimento do cabeçalho da conta.
 
 #### Como gerar
 
