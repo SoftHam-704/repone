@@ -4,22 +4,27 @@ import { api } from '@/shared/lib/api';
 
 // ─── palette Fresh Corporate ────────────────────────────────────────────────
 const C = {
-  bgMain:      '#F8FAFC',
-  bgSecondary: '#F1F5F9',
-  card:        '#FFFFFF',
-  border:      '#E2E8F0',
-  textPrimary: '#1E293B',
-  textSec:     '#64748B',
-  textDis:     '#94A3B8',
-  green:       '#10B981',
-  greenDark:   '#064E4B',   // Background Narrativa
-  orange:      '#FB923C',
-  blue:        '#60A5FA',
-  yellow:      '#EAB308',
-  red:         '#DC2626',
-  heroTop:     '#0F1D2B',
-  heroBot:     '#1C2D40',
+  bgMain:      'radial-gradient(120% 100% at 30% 20%, #16233A 0%, #0B0F19 55%, #070A12 100%)',
+  bgSecondary: 'rgba(255, 255, 255, 0.04)',
+  card:        'linear-gradient(145deg, #111827 0%, #0B0F19 100%)',
+  border:      'rgba(14, 165, 233, 0.15)',
+  textPrimary: '#FFFFFF',
+  textSec:     '#9CA3AF',
+  textDis:     'rgba(255, 255, 255, 0.1)',
+  green:       '#0EA5E9',
+  greenDark:   '#1E293B',
+  orange:      '#F59E0B',
+  blue:        '#38BDF8',
+  yellow:      '#FFD200',
+  red:         '#EF4444',
+  heroTop:     '#0B0F19',
+  heroBot:     '#111827',
+  glass:       'rgba(255,255,255,0.58)',
+  glassSoft:   'rgba(255,255,255,0.40)',
+  glassBorder: 'rgba(255,255,255,0.70)',
 } as const;
+
+const GLASS_BLUR = 'blur(12px)';
 
 // ─── URLs estáticas ─────────────────────────────────────────────────────────
 const PODCAST_GERAL_URL   = 'https://softham.com.br/repone/repone-treinamento.mp3';
@@ -54,41 +59,49 @@ const CHAPTERS_PEDIDOS = [
 // ─── Page ────────────────────────────────────────────────────────────────────
 export default function CentroAprendizadoPage() {
   return (
-    <div style={{ background: C.bgMain, minHeight: '100vh', fontFamily: "'IBM Plex Sans', sans-serif" }}>
+    <div style={{
+      background: C.bgMain,
+      height: '100%',
+      overflowY: 'auto',
+      display: 'flex',
+      flexDirection: 'column',
+      fontFamily: "'IBM Plex Sans', sans-serif",
+    }}>
 
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
+      {/* ── Hero (faixa enxuta, sem imagem — a Professora vive no corpo) ──── */}
       <div style={{
         background: `linear-gradient(135deg, ${C.heroTop} 0%, ${C.heroBot} 100%)`,
-        padding: '28px 48px 32px',
+        padding: '22px 48px 24px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 32,
         position: 'relative',
         overflow: 'hidden',
+        flexShrink: 0,
       }}>
         {/* glow decorativo */}
         <div style={{ position: 'absolute', top: -60, right: -60, width: 260, height: 260, background: `radial-gradient(circle, ${C.yellow}12 0%, transparent 70%)`, pointerEvents: 'none' }} />
 
-        <div>
+        <div style={{ position: 'relative', zIndex: 2 }}>
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 7,
             background: `${C.yellow}18`, border: `1px solid ${C.yellow}35`,
             color: C.yellow, fontSize: 9, fontWeight: 700, letterSpacing: 2,
-            textTransform: 'uppercase', padding: '4px 10px', borderRadius: 2, marginBottom: 12,
+            textTransform: 'uppercase', padding: '4px 10px', borderRadius: 2, marginBottom: 10,
           }}>
             <BookOpen size={10} />
             Centro de Aprendizado
           </div>
-          <h1 style={{ color: '#FFFFFF', fontSize: 22, fontWeight: 800, lineHeight: 1.2, marginBottom: 6, margin: '0 0 6px' }}>
+          <h1 style={{ color: '#FFFFFF', fontSize: 21, fontWeight: 800, lineHeight: 1.2, margin: '0 0 5px' }}>
             Aprenda o <span style={{ color: C.yellow }}>SalesMasters</span> no seu ritmo
           </h1>
-          <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, lineHeight: 1.6, maxWidth: 400, margin: 0 }}>
+          <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, lineHeight: 1.6, maxWidth: 460, margin: 0 }}>
             Manual completo, podcasts de treinamento por módulo e assistente de IA prontos para você dominar cada rotina do sistema.
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: 32, flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 32, flexShrink: 0, position: 'relative', zIndex: 2 }}>
           {[
             { value: '2',  label: 'Podcasts'     },
             { value: '17', label: 'Capítulos'    },
@@ -102,21 +115,35 @@ export default function CentroAprendizadoPage() {
         </div>
       </div>
 
-      {/* ── Body ─────────────────────────────────────────────────────────── */}
-      <div style={{ padding: '32px 48px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 28, alignItems: 'start' }}>
+      {/* ── Body — conteúdo à esquerda, Professora IRIS à direita ─────────── */}
+      <div className="ca-body" style={{ position: 'relative', overflow: 'hidden', flex: 1, minHeight: 420 }}>
 
-        {/* Coluna esquerda */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+        {/* Professora IRIS — presença à direita do form (padrão IRIS Dev) */}
+        <div className="ca-teacher" style={{
+          position: 'absolute', top: 0, right: 0, bottom: 0,
+          backgroundImage: 'url(/iris-teacher.webp)',
+          backgroundSize: 'cover', backgroundPosition: 'bottom right', backgroundRepeat: 'no-repeat',
+          maskImage: 'linear-gradient(to right, transparent 0%, rgba(0,0,0,0.45) 20%, #000 58%)',
+          WebkitMaskImage: 'linear-gradient(to right, transparent 0%, rgba(0,0,0,0.45) 20%, #000 58%)',
+          opacity: 0.95, pointerEvents: 'none', zIndex: 0,
+        }} />
 
-          {/* Podcasts */}
+        {/* Conteúdo — coluna à esquerda */}
+        <div className="ca-content" style={{
+          position: 'relative', zIndex: 2,
+          padding: '30px 48px 48px',
+          display: 'flex', flexDirection: 'column', gap: 26,
+        }}>
+
+          {/* Treinamento — 2 podcasts + manual na MESMA linha (libera vertical) */}
           <div>
-            <SectionHeader tag="// Ouça" title="Podcasts de Treinamento" />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <SectionHeader tag="// Treinamento" title="Podcasts & Manual" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, alignItems: 'stretch' }}>
               <PodcastCard
                 episode="EPISÓDIO 01"
                 title="Visão Geral do SalesMasters"
                 subtitle="Todos os módulos do sistema • pt-BR"
-                icon={<Music size={18} color={C.yellow} />}
+                icon={<Music size={16} color={C.yellow} />}
                 src={PODCAST_GERAL_URL}
                 chapters={CHAPTERS_GERAL}
               />
@@ -124,48 +151,36 @@ export default function CentroAprendizadoPage() {
                 episode="EPISÓDIO 02"
                 title="Módulo de Pedidos — Do Zero ao Avançado"
                 subtitle="O coração do sistema, passo a passo • pt-BR"
-                icon={<ShoppingCart size={18} color={C.yellow} />}
+                icon={<ShoppingCart size={16} color={C.yellow} />}
                 src={PODCAST_PEDIDOS_URL}
                 chapters={CHAPTERS_PEDIDOS}
                 chapterAccent={C.orange}
               />
-            </div>
-          </div>
 
-          {/* Manual */}
-          <div>
-            <SectionHeader tag="// Leia" title="Manual do Sistema" />
-            <div style={{
-              background: C.card, borderRadius: 6,
-              border: `1px solid ${C.border}`,
-              padding: 20,
-              boxShadow: '0 1px 4px rgba(30,41,59,0.06)',
-              display: 'flex', alignItems: 'center', gap: 16,
-            }}>
+              {/* Manual — 3ª coluna, compacto */}
               <div style={{
-                width: 42, height: 52,
-                background: C.greenDark,
-                borderRadius: 4,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                background: C.card, borderRadius: 6,
+                border: `1px solid ${C.border}`,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.20)',
+                display: 'flex', flexDirection: 'column',
+                padding: '14px 16px', gap: 12,
               }}>
-                <Download size={18} color="#FFFFFF" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ color: C.textPrimary, fontSize: 13, fontWeight: 700, marginBottom: 3 }}>
-                  Manual Completo SalesMasters V2
-                </div>
-                <div style={{ color: C.textSec, fontSize: 11, lineHeight: 1.4, marginBottom: 10 }}>
-                  Documentação completa com todos os módulos, passo a passo em português.
-                </div>
-                <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-                  {['PDF • 141 KB', '17 Capítulos', 'Versão 2.0'].map(c => (
-                    <span key={c} style={{
-                      background: C.bgSecondary, color: C.textSec,
-                      fontSize: 9, fontWeight: 600, letterSpacing: 0.5,
-                      padding: '3px 8px', borderRadius: 3,
-                      border: `1px solid ${C.border}`,
-                    }}>{c}</span>
-                  ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{
+                    width: 34, height: 34, background: C.greenDark, borderRadius: 4,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  }}>
+                    <Download size={16} color="#FFFFFF" />
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: C.green, fontSize: 8, fontWeight: 700, letterSpacing: 2, marginBottom: 2 }}>MANUAL</div>
+                    <div style={{ color: C.textPrimary, fontSize: 11, fontWeight: 700, lineHeight: 1.3 }}>
+                      Manual Completo SalesMasters V2
+                    </div>
+                    <div style={{ color: C.textSec, fontSize: 9, marginTop: 2 }}>
+                      PDF • 19 capítulos · v2.0
+                    </div>
+                  </div>
                 </div>
                 <a
                   href={MANUAL_URL}
@@ -173,11 +188,16 @@ export default function CentroAprendizadoPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 7,
-                    background: C.greenDark, color: '#FFFFFF',
+                    marginTop: 'auto',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                    background: C.green, color: '#FFFFFF',
                     fontSize: 11, fontWeight: 700, letterSpacing: 1,
-                    padding: '9px 18px', borderRadius: 4, textDecoration: 'none',
+                    padding: '9px 14px', borderRadius: 4, textDecoration: 'none',
+                    boxShadow: '0 4px 12px rgba(14, 165, 233, 0.25)',
+                    transition: 'all 0.2s',
                   }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#0284C7'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = C.green; }}
                 >
                   <Download size={12} />
                   BAIXAR MANUAL
@@ -186,15 +206,23 @@ export default function CentroAprendizadoPage() {
             </div>
           </div>
 
-        </div>
+          {/* Assistente */}
+          <div>
+            <SectionHeader tag="// Pergunte" title="Assistente de Treinamento" />
+            <TrainingChat />
+          </div>
 
-        {/* Coluna direita — Chat */}
-        <div style={{ position: 'sticky', top: 20 }}>
-          <SectionHeader tag="// Pergunte" title="Assistente de Treinamento" />
-          <TrainingChat />
         </div>
-
       </div>
+
+      <style>{`
+        .ca-content { max-width: 64%; }
+        .ca-teacher { width: 48%; }
+        @media (max-width: 1180px) {
+          .ca-content { max-width: 100%; }
+          .ca-teacher { display: none; }
+        }
+      `}</style>
     </div>
   );
 }
@@ -211,68 +239,76 @@ interface PodcastCardProps {
 }
 
 function PodcastCard({ episode, title, subtitle, icon, src, chapters, chapterAccent = C.green }: PodcastCardProps) {
+  const [open, setOpen] = useState(false);
   return (
     <div style={{
       background: C.card,
       borderRadius: 6,
       border: `1px solid ${C.border}`,
       overflow: 'hidden',
-      boxShadow: '0 1px 4px rgba(30,41,59,0.06)',
-      display: 'grid',
-      gridTemplateColumns: '55% 45%',
+      boxShadow: '0 4px 16px rgba(0,0,0,0.20)',
     }}>
-      {/* Player — dark */}
-      <div style={{ background: C.heroTop, padding: '18px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+      {/* Player — dark, só o necessário */}
+      <div style={{ background: C.heroTop, padding: '14px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           <div style={{
-            width: 36, height: 36,
+            width: 34, height: 34,
             background: `${C.yellow}18`, border: `1px solid ${C.yellow}35`,
             borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
             {icon}
           </div>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div style={{ color: C.yellow, fontSize: 8, fontWeight: 700, letterSpacing: 2, marginBottom: 2 }}>{episode}</div>
             <div style={{ color: '#F8FAFC', fontSize: 11, fontWeight: 700, lineHeight: 1.3 }}>{title}</div>
             <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 }}>{subtitle}</div>
           </div>
         </div>
         <audio controls style={{ width: '100%', borderRadius: 3, height: 30 }} src={src} />
-        <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: 8, marginTop: 7, textAlign: 'center' }}>
-          🎙️ Gerado com Google NotebookLM + IA
-        </p>
       </div>
 
-      {/* Chapters — light */}
-      <div style={{ padding: '14px 16px', overflowY: 'auto', maxHeight: 180, background: C.card }}>
-        {/* TableHead style */}
-        <div style={{
-          color: C.textSec, fontSize: 10, fontWeight: 500,
+      {/* Toggle do índice */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', background: 'transparent', border: 'none',
+          borderTop: `1px solid ${C.border}`,
+          padding: '9px 16px', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          fontFamily: "'IBM Plex Sans', sans-serif",
+        }}
+      >
+        <span style={{
+          color: C.textSec, fontSize: 10, fontWeight: 600,
           letterSpacing: '0.06em', textTransform: 'uppercase',
-          marginBottom: 8, paddingBottom: 6,
-          borderBottom: `1px solid ${C.border}`,
         }}>
-          Índice
-        </div>
-        {/* TableCell style rows */}
-        {chapters.map((ch, i) => (
-          <div key={i} style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '6px 0',
-            borderBottom: i < chapters.length - 1 ? `1px solid ${C.border}` : 'none',
-          }}>
-            <span style={{
-              color: chapterAccent, fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: 10, width: 34, flexShrink: 0, fontWeight: 600,
+          {open ? '▾' : '▸'} Índice — {chapters.length} capítulos
+        </span>
+        <span style={{ color: C.textDis, fontSize: 9 }}>🎙️ Google NotebookLM + IA</span>
+      </button>
+
+      {/* Chapters — colapsável */}
+      {open && (
+        <div style={{ padding: '4px 16px 12px', overflowY: 'auto', maxHeight: 220, background: 'transparent' }}>
+          {chapters.map((ch, i) => (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '5px 0',
+              borderBottom: i < chapters.length - 1 ? `1px solid ${C.border}` : 'none',
             }}>
-              {ch.time}
-            </span>
-            <span style={{ color: C.textPrimary, fontSize: 12, lineHeight: 1.4 }}>
-              {ch.title}
-            </span>
-          </div>
-        ))}
-      </div>
+              <span style={{
+                color: chapterAccent, fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: 10, width: 34, flexShrink: 0, fontWeight: 600,
+              }}>
+                {ch.time}
+              </span>
+              <span style={{ color: C.textPrimary, fontSize: 12, lineHeight: 1.4 }}>
+                {ch.title}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -296,10 +332,13 @@ function TrainingChat() {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Rola APENAS o container de mensagens — nunca a página.
+  // scrollIntoView() borbulharia pros ancestrais e arrastaria o app inteiro.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   async function send(text: string) {
@@ -325,19 +364,19 @@ function TrainingChat() {
       background: C.card,
       borderRadius: 6,
       border: `1px solid ${C.border}`,
-      boxShadow: '0 1px 4px rgba(30,41,59,0.06)',
+      boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
       display: 'flex', flexDirection: 'column', gap: 0,
       overflow: 'hidden',
-      minHeight: 560,
+      minHeight: 480,
     }}>
 
       {/* Messages area */}
-      <div style={{
+      <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto',
         padding: '16px 16px 8px',
         display: 'flex', flexDirection: 'column', gap: 10,
-        maxHeight: 440,
-        background: C.bgMain,
+        maxHeight: 380,
+        background: 'transparent',
       }}>
         {messages.map((m, i) => (
           <div key={i} style={{
@@ -348,7 +387,7 @@ function TrainingChat() {
             maxWidth: '88%',
             alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
             background: m.role === 'assistant' ? C.greenDark : C.bgSecondary,
-            color: m.role === 'assistant' ? '#F8FAFC' : C.textPrimary,
+            color: '#FFFFFF',
             border: m.role === 'user' ? `1px solid ${C.border}` : 'none',
           }}>
             {m.role === 'assistant' ? <MarkdownLite text={m.content} /> : m.content}
@@ -365,7 +404,6 @@ function TrainingChat() {
             <span style={{ color: 'rgba(248,250,252,0.7)' }}>Pensando...</span>
           </div>
         )}
-        <div ref={bottomRef} />
       </div>
 
       {/* Suggestions */}
@@ -373,7 +411,7 @@ function TrainingChat() {
         <div style={{
           padding: '10px 16px',
           borderTop: `1px solid ${C.border}`,
-          background: C.bgMain,
+          background: C.bgSecondary,
           display: 'flex', flexWrap: 'wrap', gap: 6,
         }}>
           <div style={{ width: '100%', color: C.textSec, fontSize: 10, fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 4 }}>
@@ -403,7 +441,7 @@ function TrainingChat() {
       <div style={{
         padding: '12px 16px',
         borderTop: `1px solid ${C.border}`,
-        background: C.card,
+        background: C.heroTop,
         display: 'flex', gap: 8,
       }}>
         <input
@@ -414,14 +452,23 @@ function TrainingChat() {
           disabled={loading}
           style={{
             flex: 1,
-            background: C.bgMain,
+            background: '#0B0F19',
             border: `1px solid ${C.border}`,
-            borderRadius: 4,
+            borderRadius: 6,
             padding: '9px 13px',
             color: C.textPrimary,
             fontSize: 13,
             outline: 'none',
             fontFamily: "'IBM Plex Sans', sans-serif",
+            transition: 'border-color 0.2s, box-shadow 0.2s',
+          }}
+          onFocus={e => {
+            e.currentTarget.style.borderColor = '#0EA5E9';
+            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(14, 165, 233, 0.15)';
+          }}
+          onBlur={e => {
+            e.currentTarget.style.borderColor = C.border;
+            e.currentTarget.style.boxShadow = 'none';
           }}
         />
         <button
