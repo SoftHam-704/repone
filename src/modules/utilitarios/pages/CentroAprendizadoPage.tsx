@@ -1,4 +1,4 @@
-import { BookOpen, Download, Music, ShoppingCart, Send, Loader2 } from 'lucide-react';
+import { BookOpen, Music, ShoppingCart, Send, Loader2 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '@/shared/lib/api';
@@ -30,7 +30,6 @@ const GLASS_BLUR = 'blur(12px)';
 // ─── URLs estáticas ─────────────────────────────────────────────────────────
 const PODCAST_GERAL_URL   = 'https://softham.com.br/repone/repone-treinamento.mp3';
 const PODCAST_PEDIDOS_URL = 'https://softham.com.br/repone/podcast-pedidos.m4a';
-const MANUAL_URL          = 'https://softham.com.br/repone/manual-repone.pdf';
 
 const CHAPTERS_GERAL = [
   { time: '00:00', title: 'Introdução ao SalesMasters' },
@@ -171,7 +170,7 @@ export default function CentroAprendizadoPage() {
                     width: 34, height: 34, background: C.greenDark, borderRadius: 4,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                   }}>
-                    <Download size={16} color="#FFFFFF" />
+                    <BookOpen size={16} color="#FFFFFF" />
                   </div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ color: C.green, fontSize: 8, fontWeight: 700, letterSpacing: 2, marginBottom: 2 }}>MANUAL</div>
@@ -179,49 +178,27 @@ export default function CentroAprendizadoPage() {
                       Manual Completo SalesMasters V2
                     </div>
                     <div style={{ color: C.textSec, fontSize: 9, marginTop: 2 }}>
-                      PDF • 19 capítulos · v2.0
+                      Leitura online · 19 capítulos · sempre atualizado
                     </div>
                   </div>
                 </div>
-                <div style={{ marginTop: 'auto', display: 'flex', gap: 8 }}>
-                  <Link
-                    to="/utilitarios/manual"
-                    style={{
-                      flex: 1,
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
-                      background: 'transparent', color: C.textPrimary,
-                      fontSize: 11, fontWeight: 700, letterSpacing: 1,
-                      padding: '9px 14px', borderRadius: 4, textDecoration: 'none',
-                      border: '1px solid rgba(255,255,255,0.18)',
-                      transition: 'all 0.2s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    <BookOpen size={12} />
-                    LER ONLINE
-                  </Link>
-                  <a
-                    href={MANUAL_URL}
-                    download
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      flex: 1,
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
-                      background: C.green, color: '#FFFFFF',
-                      fontSize: 11, fontWeight: 700, letterSpacing: 1,
-                      padding: '9px 14px', borderRadius: 4, textDecoration: 'none',
-                      boxShadow: '0 4px 12px rgba(14, 165, 233, 0.25)',
-                      transition: 'all 0.2s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = '#0284C7'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = C.green; }}
-                  >
-                    <Download size={12} />
-                    BAIXAR PDF
-                  </a>
-                </div>
+                <Link
+                  to="/utilitarios/manual"
+                  style={{
+                    marginTop: 'auto',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                    background: C.green, color: '#FFFFFF',
+                    fontSize: 11, fontWeight: 700, letterSpacing: 1,
+                    padding: '9px 14px', borderRadius: 4, textDecoration: 'none',
+                    boxShadow: '0 4px 12px rgba(14, 165, 233, 0.25)',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#0284C7'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = C.green; }}
+                >
+                  <BookOpen size={12} />
+                  LER MANUAL ONLINE
+                </Link>
               </div>
             </div>
           </div>

@@ -1,17 +1,16 @@
-import { createElement, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement, useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ArrowLeft, Download, Search, BookOpen, X, Loader2 } from 'lucide-react'
+import { ArrowLeft, Search, BookOpen, X, Loader2, RefreshCw } from 'lucide-react'
 import { api } from '@/shared/lib/api'
-// Fonte única: o MESMO markdown que gera o PDF (docs/manual-repone.md), buscado do
-// servidor em runtime — atualizar o manual = subir só o .md (sem redeploy do app).
+// Fonte única: o manual (docs/manual-repone.md) buscado do servidor em runtime —
+// atualizar o manual = subir só o .md (sem redeploy do app).
 
 const G = {
   bg: '#E8E1D4', card: '#FFFFFF', border: '#D6CDB8', text: '#28374A',
   muted: '#7A8899', navy: '#1E2D3D', gold: '#C8A24B', green: '#059669',
 }
-const MANUAL_PDF = 'https://softham.com.br/repone/manual-repone.pdf'
 
 function slug(t: string) {
   return String(t).toLowerCase().trim().replace(/[^\p{L}\p{N}\s-]/gu, '').replace(/\s/g, '-')
@@ -36,11 +35,13 @@ export default function ManualReaderPage() {
   const [raw, setRaw] = useState<string | null>(null)
   const [erro, setErro] = useState(false)
 
-  useEffect(() => {
+  const carregar = useCallback(() => {
+    setErro(false); setRaw(null)
     api.get('/manual', { responseType: 'text' })
       .then(r => setRaw(typeof r.data === 'string' ? r.data : String(r.data ?? '')))
       .catch(() => setErro(true))
   }, [])
+  useEffect(() => { carregar() }, [carregar])
 
   // Remove o sumário interno do .md (a barra lateral já é o índice) e o bloco de título do topo.
   const md = useMemo(() => {
@@ -106,10 +107,6 @@ export default function ManualReaderPage() {
             <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,.55)' }}>Leitura online · sempre na versão atual</p>
           </div>
         </div>
-        <a href={MANUAL_PDF} target="_blank" rel="noopener noreferrer"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: G.gold, color: G.navy, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
-          <Download size={15} /> Baixar PDF
-        </a>
       </div>
 
       {/* Corpo: índice + conteúdo */}
@@ -147,11 +144,11 @@ export default function ManualReaderPage() {
           {erro ? (
             <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>
               <p style={{ fontWeight: 600, color: G.text }}>Não foi possível carregar o manual agora.</p>
-              <p style={{ fontSize: 13 }}>Você ainda pode baixar a versão em PDF.</p>
-              <a href={MANUAL_PDF} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 8, background: G.gold, color: G.navy, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
-                <Download size={15} /> Baixar PDF
-              </a>
+              <p style={{ fontSize: 13 }}>Verifique sua conexão e tente novamente.</p>
+              <button onClick={carregar}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 8, background: G.navy, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                <RefreshCw size={15} /> Tentar novamente
+              </button>
             </div>
           ) : raw === null ? (
             <div style={{ padding: 60, textAlign: 'center', color: G.muted, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
