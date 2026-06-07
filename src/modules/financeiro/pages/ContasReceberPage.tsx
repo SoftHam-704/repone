@@ -73,6 +73,7 @@ interface Conta {
   plano_contas_descricao: string
   centro_custo_descricao: string
   recebido_periodo?: number
+  venc_periodo?: number
   parcelas?: Parcela[]
 }
 
@@ -907,7 +908,8 @@ export default function ContasReceberPage() {
     recebido: acc.recebido + Number(c.valor_recebido),
     saldo:    acc.saldo    + Number(c.saldo),
     recebidoPeriodo: acc.recebidoPeriodo + Number(c.recebido_periodo || 0),
-  }), { total: 0, recebido: 0, saldo: 0, recebidoPeriodo: 0 })
+    vencPeriodo: acc.vencPeriodo + Number(c.venc_periodo || 0),
+  }), { total: 0, recebido: 0, saldo: 0, recebidoPeriodo: 0, vencPeriodo: 0 })
   const porRecebimento = filters.filtrarPor === 'recebimento'
 
   const vencidas = filtered.filter(c => c.status === 'ABERTO' && new Date(c.data_vencimento) < new Date(todayISO())).length
@@ -961,10 +963,10 @@ export default function ContasReceberPage() {
             { label: 'Saldo Pendente',      value: fmtBRL(totais.saldo),           color: totais.saldo > 0 ? G.amber : G.muted },
             { label: 'Contas',              value: String(filtered.length),        color: G.muted },
           ] : [
-            { label: 'Total a Receber', value: fmtBRL(totais.total),    color: G.navy },
-            { label: 'Já Recebido',     value: fmtBRL(totais.recebido), color: G.green },
-            { label: 'Saldo Pendente',  value: fmtBRL(totais.saldo),    color: totais.saldo > 0 ? G.amber : G.muted },
-            { label: 'Vencidas',        value: String(vencidas),        color: vencidas > 0 ? G.red : G.muted },
+            { label: 'A receber no período', value: fmtBRL(totais.vencPeriodo), color: G.navy },
+            { label: 'Total das contas',     value: fmtBRL(totais.total),       color: G.muted },
+            { label: 'Já recebido',          value: fmtBRL(totais.recebido),    color: G.green },
+            { label: 'Vencidas',             value: String(vencidas),           color: vencidas > 0 ? G.red : G.muted },
           ]).map(({ label, value, color }) => (
             <div key={label} style={{
               background: G.card, borderRadius: 10, padding: '14px 18px',
@@ -1039,7 +1041,7 @@ export default function ContasReceberPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: G.bg, borderBottom: `1px solid ${G.border}` }}>
-                  {['Descrição', 'Cliente', 'Vencimento', 'Valor Total', 'Recebido', ...(porRecebimento ? ['Recebido no período'] : []), 'Saldo', 'Status', ''].map(h => (
+                  {['Descrição', 'Cliente', 'Vencimento', 'Valor Total', 'Recebido', 'Saldo', porRecebimento ? 'Recebido no período' : 'Vence no período', 'Status', ''].map(h => (
                     <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: G.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                   ))}
                 </tr>
@@ -1055,8 +1057,8 @@ export default function ContasReceberPage() {
                     <td style={{ padding: '10px 12px', color: isVencida(c) ? G.red : G.text, fontWeight: isVencida(c) ? 600 : 400 }}>{fmtDate(c.data_vencimento)}</td>
                     <td style={{ padding: '10px 12px', color: G.text }}>{fmtBRL(c.valor_total)}</td>
                     <td style={{ padding: '10px 12px', color: G.green }}>{fmtBRL(c.valor_recebido)}</td>
-                    {porRecebimento && <td style={{ padding: '10px 12px', color: G.green, fontWeight: 700 }}>{fmtBRL(c.recebido_periodo || 0)}</td>}
                     <td style={{ padding: '10px 12px', color: Number(c.saldo) > 0 ? G.amber : G.muted, fontWeight: 600 }}>{fmtBRL(c.saldo)}</td>
+                    <td style={{ padding: '10px 12px', color: porRecebimento ? G.green : G.navy, fontWeight: 700 }}>{fmtBRL((porRecebimento ? c.recebido_periodo : c.venc_periodo) || 0)}</td>
                     <td style={{ padding: '10px 12px' }}><StatusBadge status={c.status} /></td>
                     <td style={{ padding: '10px 12px' }}>
                       <div style={{ display: 'flex', gap: 6 }}>

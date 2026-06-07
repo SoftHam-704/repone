@@ -74,6 +74,7 @@ interface Conta {
   fornecedor_nome: string
   plano_contas_descricao: string
   pago_periodo?: number
+  venc_periodo?: number
   parcelas?: Parcela[]
 }
 
@@ -937,7 +938,8 @@ export default function ContasPagarPage() {
     pago:  acc.pago  + Number(c.valor_pago),
     saldo: acc.saldo + Number(c.saldo),
     pagoPeriodo: acc.pagoPeriodo + Number(c.pago_periodo || 0),
-  }), { total: 0, pago: 0, saldo: 0, pagoPeriodo: 0 })
+    vencPeriodo: acc.vencPeriodo + Number(c.venc_periodo || 0),
+  }), { total: 0, pago: 0, saldo: 0, pagoPeriodo: 0, vencPeriodo: 0 })
   const porPagamento = filters.filtrarPor === 'pagamento'
 
   const vencidas = filtered.filter(c => c.status === 'ABERTO' && new Date(c.data_vencimento) < new Date(todayISO())).length
@@ -991,10 +993,10 @@ export default function ContasPagarPage() {
             { label: 'Saldo Pendente',   value: fmtBRL(totais.saldo),       color: totais.saldo > 0 ? G.amber : G.muted },
             { label: 'Contas',           value: String(filtered.length),    color: G.muted },
           ] : [
-            { label: 'Total a Pagar',   value: fmtBRL(totais.total), color: G.navy },
-            { label: 'Já Pago',         value: fmtBRL(totais.pago),  color: G.green },
-            { label: 'Saldo Pendente',  value: fmtBRL(totais.saldo), color: totais.saldo > 0 ? G.amber : G.muted },
-            { label: 'Vencidas',        value: String(vencidas),     color: vencidas > 0 ? G.red : G.muted },
+            { label: 'A pagar no período', value: fmtBRL(totais.vencPeriodo), color: G.navy },
+            { label: 'Total das contas',   value: fmtBRL(totais.total),       color: G.muted },
+            { label: 'Já pago',            value: fmtBRL(totais.pago),        color: G.green },
+            { label: 'Vencidas',           value: String(vencidas),           color: vencidas > 0 ? G.red : G.muted },
           ]).map(({ label, value, color }) => (
             <div key={label} style={{
               background: G.card, borderRadius: 10, padding: '14px 18px',
@@ -1067,7 +1069,7 @@ export default function ContasPagarPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: G.bg, borderBottom: `1px solid ${G.border}` }}>
-                  {['Descrição', 'Fornecedor', 'Vencimento', 'Valor Total', 'Pago', ...(porPagamento ? ['Pago no período'] : []), 'Saldo', 'Status', ''].map(h => (
+                  {['Descrição', 'Fornecedor', 'Vencimento', 'Valor Total', 'Pago', 'Saldo', porPagamento ? 'Pago no período' : 'Vence no período', 'Status', ''].map(h => (
                     <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: G.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                   ))}
                 </tr>
@@ -1083,8 +1085,8 @@ export default function ContasPagarPage() {
                     <td style={{ padding: '10px 12px', color: isVencida(c) ? G.red : G.text, fontWeight: isVencida(c) ? 600 : 400 }}>{fmtDate(c.data_vencimento)}</td>
                     <td style={{ padding: '10px 12px' }}>{fmtBRL(c.valor_total)}</td>
                     <td style={{ padding: '10px 12px', color: G.green }}>{fmtBRL(c.valor_pago)}</td>
-                    {porPagamento && <td style={{ padding: '10px 12px', color: G.green, fontWeight: 700 }}>{fmtBRL(c.pago_periodo || 0)}</td>}
                     <td style={{ padding: '10px 12px', color: Number(c.saldo) > 0 ? G.amber : G.muted, fontWeight: 600 }}>{fmtBRL(c.saldo)}</td>
+                    <td style={{ padding: '10px 12px', color: porPagamento ? G.green : G.navy, fontWeight: 700 }}>{fmtBRL((porPagamento ? c.pago_periodo : c.venc_periodo) || 0)}</td>
                     <td style={{ padding: '10px 12px' }}><StatusBadge status={c.status} /></td>
                     <td style={{ padding: '10px 12px' }}>
                       <div style={{ display: 'flex', gap: 6 }}>

@@ -293,27 +293,42 @@ export async function listContasPagarHandler(req: Request, res: Response): Promi
         ORDER BY cp.data_vencimento DESC, cp.id DESC
       `;
     } else {
-      // Modo VENCIMENTO (padrão): contas com vencimento dentro do período.
+      // Modo VENCIMENTO (padrão): contas que têm PARCELAS vencendo no período.
+      // venc_periodo = saldo das parcelas (em aberto) que vencem no intervalo — o valor REAL do
+      // período. NÃO usa o valor_total da conta (que pode ter parcelas em vários meses).
+      const subConds: string[] = [`pp.status = 'ABERTO'`];
+      if (dataInicio) { subConds.push(`pp.data_vencimento >= $${i++}`); params.push(dataInicio); }
+      if (dataFim)    { subConds.push(`pp.data_vencimento <= $${i++}`); params.push(dataFim); }
+
+      const outConds: string[] = [];
+      if (status)        { outConds.push(`cp.status = $${i++}`);          params.push(status); }
+      if (idFornecedor)  { outConds.push(`cp.id_fornecedor = $${i++}`);   params.push(idFornecedor); }
+      if (idPlanoContas) { outConds.push(`cp.id_plano_contas = $${i++}`); params.push(idPlanoContas); }
+      if (idCentroCusto) { outConds.push(`cp.id_centro_custo = $${i++}`); params.push(idCentroCusto); }
+
       query = `
         SELECT cp.id, cp.descricao, cp.numero_documento, cp.valor_total, cp.valor_pago,
                cp.data_emissao, cp.data_vencimento, cp.data_pagamento, cp.status, cp.observacoes,
                f.nome_razao AS fornecedor_nome,
                pc.descricao AS plano_contas_descricao,
                cc.descricao AS centro_custo_descricao,
-               (cp.valor_total - cp.valor_pago) AS saldo
+               (cp.valor_total - COALESCE(cp.valor_pago,0)) AS saldo,
+               per.venc_periodo
         FROM fin_contas_pagar cp
+        JOIN (
+          SELECT pp.id_conta_pagar,
+                 SUM(pp.valor - COALESCE(pp.valor_pago,0)) AS venc_periodo
+          FROM fin_parcelas_pagar pp
+          WHERE ${subConds.join(' AND ')}
+          GROUP BY pp.id_conta_pagar
+          HAVING SUM(pp.valor - COALESCE(pp.valor_pago,0)) > 0
+        ) per ON per.id_conta_pagar = cp.id
         LEFT JOIN fin_fornecedores f  ON cp.id_fornecedor  = f.id
         LEFT JOIN fin_plano_contas pc ON cp.id_plano_contas = pc.id
         LEFT JOIN fin_centro_custo cc ON cp.id_centro_custo = cc.id
-        WHERE 1=1
+        ${outConds.length ? 'WHERE ' + outConds.join(' AND ') : ''}
+        ORDER BY cp.data_vencimento DESC, cp.id DESC
       `;
-      if (dataInicio)    { query += ` AND cp.data_vencimento >= $${i++}`; params.push(dataInicio); }
-      if (dataFim)       { query += ` AND cp.data_vencimento <= $${i++}`; params.push(dataFim); }
-      if (status)        { query += ` AND cp.status = $${i++}`;           params.push(status); }
-      if (idFornecedor)  { query += ` AND cp.id_fornecedor = $${i++}`;    params.push(idFornecedor); }
-      if (idPlanoContas) { query += ` AND cp.id_plano_contas = $${i++}`;  params.push(idPlanoContas); }
-      if (idCentroCusto) { query += ` AND cp.id_centro_custo = $${i++}`;  params.push(idCentroCusto); }
-      query += ` ORDER BY cp.data_vencimento DESC, cp.id DESC`;
     }
 
     const result = await db.query(query, params);
@@ -714,26 +729,39 @@ export async function listContasReceberHandler(req: Request, res: Response): Pro
         ORDER BY cr.data_vencimento DESC, cr.id DESC
       `;
     } else {
+      // Modo VENCIMENTO (padrão): contas que têm PARCELAS vencendo no período.
+      // venc_periodo = saldo das parcelas (em aberto) que vencem no intervalo — o valor REAL do período.
+      const subConds: string[] = [`pr.status = 'ABERTO'`];
+      if (dataInicio) { subConds.push(`pr.data_vencimento >= $${i++}`); params.push(dataInicio); }
+      if (dataFim)    { subConds.push(`pr.data_vencimento <= $${i++}`); params.push(dataFim); }
+      const outConds: string[] = [];
+      if (status)        { outConds.push(`cr.status = $${i++}`);          params.push(status); }
+      if (idCliente)     { outConds.push(`cr.id_cliente = $${i++}`);      params.push(idCliente); }
+      if (idPlanoContas) { outConds.push(`cr.id_plano_contas = $${i++}`); params.push(idPlanoContas); }
+      if (idCentroCusto) { outConds.push(`cr.id_centro_custo = $${i++}`); params.push(idCentroCusto); }
       query = `
         SELECT cr.id, cr.descricao, cr.numero_documento, cr.valor_total, cr.valor_recebido,
                cr.data_emissao, cr.data_vencimento, cr.data_recebimento, cr.status, cr.observacoes,
                c.nome_razao AS cliente_nome,
                pc.descricao AS plano_contas_descricao,
                cc.descricao AS centro_custo_descricao,
-               (cr.valor_total - cr.valor_recebido) AS saldo
+               (cr.valor_total - COALESCE(cr.valor_recebido,0)) AS saldo,
+               per.venc_periodo
         FROM fin_contas_receber cr
+        JOIN (
+          SELECT pr.id_conta_receber,
+                 SUM(pr.valor - COALESCE(pr.valor_recebido,0)) AS venc_periodo
+          FROM fin_parcelas_receber pr
+          WHERE ${subConds.join(' AND ')}
+          GROUP BY pr.id_conta_receber
+          HAVING SUM(pr.valor - COALESCE(pr.valor_recebido,0)) > 0
+        ) per ON per.id_conta_receber = cr.id
         LEFT JOIN fin_clientes c       ON cr.id_cliente     = c.id
         LEFT JOIN fin_plano_contas pc  ON cr.id_plano_contas = pc.id
         LEFT JOIN fin_centro_custo cc  ON cr.id_centro_custo = cc.id
-        WHERE 1=1
+        ${outConds.length ? 'WHERE ' + outConds.join(' AND ') : ''}
+        ORDER BY cr.data_vencimento DESC, cr.id DESC
       `;
-      if (dataInicio)    { query += ` AND cr.data_vencimento >= $${i++}`; params.push(dataInicio); }
-      if (dataFim)       { query += ` AND cr.data_vencimento <= $${i++}`; params.push(dataFim); }
-      if (status)        { query += ` AND cr.status = $${i++}`;           params.push(status); }
-      if (idCliente)     { query += ` AND cr.id_cliente = $${i++}`;       params.push(idCliente); }
-      if (idPlanoContas) { query += ` AND cr.id_plano_contas = $${i++}`;  params.push(idPlanoContas); }
-      if (idCentroCusto) { query += ` AND cr.id_centro_custo = $${i++}`;  params.push(idCentroCusto); }
-      query += ` ORDER BY cr.data_vencimento DESC, cr.id DESC`;
     }
 
     const result = await db.query(query, params);
