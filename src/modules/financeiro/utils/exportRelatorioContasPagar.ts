@@ -5,7 +5,7 @@ import { saveAs } from 'file-saver'
 // As parcelas PAGAS saem com fundo amarelo (o amarelão). Subtotal por centro + total geral.
 
 const MONEY = '#,##0.00'
-const YELLOW = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF08A' } } as any // amarelão
+const YELLOW = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF9C3' } } as any // amarelo discreto
 const NAVY = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E2D3D' } } as any
 const GREENBG = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD4EDDA' } } as any
 

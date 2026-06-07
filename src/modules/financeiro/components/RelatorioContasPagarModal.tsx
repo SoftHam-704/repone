@@ -6,7 +6,7 @@ import { exportRelatorioContasPagar } from '../utils/exportRelatorioContasPagar'
 const G = {
   bg: '#E8E1D4', card: '#FFFFFF', border: '#D6CDB8', text: '#28374A',
   muted: '#7A8899', navy: '#1E2D3D', green: '#059669', amber: '#D97706', red: '#DC2626',
-  yellow: '#FEF08A',
+  yellow: '#FEF9C3',
 }
 const fmtBRL = (n: number) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 function fmtDate(d?: string | null) {
