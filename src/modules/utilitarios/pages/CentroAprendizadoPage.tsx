@@ -205,7 +205,7 @@ export default function CentroAprendizadoPage() {
 
           {/* Assistente */}
           <div>
-            <SectionHeader tag="// Pergunte" title="Assistente de Treinamento" />
+            <SectionHeader tag="// Pergunte" title="Pergunte à IRIS" />
             <TrainingChat />
           </div>
 
@@ -325,7 +325,7 @@ const SUGGESTED = [
 
 function TrainingChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'assistant', content: 'Olá! Sou a IRIS, assistente de treinamento do SalesMasters. Pergunte qualquer coisa sobre o sistema.' },
+    { role: 'assistant', content: 'Olá! Sou a IRIS. Pergunte qualquer coisa sobre como usar o RepOne — eu respondo direto do manual.' },
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -445,7 +445,7 @@ function TrainingChat() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send(input)}
-          placeholder="Pergunte sobre o SalesMasters..."
+          placeholder="Pergunte à IRIS sobre o RepOne..."
           disabled={loading}
           style={{
             flex: 1,
