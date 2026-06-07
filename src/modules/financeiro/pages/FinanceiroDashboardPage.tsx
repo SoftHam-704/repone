@@ -4,10 +4,6 @@ import {
   ArrowDownCircle, ArrowUpCircle, TrendingUp, AlertTriangle,
   Plus, BarChart2, Wallet, ChevronRight, BookOpen, PieChart, FileText
 } from 'lucide-react'
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend
-} from 'recharts'
 import { api } from '@/shared/lib/api'
 
 const G = {
@@ -61,25 +57,39 @@ function KpiCard({ label, value, sub, color, icon: Icon, to }: {
   )
 }
 
-function AlertBox({ label, value, color }: { label: string; value: number; color: string }) {
+// Rosca (donut) de um centro de custo — mostra só o valor daquele centro e o seu peso no período.
+function Donut({ name, value, pct, color }: { name: string; value: number; pct: number; color: string }) {
+  const size = 108, stroke = 12
+  const r = (size - stroke) / 2
+  const circ = 2 * Math.PI * r
+  const frac = Math.max(0, Math.min(1, pct))
+  const dash = frac * circ
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${G.border}` }}>
-      <span style={{ fontSize: 13, color: G.text }}>{label}</span>
-      <span style={{ fontSize: 13, fontWeight: 700, color }}>{fmtBRL(value)}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 9, padding: '10px 6px' }}>
+      <div style={{ position: 'relative', width: size, height: size }}>
+        <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={G.bg} strokeWidth={stroke} />
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+            strokeDasharray={`${dash} ${circ - dash}`} strokeLinecap="round" />
+        </svg>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontSize: 19, fontWeight: 800, color: G.text, lineHeight: 1 }}>{Math.round(frac * 100)}%</span>
+          <span style={{ fontSize: 9, color: G.muted, textTransform: 'uppercase', letterSpacing: '.04em', marginTop: 2 }}>do período</span>
+        </div>
+      </div>
+      <div style={{ textAlign: 'center', maxWidth: 158 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: G.text, lineHeight: 1.25, height: 28, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }} title={name}>{name}</div>
+        <div style={{ fontSize: 14, fontWeight: 800, color, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(value)}</div>
+      </div>
     </div>
   )
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (!active || !payload?.length) return null
+function VencItem({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>
-      <div style={{ fontWeight: 600, color: G.text, marginBottom: 6 }}>{label}</div>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} style={{ color: p.color }}>
-          {p.name}: {fmtBRL(Number(p.value))}
-        </div>
-      ))}
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${G.border}` }}>
+      <span style={{ fontSize: 13, color: G.text }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color, fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(value)}</span>
     </div>
   )
 }
@@ -206,72 +216,67 @@ export default function FinanceiroDashboardPage() {
           {loading && <span style={{ fontSize: 11, color: G.muted, marginLeft: 'auto' }}>atualizando…</span>}
         </div>
 
-        {/* Chart + Alerts */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20, marginBottom: 20 }}>
-
-          {/* Receitas × Despesas por Centro de Custo */}
-          <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,.05)' }}>
-            <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: G.text }}>Receitas × Despesas por Centro de Custo</div>
-              <div style={{ fontSize: 12, color: G.muted }}>{ano}{meses.length ? ` · ${meses.length} ${meses.length === 1 ? 'mês' : 'meses'}` : ' · ano todo'} · por vencimento</div>
-            </div>
-            {(() => {
-              const lista = data?.por_centro ?? []
-              if (!lista.length) return <div style={{ padding: 40, textAlign: 'center', color: G.muted, fontSize: 13 }}>Sem lançamentos no período selecionado.</div>
-              const max = Math.max(1, ...lista.flatMap(c => [Number(c.receitas), Number(c.despesas)]))
-              return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: 300, overflowY: 'auto', paddingRight: 4 }}>
-                  {lista.map(c => {
-                    const rec = Number(c.receitas), desp = Number(c.despesas)
-                    return (
-                      <div key={c.centro}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12, marginBottom: 5 }}>
-                          <span style={{ color: G.text, fontWeight: 600, maxWidth: '58%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.centro}</span>
-                          <span style={{ color: G.muted, fontSize: 11 }}>Saldo <strong style={{ color: rec - desp >= 0 ? G.green : G.red }}>{fmtBRL(rec - desp)}</strong></span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                          <div style={{ flex: 1, height: 13, background: G.bg, borderRadius: 4, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${(rec / max) * 100}%`, background: G.green, borderRadius: 4, minWidth: rec > 0 ? 2 : 0 }} />
-                          </div>
-                          <span style={{ fontSize: 11, color: G.green, fontWeight: 600, width: 112, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(rec)}</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ flex: 1, height: 13, background: G.bg, borderRadius: 4, overflow: 'hidden' }}>
-                            <div style={{ height: '100%', width: `${(desp / max) * 100}%`, background: G.red, borderRadius: 4, minWidth: desp > 0 ? 2 : 0 }} />
-                          </div>
-                          <span style={{ fontSize: 11, color: G.red, fontWeight: 600, width: 112, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(desp)}</span>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })()}
-            <div style={{ display: 'flex', gap: 16, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${G.border}`, fontSize: 11, color: G.muted }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: G.green }} /> Receitas</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: G.red }} /> Despesas</span>
-            </div>
+        {/* Em aberto por Centro de Custo — roscas */}
+        <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,.05)', marginBottom: 20 }}>
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: G.text }}>Em aberto por Centro de Custo</div>
+            <div style={{ fontSize: 12, color: G.muted }}>Saldo a pagar/receber · {ano}{meses.length ? ` · ${meses.length} ${meses.length === 1 ? 'mês' : 'meses'}` : ' · ano todo'} · por vencimento</div>
           </div>
+          {(() => {
+            const lista = data?.por_centro ?? []
+            if (!lista.length) return <div style={{ padding: 40, textAlign: 'center', color: G.muted, fontSize: 13 }}>Sem lançamentos em aberto no período selecionado.</div>
+            const itens = lista.map(c => {
+              const rec = Number(c.receitas), desp = Number(c.despesas)
+              const net = rec - desp
+              return { centro: c.centro, rec, desp, net, abs: Math.abs(net) }
+            })
+            const somaAbs = itens.reduce((s, i) => s + i.abs, 0) || 1
+            const totDesp = itens.reduce((s, i) => s + i.desp, 0)
+            const totRec  = itens.reduce((s, i) => s + i.rec, 0)
+            return (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(172px, 1fr))', gap: 6, maxHeight: 400, overflowY: 'auto' }}>
+                  {itens.map(i => (
+                    <Donut key={i.centro} name={i.centro} value={i.abs} pct={i.abs / somaAbs}
+                      color={i.net >= 0 ? G.green : G.red} />
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginTop: 18, paddingTop: 14, borderTop: `1px solid ${G.border}`, fontSize: 12, color: G.muted }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: G.red }} /> Despesas em aberto: <strong style={{ color: G.red }}>{fmtBRL(totDesp)}</strong></span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: G.green }} /> Receitas em aberto: <strong style={{ color: G.green }}>{fmtBRL(totRec)}</strong></span>
+                  <span style={{ marginLeft: 'auto', color: G.text }}>Confere com os cards <strong>A Pagar</strong> / <strong>A Receber</strong> acima.</span>
+                </div>
+              </>
+            )
+          })()}
+        </div>
 
-          {/* Alertas */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 20, flex: 1, boxShadow: '0 2px 8px rgba(0,0,0,.05)', borderTop: `3px solid ${G.red}` }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: G.text, marginBottom: 12 }}>Atenção — A Pagar</div>
-              <AlertBox label="Vencidas"     value={Number(p?.vencido ?? 0)}     color={G.red} />
-              <AlertBox label="Vencem hoje"  value={Number(p?.hoje ?? 0)}        color={G.mustard} />
-              <AlertBox label="Próx. 7 dias" value={Number(p?.prox_7_dias ?? 0)} color={G.text} />
-              <Link to="/financeiro/pagar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 10, fontSize: 12, color: G.mustard, fontWeight: 600, textDecoration: 'none' }}>
-                Ver todos <ChevronRight size={13} />
+        {/* Próximos vencimentos — A Pagar × A Receber lado a lado */}
+        <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 22, boxShadow: '0 2px 8px rgba(0,0,0,.05)', marginBottom: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: G.text, marginBottom: 16 }}>Próximos vencimentos</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 24 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                <ArrowUpCircle size={15} color={G.red} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: G.text }}>A Pagar</span>
+              </div>
+              <VencItem label="Vencidas"     value={Number(p?.vencido ?? 0)}     color={G.red} />
+              <VencItem label="Vencem hoje"  value={Number(p?.hoje ?? 0)}        color={G.mustard} />
+              <VencItem label="Próx. 7 dias" value={Number(p?.prox_7_dias ?? 0)} color={G.text} />
+              <Link to="/financeiro/pagar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 10, fontSize: 12, color: G.muted, fontWeight: 600, textDecoration: 'none' }}>
+                Abrir Contas a Pagar <ChevronRight size={13} />
               </Link>
             </div>
-
-            <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 20, flex: 1, boxShadow: '0 2px 8px rgba(0,0,0,.05)', borderTop: `3px solid ${G.green}` }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: G.text, marginBottom: 12 }}>Atenção — A Receber</div>
-              <AlertBox label="Vencidas"     value={Number(r?.vencido ?? 0)}     color={G.red} />
-              <AlertBox label="Vencem hoje"  value={Number(r?.hoje ?? 0)}        color={G.mustard} />
-              <AlertBox label="Próx. 7 dias" value={Number(r?.prox_7_dias ?? 0)} color={G.text} />
-              <Link to="/financeiro/receber" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 10, fontSize: 12, color: G.mustard, fontWeight: 600, textDecoration: 'none' }}>
-                Ver todos <ChevronRight size={13} />
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                <ArrowDownCircle size={15} color={G.green} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: G.text }}>A Receber</span>
+              </div>
+              <VencItem label="Vencidas"     value={Number(r?.vencido ?? 0)}     color={G.red} />
+              <VencItem label="Vencem hoje"  value={Number(r?.hoje ?? 0)}        color={G.mustard} />
+              <VencItem label="Próx. 7 dias" value={Number(r?.prox_7_dias ?? 0)} color={G.text} />
+              <Link to="/financeiro/receber" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 10, fontSize: 12, color: G.muted, fontWeight: 600, textDecoration: 'none' }}>
+                Abrir Contas a Receber <ChevronRight size={13} />
               </Link>
             </div>
           </div>

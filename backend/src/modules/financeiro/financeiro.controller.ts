@@ -1193,20 +1193,24 @@ export async function financeiroDashboardHandler(req: Request, res: Response): P
           COALESCE(SUM(CASE WHEN status='ABERTO' THEN valor_total - valor_pago ELSE 0 END), 0) AS total_aberto
         FROM fin_contas_pagar WHERE ${periodo}
       `, [ano, mesesArr]),
+      // Em aberto por Centro de Custo — MESMA base dos cards (status ABERTO, saldo = valor_total - pago/recebido).
+      // Assim a soma das roscas confere exatamente com os cards A Pagar / A Receber.
       db.query(`
         SELECT centro,
                COALESCE(SUM(receitas), 0)::numeric AS receitas,
                COALESCE(SUM(despesas), 0)::numeric AS despesas
         FROM (
           SELECT COALESCE(NULLIF(TRIM(cc.descricao), ''), '(Sem centro de custo)') AS centro,
-                 cr.valor_total AS receitas, 0 AS despesas
+                 (cr.valor_total - cr.valor_recebido) AS receitas, 0 AS despesas
           FROM fin_contas_receber cr LEFT JOIN fin_centro_custo cc ON cr.id_centro_custo = cc.id
-          WHERE EXTRACT(YEAR FROM cr.data_vencimento) = $1 AND ($2::int[] IS NULL OR EXTRACT(MONTH FROM cr.data_vencimento) = ANY($2::int[]))
+          WHERE cr.status = 'ABERTO'
+            AND EXTRACT(YEAR FROM cr.data_vencimento) = $1 AND ($2::int[] IS NULL OR EXTRACT(MONTH FROM cr.data_vencimento) = ANY($2::int[]))
           UNION ALL
           SELECT COALESCE(NULLIF(TRIM(cc.descricao), ''), '(Sem centro de custo)'),
-                 0, cp.valor_total
+                 0, (cp.valor_total - cp.valor_pago)
           FROM fin_contas_pagar cp LEFT JOIN fin_centro_custo cc ON cp.id_centro_custo = cc.id
-          WHERE EXTRACT(YEAR FROM cp.data_vencimento) = $1 AND ($2::int[] IS NULL OR EXTRACT(MONTH FROM cp.data_vencimento) = ANY($2::int[]))
+          WHERE cp.status = 'ABERTO'
+            AND EXTRACT(YEAR FROM cp.data_vencimento) = $1 AND ($2::int[] IS NULL OR EXTRACT(MONTH FROM cp.data_vencimento) = ANY($2::int[]))
         ) t GROUP BY centro
         HAVING COALESCE(SUM(receitas), 0) > 0 OR COALESCE(SUM(despesas), 0) > 0
         ORDER BY (COALESCE(SUM(receitas), 0) + COALESCE(SUM(despesas), 0)) DESC
