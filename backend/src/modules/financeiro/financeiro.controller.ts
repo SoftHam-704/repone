@@ -348,8 +348,8 @@ export async function relatorioContasPagarHandler(req: Request, res: Response): 
              p.data_vencimento                           AS data_vencimento,
              p.data_pagamento                            AS data_pagamento,
              p.valor::numeric                            AS valor,
-             p.valor_pago::numeric                       AS pago,
-             (p.valor - p.valor_pago)::numeric           AS saldo,
+             COALESCE(p.valor_pago,0)::numeric           AS pago,
+             (p.valor - COALESCE(p.valor_pago,0))::numeric AS saldo,
              p.status                                    AS status
       FROM fin_parcelas_pagar p
       JOIN fin_contas_pagar cp ON cp.id = p.id_conta_pagar
@@ -1022,8 +1022,8 @@ export async function relatorioContasReceberHandler(req: Request, res: Response)
              p.data_vencimento                           AS data_vencimento,
              p.data_recebimento                          AS data_recebimento,
              p.valor::numeric                            AS valor,
-             p.valor_recebido::numeric                   AS recebido,
-             (p.valor - p.valor_recebido)::numeric       AS saldo,
+             COALESCE(p.valor_recebido,0)::numeric       AS recebido,
+             (p.valor - COALESCE(p.valor_recebido,0))::numeric AS saldo,
              p.status                                    AS status
       FROM fin_parcelas_receber p
       JOIN fin_contas_receber cr ON cr.id = p.id_conta_receber
@@ -1073,20 +1073,19 @@ export async function fluxoCaixaHandler(req: Request, res: Response): Promise<vo
       WITH periodos AS (
         SELECT generate_series($1::date, $2::date, '1 day'::interval)::date AS dia
       ),
+      -- Fonte da verdade = ledger (fin_baixas_*): pega baixas integrais E parciais e desconta estornos.
       entradas AS (
-        SELECT date_trunc('${trunc}', data_recebimento::date) AS periodo,
-               COALESCE(SUM(valor_recebido), 0) AS valor
-        FROM fin_parcelas_receber
-        WHERE status = 'RECEBIDO'
-          AND data_recebimento BETWEEN $1 AND $2
+        SELECT date_trunc('${trunc}', b.data::date) AS periodo,
+               COALESCE(SUM(CASE WHEN b.tipo='BAIXA' THEN b.valor_recebido ELSE -b.valor_recebido END), 0) AS valor
+        FROM fin_baixas_receber b
+        WHERE b.data BETWEEN $1 AND $2
         GROUP BY 1
       ),
       saidas AS (
-        SELECT date_trunc('${trunc}', data_pagamento::date) AS periodo,
-               COALESCE(SUM(valor_pago), 0) AS valor
-        FROM fin_parcelas_pagar
-        WHERE status = 'PAGO'
-          AND data_pagamento BETWEEN $1 AND $2
+        SELECT date_trunc('${trunc}', b.data::date) AS periodo,
+               COALESCE(SUM(CASE WHEN b.tipo='BAIXA' THEN b.valor_pago ELSE -b.valor_pago END), 0) AS valor
+        FROM fin_baixas_pagar b
+        WHERE b.data BETWEEN $1 AND $2
         GROUP BY 1
       ),
       agrupado AS (
@@ -1123,27 +1122,34 @@ export async function dreHandler(req: Request, res: Response): Promise<void> {
     const { mes, ano } = req.query as Record<string, string>;
     if (!mes || !ano) { res.status(400).json({ success: false, message: 'mes e ano são obrigatórios' }); return; }
 
+    // DRE regime de CAIXA: o que foi efetivamente recebido/pago no mês (pela data da baixa no ledger),
+    // por plano de contas. Captura baixas parciais e desconta estornos. NÃO usa o vencimento do
+    // cabeçalho da conta (parcela vence em meses diferentes do header).
     const result = await db.query(`
       SELECT
         pc.tipo,
         pc.codigo,
         pc.descricao,
-        COALESCE(
-          SUM(CASE WHEN pc.tipo='R' THEN pr.valor_recebido ELSE pp.valor_pago END), 0
-        ) AS valor
+        COALESCE(SUM(mov.valor), 0) AS valor
       FROM fin_plano_contas pc
-      LEFT JOIN fin_contas_receber cr ON cr.id_plano_contas = pc.id
-        AND EXTRACT(MONTH FROM cr.data_vencimento) = $1
-        AND EXTRACT(YEAR  FROM cr.data_vencimento) = $2
-      LEFT JOIN fin_parcelas_receber pr ON pr.id_conta_receber = cr.id AND pr.status='RECEBIDO'
-      LEFT JOIN fin_contas_pagar cp ON cp.id_plano_contas = pc.id
-        AND EXTRACT(MONTH FROM cp.data_vencimento) = $1
-        AND EXTRACT(YEAR  FROM cp.data_vencimento) = $2
-      LEFT JOIN fin_parcelas_pagar pp ON pp.id_conta_pagar = cp.id AND pp.status='PAGO'
+      LEFT JOIN (
+        SELECT cr.id_plano_contas AS id_plano,
+               (CASE WHEN b.tipo='BAIXA' THEN b.valor_recebido ELSE -b.valor_recebido END) AS valor
+        FROM fin_baixas_receber b
+        JOIN fin_parcelas_receber pr ON pr.id = b.id_parcela
+        JOIN fin_contas_receber cr   ON cr.id = pr.id_conta_receber
+        WHERE EXTRACT(MONTH FROM b.data) = $1 AND EXTRACT(YEAR FROM b.data) = $2
+        UNION ALL
+        SELECT cp.id_plano_contas,
+               (CASE WHEN b.tipo='BAIXA' THEN b.valor_pago ELSE -b.valor_pago END) AS valor
+        FROM fin_baixas_pagar b
+        JOIN fin_parcelas_pagar pp ON pp.id = b.id_parcela
+        JOIN fin_contas_pagar cp   ON cp.id = pp.id_conta_pagar
+        WHERE EXTRACT(MONTH FROM b.data) = $1 AND EXTRACT(YEAR FROM b.data) = $2
+      ) mov ON mov.id_plano = pc.id
       WHERE pc.ativo = true
       GROUP BY pc.tipo, pc.codigo, pc.descricao, pc.nivel
-      HAVING COALESCE(SUM(CASE WHEN pc.tipo='R' THEN pr.valor_recebido ELSE pp.valor_pago END),0) != 0
-         OR pc.nivel = 1
+      HAVING COALESCE(SUM(mov.valor), 0) != 0 OR pc.nivel = 1
       ORDER BY pc.codigo
     `, [parseInt(mes), parseInt(ano)]);
 
