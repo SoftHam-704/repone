@@ -18,6 +18,7 @@ import {
   // Contas a Receber
   listContasReceberHandler, getContaReceberHandler, createContaReceberHandler, updateContaReceberHandler,
   baixaContaReceberHandler, deleteContaReceberHandler,
+  estornoBaixaReceberHandler, extratoContaReceberHandler, relatorioContasReceberHandler,
   // Relatórios
   fluxoCaixaHandler, dreHandler,
   // Dashboard
@@ -76,10 +77,13 @@ router.delete('/contas-pagar/:id',     deleteContaPagarHandler);
 
 // Contas a Receber
 router.get   ('/contas-receber',             listContasReceberHandler);
+router.get   ('/contas-receber/relatorio',   relatorioContasReceberHandler);
 router.post  ('/contas-receber',             createContaReceberHandler);
 router.get   ('/contas-receber/:id',         getContaReceberHandler);
+router.get   ('/contas-receber/:id/extrato', extratoContaReceberHandler);
 router.put   ('/contas-receber/:id',         updateContaReceberHandler);
 router.post  ('/contas-receber/:id/baixa',   baixaContaReceberHandler);
+router.post  ('/contas-receber/baixa/:idBaixa/estornar', estornoBaixaReceberHandler);
 router.delete('/contas-receber/:id',         deleteContaReceberHandler);
 
 export default router;

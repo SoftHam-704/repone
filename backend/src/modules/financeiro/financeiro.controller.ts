@@ -256,11 +256,11 @@ export async function listContasPagarHandler(req: Request, res: Response): Promi
 
     if (filtrarPor === 'pagamento') {
       // Modo PAGAMENTO: o que foi efetivamente PAGO (baixa integral OU parcial) no período.
-      // pago_periodo = soma das parcelas pagas com data_pagamento dentro do intervalo. O filtro
-      // de datas aqui é sobre a DATA DO PAGAMENTO (não o vencimento).
-      const subConds: string[] = [`status = 'PAGO'`, `valor_pago > 0`];
-      if (dataInicio) { subConds.push(`data_pagamento >= $${i++}`); params.push(dataInicio); }
-      if (dataFim)    { subConds.push(`data_pagamento <= $${i++}`); params.push(dataFim); }
+      // pago_periodo = soma das BAIXAS do ledger com data no intervalo (pega parciais, que ficam
+      // ABERTO com data_pagamento NULL na parcela). Filtro pela DATA DO PAGAMENTO.
+      const subConds: string[] = [`b.valor_pago > 0`];
+      if (dataInicio) { subConds.push(`b.data >= $${i++}`); params.push(dataInicio); }
+      if (dataFim)    { subConds.push(`b.data <= $${i++}`); params.push(dataFim); }
 
       const outConds: string[] = [];
       if (status)        { outConds.push(`cp.status = $${i++}`);          params.push(status); }
@@ -278,10 +278,13 @@ export async function listContasPagarHandler(req: Request, res: Response): Promi
                per.pago_periodo
         FROM fin_contas_pagar cp
         JOIN (
-          SELECT id_conta_pagar, SUM(valor_pago) AS pago_periodo
-          FROM fin_parcelas_pagar
+          SELECT pp.id_conta_pagar,
+                 SUM(CASE WHEN b.tipo='BAIXA' THEN b.valor_pago ELSE -b.valor_pago END) AS pago_periodo
+          FROM fin_baixas_pagar b
+          JOIN fin_parcelas_pagar pp ON pp.id = b.id_parcela
           WHERE ${subConds.join(' AND ')}
-          GROUP BY id_conta_pagar
+          GROUP BY pp.id_conta_pagar
+          HAVING SUM(CASE WHEN b.tipo='BAIXA' THEN b.valor_pago ELSE -b.valor_pago END) <> 0
         ) per ON per.id_conta_pagar = cp.id
         LEFT JOIN fin_fornecedores f  ON cp.id_fornecedor  = f.id
         LEFT JOIN fin_plano_contas pc ON cp.id_plano_contas = pc.id
@@ -673,32 +676,65 @@ export async function deleteContaPagarHandler(req: Request, res: Response): Prom
 export async function listContasReceberHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
-    const { dataInicio, dataFim, status, idCliente, idPlanoContas, idCentroCusto } = req.query as Record<string, string>;
-
-    let query = `
-      SELECT cr.id, cr.descricao, cr.numero_documento, cr.valor_total, cr.valor_recebido,
-             cr.data_emissao, cr.data_vencimento, cr.data_recebimento, cr.status, cr.observacoes,
-             c.nome_razao AS cliente_nome,
-             pc.descricao AS plano_contas_descricao,
-             cc.descricao AS centro_custo_descricao,
-             (cr.valor_total - cr.valor_recebido) AS saldo
-      FROM fin_contas_receber cr
-      LEFT JOIN fin_clientes c       ON cr.id_cliente     = c.id
-      LEFT JOIN fin_plano_contas pc  ON cr.id_plano_contas = pc.id
-      LEFT JOIN fin_centro_custo cc  ON cr.id_centro_custo = cc.id
-      WHERE 1=1
-    `;
+    const { dataInicio, dataFim, status, idCliente, idPlanoContas, idCentroCusto, filtrarPor } = req.query as Record<string, string>;
     const params: any[] = [];
     let i = 1;
+    let query: string;
 
-    if (dataInicio)    { query += ` AND cr.data_vencimento >= $${i++}`; params.push(dataInicio); }
-    if (dataFim)       { query += ` AND cr.data_vencimento <= $${i++}`; params.push(dataFim); }
-    if (status)        { query += ` AND cr.status = $${i++}`;           params.push(status); }
-    if (idCliente)     { query += ` AND cr.id_cliente = $${i++}`;       params.push(idCliente); }
-    if (idPlanoContas) { query += ` AND cr.id_plano_contas = $${i++}`;  params.push(idPlanoContas); }
-    if (idCentroCusto) { query += ` AND cr.id_centro_custo = $${i++}`;  params.push(idCentroCusto); }
-
-    query += ` ORDER BY cr.data_vencimento DESC, cr.id DESC`;
+    if (filtrarPor === 'recebimento') {
+      // Modo RECEBIMENTO: o que foi efetivamente RECEBIDO no período (do ledger — pega parciais).
+      const subConds: string[] = [`b.valor_recebido > 0`];
+      if (dataInicio) { subConds.push(`b.data >= $${i++}`); params.push(dataInicio); }
+      if (dataFim)    { subConds.push(`b.data <= $${i++}`); params.push(dataFim); }
+      const outConds: string[] = [];
+      if (status)        { outConds.push(`cr.status = $${i++}`);          params.push(status); }
+      if (idCliente)     { outConds.push(`cr.id_cliente = $${i++}`);      params.push(idCliente); }
+      if (idPlanoContas) { outConds.push(`cr.id_plano_contas = $${i++}`); params.push(idPlanoContas); }
+      if (idCentroCusto) { outConds.push(`cr.id_centro_custo = $${i++}`); params.push(idCentroCusto); }
+      query = `
+        SELECT cr.id, cr.descricao, cr.numero_documento, cr.valor_total, cr.valor_recebido,
+               cr.data_emissao, cr.data_vencimento, cr.data_recebimento, cr.status, cr.observacoes,
+               c.nome_razao AS cliente_nome, pc.descricao AS plano_contas_descricao,
+               cc.descricao AS centro_custo_descricao,
+               (cr.valor_total - cr.valor_recebido) AS saldo, per.recebido_periodo
+        FROM fin_contas_receber cr
+        JOIN (
+          SELECT pr.id_conta_receber,
+                 SUM(CASE WHEN b.tipo='BAIXA' THEN b.valor_recebido ELSE -b.valor_recebido END) AS recebido_periodo
+          FROM fin_baixas_receber b
+          JOIN fin_parcelas_receber pr ON pr.id = b.id_parcela
+          WHERE ${subConds.join(' AND ')}
+          GROUP BY pr.id_conta_receber
+          HAVING SUM(CASE WHEN b.tipo='BAIXA' THEN b.valor_recebido ELSE -b.valor_recebido END) <> 0
+        ) per ON per.id_conta_receber = cr.id
+        LEFT JOIN fin_clientes c       ON cr.id_cliente     = c.id
+        LEFT JOIN fin_plano_contas pc  ON cr.id_plano_contas = pc.id
+        LEFT JOIN fin_centro_custo cc  ON cr.id_centro_custo = cc.id
+        ${outConds.length ? 'WHERE ' + outConds.join(' AND ') : ''}
+        ORDER BY cr.data_vencimento DESC, cr.id DESC
+      `;
+    } else {
+      query = `
+        SELECT cr.id, cr.descricao, cr.numero_documento, cr.valor_total, cr.valor_recebido,
+               cr.data_emissao, cr.data_vencimento, cr.data_recebimento, cr.status, cr.observacoes,
+               c.nome_razao AS cliente_nome,
+               pc.descricao AS plano_contas_descricao,
+               cc.descricao AS centro_custo_descricao,
+               (cr.valor_total - cr.valor_recebido) AS saldo
+        FROM fin_contas_receber cr
+        LEFT JOIN fin_clientes c       ON cr.id_cliente     = c.id
+        LEFT JOIN fin_plano_contas pc  ON cr.id_plano_contas = pc.id
+        LEFT JOIN fin_centro_custo cc  ON cr.id_centro_custo = cc.id
+        WHERE 1=1
+      `;
+      if (dataInicio)    { query += ` AND cr.data_vencimento >= $${i++}`; params.push(dataInicio); }
+      if (dataFim)       { query += ` AND cr.data_vencimento <= $${i++}`; params.push(dataFim); }
+      if (status)        { query += ` AND cr.status = $${i++}`;           params.push(status); }
+      if (idCliente)     { query += ` AND cr.id_cliente = $${i++}`;       params.push(idCliente); }
+      if (idPlanoContas) { query += ` AND cr.id_plano_contas = $${i++}`;  params.push(idPlanoContas); }
+      if (idCentroCusto) { query += ` AND cr.id_centro_custo = $${i++}`;  params.push(idCentroCusto); }
+      query += ` ORDER BY cr.data_vencimento DESC, cr.id DESC`;
+    }
 
     const result = await db.query(query, params);
     res.json({ success: true, data: result.rows });
@@ -788,141 +824,216 @@ export async function createContaReceberHandler(req: Request, res: Response): Pr
 // PUT /contas-receber/:id — edição completa. Regenera as parcelas
 // a partir de parcelas[] explícitas (editor) ou numero_parcelas+intervalo (fallback).
 // Se a conta tinha recebimentos, estes são RESETADOS. Frontend mostra aviso antes.
+// EDIT = só metadados do cabeçalho (espelho do Contas a Pagar). As parcelas NÃO são tocadas
+// (preserva o ledger de baixas/estornos). Gerador de parcelas só no INSERT.
 export async function updateContaReceberHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
     const { id } = req.params;
-    const { descricao, id_cliente, numero_documento, data_emissao, data_vencimento,
-            observacoes, id_plano_contas, id_centro_custo,
-            numero_parcelas = 1, intervalo_dias = 30,
-            parcelas: parcelasExplicitas } = req.body;
-    let { valor_total } = req.body;
+    const { descricao, id_cliente, numero_documento, data_emissao,
+            observacoes, id_plano_contas, id_centro_custo } = req.body;
 
-    // Se vieram parcelas explícitas do editor, o valor_total é a soma delas
-    const temParcelasExplicitas = Array.isArray(parcelasExplicitas) && parcelasExplicitas.length > 0;
-    if (temParcelasExplicitas) {
-      valor_total = parcelasExplicitas.reduce((s: number, p: any) => s + Number(p.valor), 0);
-    }
-    const valorTotalNum = Number(valor_total) || 0;
-    const nParcelas = temParcelasExplicitas ? parcelasExplicitas.length : (Number(numero_parcelas) || 1);
-
-    const updated = await db.transaction(async client => {
-      const r = await client.query(`
-        UPDATE fin_contas_receber SET
-          descricao=$1, id_cliente=$2, numero_documento=$3, valor_total=$4,
-          data_emissao=$5, data_vencimento=$6, observacoes=$7,
-          id_plano_contas=$8, id_centro_custo=$9,
-          valor_recebido=0, status='ABERTO', data_recebimento=NULL
-        WHERE id=$10 RETURNING *
-      `, [descricao, id_cliente || null, numero_documento, valorTotalNum, data_emissao, data_vencimento,
-          observacoes, id_plano_contas || null, id_centro_custo || null, id]);
-      if (!r.rows.length) return null;
-
-      // Regenera parcelas: apaga todas (inclusive recebidas) e cria novas
-      // As parcelas (inclusive recebidas) serão apagadas e regeneradas → remove os lançamentos de caixa delas.
-      await client.query(`
-        DELETE FROM livro_caixa_lancamentos
-        WHERE origem='CR' AND id_parcela_origem IN (SELECT id FROM fin_parcelas_receber WHERE id_conta_receber=$1)
-      `, [id]);
-      await client.query('DELETE FROM fin_parcelas_receber WHERE id_conta_receber = $1', [id]);
-
-      if (temParcelasExplicitas) {
-        for (const p of parcelasExplicitas) {
-          await client.query(
-            `INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
-            [id, p.numero_parcela, Number(p.valor), p.data_vencimento]
-          );
-        }
-      } else if (nParcelas > 1) {
-        const valorParcela = parseFloat((valorTotalNum / nParcelas).toFixed(2));
-        let soma = 0;
-        for (let i = 1; i <= nParcelas; i++) {
-          const isUltima = i === nParcelas;
-          const valor = isUltima ? valorTotalNum - soma : valorParcela;
-          const dt = new Date(data_vencimento);
-          dt.setDate(dt.getDate() + (i - 1) * Number(intervalo_dias));
-          await client.query(
-            `INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento) VALUES ($1,$2,$3,$4)`,
-            [id, i, valor, dt.toISOString().split('T')[0]]
-          );
-          soma += valor;
-        }
-      } else {
-        await client.query(
-          `INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento) VALUES ($1,1,$2,$3)`,
-          [id, valorTotalNum, data_vencimento]
-        );
-      }
-      return r.rows[0];
-    });
-
-    if (!updated) { res.status(404).json({ success: false, message: 'Conta não encontrada' }); return; }
-    res.json({ success: true, message: `Conta atualizada com ${nParcelas} parcela(s)`, data: updated });
+    const r = await db.query(`
+      UPDATE fin_contas_receber SET
+        descricao = $1, id_cliente = $2, numero_documento = $3, data_emissao = $4,
+        observacoes = $5, id_plano_contas = $6, id_centro_custo = $7
+      WHERE id = $8 RETURNING *
+    `, [descricao, id_cliente || null, numero_documento, data_emissao || null,
+        observacoes, id_plano_contas || null, id_centro_custo || null, id]);
+    if (!r.rows.length) { res.status(404).json({ success: false, message: 'Conta não encontrada' }); return; }
+    res.json({ success: true, message: 'Conta atualizada', data: r.rows[0] });
   } catch (e) { err(res, e, 'update conta-receber'); }
 }
 
+// ─── Conta Corrente da Parcela (RECEBER): recálculo derivado do ledger fin_baixas_receber ───
+async function recomputeParcelaReceberFromLedger(client: any, idParcela: number): Promise<number> {
+  const r = await client.query(`
+    SELECT
+      COALESCE(SUM(CASE WHEN tipo='BAIXA' THEN valor_recebido ELSE -valor_recebido END), 0) AS recebido,
+      COALESCE(SUM(CASE WHEN tipo='BAIXA' THEN desconto      ELSE -desconto      END), 0) AS descontos,
+      MAX(CASE WHEN tipo='BAIXA' THEN data END)                                          AS ult_receb
+    FROM fin_baixas_receber WHERE id_parcela = $1
+  `, [idParcela]);
+  const receb = Number(r.rows[0].recebido) || 0;
+  const desc  = Number(r.rows[0].descontos) || 0;
+  const ult   = r.rows[0].ult_receb;
+  const pr = await client.query('SELECT valor, id_conta_receber FROM fin_parcelas_receber WHERE id = $1', [idParcela]);
+  const valor   = Number(pr.rows[0].valor) || 0;
+  const idConta = pr.rows[0].id_conta_receber;
+  const quitada = (receb + desc) >= valor - 0.01 && (receb + desc) > 0;
+  await client.query(
+    `UPDATE fin_parcelas_receber SET valor_recebido = $1, status = $2, data_recebimento = $3 WHERE id = $4`,
+    [receb, quitada ? 'RECEBIDO' : 'ABERTO', quitada ? ult : null, idParcela]
+  );
+  return idConta;
+}
+
+async function recomputeContaReceberFromParcelas(client: any, idConta: number): Promise<void> {
+  const t = await client.query(`
+    SELECT COUNT(*) AS total, COUNT(CASE WHEN status='RECEBIDO' THEN 1 END) AS recebidas,
+           COALESCE(SUM(valor_recebido),0) AS total_recebido
+    FROM fin_parcelas_receber WHERE id_conta_receber = $1
+  `, [idConta]);
+  const { total, recebidas, total_recebido } = t.rows[0];
+  const status = parseInt(total) > 0 && parseInt(total) === parseInt(recebidas) ? 'RECEBIDO' : 'ABERTO';
+  await client.query(`
+    UPDATE fin_contas_receber SET valor_recebido = $1, status = $2,
+      data_recebimento = CASE WHEN $2 = 'RECEBIDO'
+        THEN (SELECT MAX(data_recebimento) FROM fin_parcelas_receber WHERE id_conta_receber = $3)
+        ELSE NULL END
+    WHERE id = $3
+  `, [total_recebido, status, idConta]);
+}
+
+// POST /contas-receber/:id/baixa — registra UM recebimento (integral ou parcial) no ledger.
 export async function baixaContaReceberHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
     const { id } = req.params;
-    const { id_parcela, data_recebimento, valor_recebido, juros = 0, desconto = 0, observacoes, gerar_residuo = true, id_conta_caixa } = req.body;
+    const { id_parcela, data_recebimento, valor_recebido, juros = 0, desconto = 0, observacoes, id_conta_caixa } = req.body;
     if (!id_conta_caixa) { res.status(400).json({ success: false, message: 'Informe a conta de caixa do recebimento.' }); return; }
     if (!data_recebimento) { res.status(400).json({ success: false, message: 'Informe a data do recebimento.' }); return; }
+    if (!id_parcela)      { res.status(400).json({ success: false, message: 'Parcela inválida.' }); return; }
+    if (!(Number(valor_recebido) > 0)) { res.status(400).json({ success: false, message: 'O valor recebido deve ser maior que zero.' }); return; }
+    const userId = (req as any).user?.userId ?? (req as any).user?.id ?? null;
 
     await db.transaction(async client => {
-      await client.query(`
-        UPDATE fin_parcelas_receber
-        SET data_recebimento=$1, valor_recebido=$2, juros=$3, desconto=$4, status='RECEBIDO', observacoes=$5
-        WHERE id=$6
-      `, [data_recebimento, valor_recebido, juros, desconto, observacoes, id_parcela]);
+      const ins = await client.query(`
+        INSERT INTO fin_baixas_receber
+          (id_parcela, tipo, data, valor_recebido, juros, desconto, id_conta_caixa, observacoes, created_by)
+        VALUES ($1,'BAIXA',$2,$3,$4,$5,$6,$7,$8)
+        RETURNING id
+      `, [id_parcela, data_recebimento, Number(valor_recebido), Number(juros), Number(desconto),
+          Number(id_conta_caixa), observacoes ?? null, userId]);
+      const idBaixa = ins.rows[0].id;
 
-      const orig = await client.query('SELECT valor FROM fin_parcelas_receber WHERE id = $1', [id_parcela]);
-      const residual = parseFloat(orig.rows[0].valor) - Number(valor_recebido) - Number(desconto);
-
-      if (gerar_residuo && residual > 0.01) {
-        const maxNum = await client.query('SELECT MAX(numero_parcela) AS mx FROM fin_parcelas_receber WHERE id_conta_receber = $1', [id]);
-        const nextNum = (maxNum.rows[0].mx || 0) + 1;
-        await client.query(`
-          INSERT INTO fin_parcelas_receber (id_conta_receber,numero_parcela,valor,data_vencimento,status)
-          VALUES ($1,$2,$3,(SELECT data_vencimento FROM fin_parcelas_receber WHERE id=$4),'ABERTO')
-        `, [id, nextNum, residual, id_parcela]);
-      }
-
-      const totals = await client.query(`
-        SELECT COUNT(*) AS total, COUNT(CASE WHEN status='RECEBIDO' THEN 1 END) AS recebidas, COALESCE(SUM(valor_recebido),0) AS total_recebido
-        FROM fin_parcelas_receber WHERE id_conta_receber = $1
-      `, [id]);
-      const { total, recebidas, total_recebido } = totals.rows[0];
-      const novStatus = parseInt(total) === parseInt(recebidas) ? 'RECEBIDO' : 'ABERTO';
-
-      await client.query(`
-        UPDATE fin_contas_receber SET valor_recebido=$1, status=$2::varchar,
-          data_recebimento = CASE WHEN $2::varchar='RECEBIDO' THEN $3::date ELSE NULL END
-        WHERE id=$4
-      `, [total_recebido, novStatus, data_recebimento, id]);
-
-      // Espelha o recebimento no Livro Caixa (crédito). Dinheiro que entrou = valor_recebido + juros.
-      // Só lança se houver caixa movimentado (>0); baixa quitada só por desconto não gera lançamento.
       const valorCaixa = Number(valor_recebido) + Number(juros);
       if (valorCaixa > 0) {
         const cab = await client.query(
           'SELECT descricao, numero_documento, id_plano_contas, id_centro_custo FROM fin_contas_receber WHERE id=$1', [id]);
         const c = cab.rows[0] || {};
         const histDoc = c.numero_documento ? ` • Doc ${c.numero_documento}` : '';
-        await lancarBaixaNoCaixa(client, {
-          conta_id: Number(id_conta_caixa),
-          data: data_recebimento,
-          valor: valorCaixa,
+        const idLanc = await lancarBaixaNoCaixa(client, {
+          conta_id: Number(id_conta_caixa), data: data_recebimento, valor: valorCaixa,
           tipo: 'C', origem: 'CR', id_parcela_origem: Number(id_parcela),
           historico: `Receb: ${c.descricao ?? 'conta a receber'}${histDoc}`,
           id_plano_contas: c.id_plano_contas, id_centro_custo: c.id_centro_custo,
           documento: c.numero_documento ?? null,
         });
+        await client.query('UPDATE fin_baixas_receber SET id_lancamento_caixa = $1 WHERE id = $2', [idLanc, idBaixa]);
       }
+
+      const idConta = await recomputeParcelaReceberFromLedger(client, Number(id_parcela));
+      await recomputeContaReceberFromParcelas(client, idConta);
     });
 
     res.json({ success: true, message: 'Recebimento registrado com sucesso' });
   } catch (e) { err(res, e, 'baixa conta-receber'); }
+}
+
+// POST /contas-receber/baixa/:idBaixa/estornar — estorna um recebimento, revertendo no caixa.
+export async function estornoBaixaReceberHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { idBaixa } = req.params;
+    const { data, observacoes } = req.body || {};
+    const userId = (req as any).user?.userId ?? (req as any).user?.id ?? null;
+
+    await db.transaction(async client => {
+      const b = await client.query('SELECT * FROM fin_baixas_receber WHERE id = $1', [idBaixa]);
+      if (!b.rows.length) throw new Error('Baixa não encontrada.');
+      const mov = b.rows[0];
+      if (mov.tipo !== 'BAIXA') throw new Error('Só é possível estornar um recebimento (baixa).');
+      const jaEst = await client.query('SELECT 1 FROM fin_baixas_receber WHERE estorno_de = $1 LIMIT 1', [idBaixa]);
+      if (jaEst.rows.length) throw new Error('Esta baixa já foi estornada.');
+
+      const dataEstorno = data || new Date().toISOString().split('T')[0];
+      const ins = await client.query(`
+        INSERT INTO fin_baixas_receber
+          (id_parcela, tipo, data, valor_recebido, juros, desconto, id_conta_caixa, estorno_de, observacoes, created_by)
+        VALUES ($1,'ESTORNO',$2,$3,$4,$5,$6,$7,$8,$9)
+        RETURNING id
+      `, [mov.id_parcela, dataEstorno, mov.valor_recebido, mov.juros, mov.desconto,
+          mov.id_conta_caixa, idBaixa, observacoes ?? `Estorno do recebimento #${idBaixa}`, userId]);
+      const idEst = ins.rows[0].id;
+
+      const valorCaixa = Number(mov.valor_recebido) + Number(mov.juros);
+      if (valorCaixa > 0 && mov.id_conta_caixa) {
+        const idLanc = await lancarBaixaNoCaixa(client, {
+          conta_id: Number(mov.id_conta_caixa), data: dataEstorno, valor: valorCaixa,
+          tipo: 'D', origem: 'CR', id_parcela_origem: Number(mov.id_parcela),
+          historico: `Estorno de recebimento (baixa #${idBaixa})`,
+        });
+        await client.query('UPDATE fin_baixas_receber SET id_lancamento_caixa = $1 WHERE id = $2', [idLanc, idEst]);
+      }
+
+      const idConta = await recomputeParcelaReceberFromLedger(client, Number(mov.id_parcela));
+      await recomputeContaReceberFromParcelas(client, idConta);
+    });
+
+    res.json({ success: true, message: 'Recebimento estornado com sucesso' });
+  } catch (e) { err(res, e, 'estorno baixa-receber'); }
+}
+
+// GET /contas-receber/:id/extrato — conta corrente (movimentos) da conta.
+export async function extratoContaReceberHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { id } = req.params;
+    const r = await db.query(`
+      SELECT b.id, b.id_parcela, p.numero_parcela, b.tipo, b.data,
+             b.valor_recebido, b.juros, b.desconto,
+             b.id_conta_caixa, cx.conta_nome AS caixa_nome, b.id_lancamento_caixa,
+             b.estorno_de, b.observacoes, b.created_at,
+             EXISTS (SELECT 1 FROM fin_baixas_receber e WHERE e.estorno_de = b.id) AS estornada
+      FROM fin_baixas_receber b
+      JOIN fin_parcelas_receber p ON p.id = b.id_parcela
+      LEFT JOIN livro_caixa_contas cx ON cx.id = b.id_conta_caixa
+      WHERE p.id_conta_receber = $1
+      ORDER BY b.data DESC, b.id DESC
+    `, [id]);
+    res.json({ success: true, data: r.rows });
+  } catch (e) { err(res, e, 'extrato conta-receber'); }
+}
+
+// GET /contas-receber/relatorio — relatório por Centro de Custo (parcelas), respeitando os filtros.
+export async function relatorioContasReceberHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { dataInicio, dataFim, status, idCliente, idCentroCusto } = req.query as Record<string, string>;
+    const params: any[] = [];
+    let i = 1;
+    const conds: string[] = [];
+    if (dataInicio) { conds.push(`p.data_vencimento >= $${i++}`); params.push(dataInicio); }
+    if (dataFim)    { conds.push(`p.data_vencimento <= $${i++}`); params.push(dataFim); }
+    if (status && (status === 'ABERTO' || status === 'RECEBIDO')) { conds.push(`p.status = $${i++}`); params.push(status); }
+    if (idCliente)     { conds.push(`cr.id_cliente = $${i++}`);     params.push(idCliente); }
+    if (idCentroCusto) { conds.push(`cr.id_centro_custo = $${i++}`); params.push(idCentroCusto); }
+    const where = conds.length ? 'AND ' + conds.join(' AND ') : '';
+
+    const r = await db.query(`
+      SELECT COALESCE(NULLIF(TRIM(cc.descricao), ''), '(Sem centro de custo)') AS centro_custo,
+             cc.codigo                                   AS centro_codigo,
+             COALESCE(NULLIF(TRIM(c.nome_razao), ''), '(Sem cliente)') AS cliente,
+             cr.descricao                                AS conta_descricao,
+             cr.numero_documento                         AS numero_documento,
+             p.id                                        AS parcela_id,
+             p.numero_parcela                            AS numero_parcela,
+             p.data_vencimento                           AS data_vencimento,
+             p.data_recebimento                          AS data_recebimento,
+             p.valor::numeric                            AS valor,
+             p.valor_recebido::numeric                   AS recebido,
+             (p.valor - p.valor_recebido)::numeric       AS saldo,
+             p.status                                    AS status
+      FROM fin_parcelas_receber p
+      JOIN fin_contas_receber cr ON cr.id = p.id_conta_receber
+      LEFT JOIN fin_clientes c      ON cr.id_cliente      = c.id
+      LEFT JOIN fin_centro_custo cc ON cr.id_centro_custo = cc.id
+      WHERE 1=1 ${where}
+      ORDER BY centro_custo, cliente, p.data_vencimento, p.numero_parcela
+    `, params);
+    res.json({ success: true, data: r.rows });
+  } catch (e) { err(res, e, 'relatorio contas-receber'); }
 }
 
 export async function deleteContaReceberHandler(req: Request, res: Response): Promise<void> {
