@@ -1173,44 +1173,52 @@ export async function financeiroDashboardHandler(req: Request, res: Response): P
     const ano = parseInt(String(req.query.ano)) || new Date().getFullYear();
     const meses = String(req.query.meses || '').split(',').map(s => parseInt(s)).filter(n => n >= 1 && n <= 12);
     const mesesArr = meses.length ? meses : null;  // null = ano todo
-    // Período sobre data_vencimento (ano + meses opcionais).
-    const periodo = `EXTRACT(YEAR FROM data_vencimento) = $1 AND ($2::int[] IS NULL OR EXTRACT(MONTH FROM data_vencimento) = ANY($2::int[]))`;
+    // IMPORTANTE: apura por PARCELA (data + saldo de cada parcela), não pelo cabeçalho da conta.
+    // Conta parcelada tem 1 vencimento no header mas N parcelas em meses diferentes — usar o header
+    // jogava o valor inteiro da conta no mês do cabeçalho (ex.: salário 7x caía 100% em junho).
+    const perPag = `EXTRACT(YEAR FROM pp.data_vencimento) = $1 AND ($2::int[] IS NULL OR EXTRACT(MONTH FROM pp.data_vencimento) = ANY($2::int[]))`;
+    const perRec = `EXTRACT(YEAR FROM pr.data_vencimento) = $1 AND ($2::int[] IS NULL OR EXTRACT(MONTH FROM pr.data_vencimento) = ANY($2::int[]))`;
 
     const [receber, pagar, porCentro] = await Promise.all([
       db.query(`
         SELECT
-          COALESCE(SUM(CASE WHEN status='ABERTO' AND data_vencimento < CURRENT_DATE  THEN valor_total - valor_recebido ELSE 0 END), 0) AS vencido,
-          COALESCE(SUM(CASE WHEN status='ABERTO' AND data_vencimento = CURRENT_DATE  THEN valor_total - valor_recebido ELSE 0 END), 0) AS hoje,
-          COALESCE(SUM(CASE WHEN status='ABERTO' AND data_vencimento > CURRENT_DATE AND data_vencimento <= CURRENT_DATE + 7 THEN valor_total - valor_recebido ELSE 0 END), 0) AS prox_7_dias,
-          COALESCE(SUM(CASE WHEN status='ABERTO' THEN valor_total - valor_recebido ELSE 0 END), 0) AS total_aberto
-        FROM fin_contas_receber WHERE ${periodo}
+          COALESCE(SUM(CASE WHEN pr.status='ABERTO' AND pr.data_vencimento < CURRENT_DATE  THEN pr.valor - COALESCE(pr.valor_recebido,0) ELSE 0 END), 0) AS vencido,
+          COALESCE(SUM(CASE WHEN pr.status='ABERTO' AND pr.data_vencimento = CURRENT_DATE  THEN pr.valor - COALESCE(pr.valor_recebido,0) ELSE 0 END), 0) AS hoje,
+          COALESCE(SUM(CASE WHEN pr.status='ABERTO' AND pr.data_vencimento > CURRENT_DATE AND pr.data_vencimento <= CURRENT_DATE + 7 THEN pr.valor - COALESCE(pr.valor_recebido,0) ELSE 0 END), 0) AS prox_7_dias,
+          COALESCE(SUM(CASE WHEN pr.status='ABERTO' THEN pr.valor - COALESCE(pr.valor_recebido,0) ELSE 0 END), 0) AS total_aberto
+        FROM fin_parcelas_receber pr
+        JOIN fin_contas_receber cr ON cr.id = pr.id_conta_receber
+        WHERE cr.status <> 'CANCELADO' AND ${perRec}
       `, [ano, mesesArr]),
       db.query(`
         SELECT
-          COALESCE(SUM(CASE WHEN status='ABERTO' AND data_vencimento < CURRENT_DATE  THEN valor_total - valor_pago ELSE 0 END), 0) AS vencido,
-          COALESCE(SUM(CASE WHEN status='ABERTO' AND data_vencimento = CURRENT_DATE  THEN valor_total - valor_pago ELSE 0 END), 0) AS hoje,
-          COALESCE(SUM(CASE WHEN status='ABERTO' AND data_vencimento > CURRENT_DATE AND data_vencimento <= CURRENT_DATE + 7 THEN valor_total - valor_pago ELSE 0 END), 0) AS prox_7_dias,
-          COALESCE(SUM(CASE WHEN status='ABERTO' THEN valor_total - valor_pago ELSE 0 END), 0) AS total_aberto
-        FROM fin_contas_pagar WHERE ${periodo}
+          COALESCE(SUM(CASE WHEN pp.status='ABERTO' AND pp.data_vencimento < CURRENT_DATE  THEN pp.valor - COALESCE(pp.valor_pago,0) ELSE 0 END), 0) AS vencido,
+          COALESCE(SUM(CASE WHEN pp.status='ABERTO' AND pp.data_vencimento = CURRENT_DATE  THEN pp.valor - COALESCE(pp.valor_pago,0) ELSE 0 END), 0) AS hoje,
+          COALESCE(SUM(CASE WHEN pp.status='ABERTO' AND pp.data_vencimento > CURRENT_DATE AND pp.data_vencimento <= CURRENT_DATE + 7 THEN pp.valor - COALESCE(pp.valor_pago,0) ELSE 0 END), 0) AS prox_7_dias,
+          COALESCE(SUM(CASE WHEN pp.status='ABERTO' THEN pp.valor - COALESCE(pp.valor_pago,0) ELSE 0 END), 0) AS total_aberto
+        FROM fin_parcelas_pagar pp
+        JOIN fin_contas_pagar cp ON cp.id = pp.id_conta_pagar
+        WHERE cp.status <> 'CANCELADO' AND ${perPag}
       `, [ano, mesesArr]),
-      // Em aberto por Centro de Custo — MESMA base dos cards (status ABERTO, saldo = valor_total - pago/recebido).
-      // Assim a soma das roscas confere exatamente com os cards A Pagar / A Receber.
+      // Em aberto por Centro de Custo — também por PARCELA. Soma confere com os cards A Pagar / A Receber.
       db.query(`
         SELECT centro,
                COALESCE(SUM(receitas), 0)::numeric AS receitas,
                COALESCE(SUM(despesas), 0)::numeric AS despesas
         FROM (
           SELECT COALESCE(NULLIF(TRIM(cc.descricao), ''), '(Sem centro de custo)') AS centro,
-                 (cr.valor_total - cr.valor_recebido) AS receitas, 0 AS despesas
-          FROM fin_contas_receber cr LEFT JOIN fin_centro_custo cc ON cr.id_centro_custo = cc.id
-          WHERE cr.status = 'ABERTO'
-            AND EXTRACT(YEAR FROM cr.data_vencimento) = $1 AND ($2::int[] IS NULL OR EXTRACT(MONTH FROM cr.data_vencimento) = ANY($2::int[]))
+                 (pr.valor - COALESCE(pr.valor_recebido,0)) AS receitas, 0 AS despesas
+          FROM fin_parcelas_receber pr
+          JOIN fin_contas_receber cr ON cr.id = pr.id_conta_receber
+          LEFT JOIN fin_centro_custo cc ON cr.id_centro_custo = cc.id
+          WHERE pr.status = 'ABERTO' AND cr.status <> 'CANCELADO' AND ${perRec}
           UNION ALL
           SELECT COALESCE(NULLIF(TRIM(cc.descricao), ''), '(Sem centro de custo)'),
-                 0, (cp.valor_total - cp.valor_pago)
-          FROM fin_contas_pagar cp LEFT JOIN fin_centro_custo cc ON cp.id_centro_custo = cc.id
-          WHERE cp.status = 'ABERTO'
-            AND EXTRACT(YEAR FROM cp.data_vencimento) = $1 AND ($2::int[] IS NULL OR EXTRACT(MONTH FROM cp.data_vencimento) = ANY($2::int[]))
+                 0, (pp.valor - COALESCE(pp.valor_pago,0))
+          FROM fin_parcelas_pagar pp
+          JOIN fin_contas_pagar cp ON cp.id = pp.id_conta_pagar
+          LEFT JOIN fin_centro_custo cc ON cp.id_centro_custo = cc.id
+          WHERE pp.status = 'ABERTO' AND cp.status <> 'CANCELADO' AND ${perPag}
         ) t GROUP BY centro
         HAVING COALESCE(SUM(receitas), 0) > 0 OR COALESCE(SUM(despesas), 0) > 0
         ORDER BY (COALESCE(SUM(receitas), 0) + COALESCE(SUM(despesas), 0)) DESC
