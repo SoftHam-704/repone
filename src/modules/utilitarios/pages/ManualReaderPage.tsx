@@ -2,9 +2,10 @@ import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ArrowLeft, Download, Search, BookOpen, X } from 'lucide-react'
-// Fonte única: o MESMO markdown que gera o PDF (docs/manual-repone.md).
-import manualMd from '../../../../docs/manual-repone.md?raw'
+import { ArrowLeft, Download, Search, BookOpen, X, Loader2 } from 'lucide-react'
+import { api } from '@/shared/lib/api'
+// Fonte única: o MESMO markdown que gera o PDF (docs/manual-repone.md), buscado do
+// servidor em runtime — atualizar o manual = subir só o .md (sem redeploy do app).
 
 const G = {
   bg: '#E8E1D4', card: '#FFFFFF', border: '#D6CDB8', text: '#28374A',
@@ -32,16 +33,24 @@ export default function ManualReaderPage() {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [activeId, setActiveId] = useState('')
+  const [raw, setRaw] = useState<string | null>(null)
+  const [erro, setErro] = useState(false)
+
+  useEffect(() => {
+    api.get('/manual', { responseType: 'text' })
+      .then(r => setRaw(typeof r.data === 'string' ? r.data : String(r.data ?? '')))
+      .catch(() => setErro(true))
+  }, [])
 
   // Remove o sumário interno do .md (a barra lateral já é o índice) e o bloco de título do topo.
   const md = useMemo(() => {
-    let m = manualMd
+    let m = raw || ''
     const corte = m.indexOf('\n---\n')
     if (corte > 0) m = m.slice(corte + 5)
     // tira a seção "## Sumário ... " até o próximo "---"
     m = m.replace(/##\s+Sum[áa]rio[\s\S]*?\n---\n/, '')
     return m
-  }, [])
+  }, [raw])
 
   const headings = useMemo(() => {
     const out: Head[] = []
@@ -135,11 +144,27 @@ export default function ManualReaderPage() {
 
         {/* Conteúdo */}
         <main style={{ padding: '26px 36px 80px', maxWidth: 900 }}>
-          <div className="md-body">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ h1: Hx, h2: Hx, h3: Hx, h4: Hx }}>
-              {md}
-            </ReactMarkdown>
-          </div>
+          {erro ? (
+            <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>
+              <p style={{ fontWeight: 600, color: G.text }}>Não foi possível carregar o manual agora.</p>
+              <p style={{ fontSize: 13 }}>Você ainda pode baixar a versão em PDF.</p>
+              <a href={MANUAL_PDF} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 8, background: G.gold, color: G.navy, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+                <Download size={15} /> Baixar PDF
+              </a>
+            </div>
+          ) : raw === null ? (
+            <div style={{ padding: 60, textAlign: 'center', color: G.muted, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+              <Loader2 size={26} className="spin" style={{ animation: 'spin 1s linear infinite' }} />
+              Carregando manual…
+            </div>
+          ) : (
+            <div className="md-body">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ h1: Hx, h2: Hx, h3: Hx, h4: Hx }}>
+                {md}
+              </ReactMarkdown>
+            </div>
+          )}
         </main>
       </div>
     </div>
@@ -147,6 +172,7 @@ export default function ManualReaderPage() {
 }
 
 const markdownCss = `
+@keyframes spin{ to{ transform:rotate(360deg) } }
 .md-body{ color:#28374A; font-size:15px; line-height:1.7; }
 .md-body h1{ font-size:26px; color:#1E2D3D; border-bottom:2px solid #C8A24B; padding-bottom:8px; margin:0 0 18px; }
 .md-body h2{ font-size:21px; color:#1E2D3D; margin:34px 0 12px; padding-top:18px; border-top:1px solid #E3DCCB; }

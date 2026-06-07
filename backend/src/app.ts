@@ -114,6 +114,29 @@ app.use('/api/despesas',       despesasRoutes);
 // Webhook público — sem prefixo /api (Evolution API chama /webhook/evolution)
 app.use('/webhook',            webhookRouter);
 
+// ── Manual do Usuário (markdown) ─────────────────────────────────────────────
+// Proxy server-side do .md hospedado (softham.com.br/repone/manual-repone.md):
+// busca servidor→servidor (sem CORS), cacheia 5 min e serve a última versão boa se
+// o upstream cair. Atualizar o manual = subir SÓ o .md pro servidor (sem redeploy).
+const MANUAL_MD_URL = process.env.MANUAL_MD_URL || 'https://softham.com.br/repone/manual-repone.md';
+let _manualCache: { text: string; at: number } = { text: '', at: 0 };
+app.get('/api/manual', authMiddleware, async (_req, res) => {
+  try {
+    const now = Date.now();
+    if (_manualCache.text && now - _manualCache.at < 5 * 60 * 1000) {
+      res.type('text/markdown; charset=utf-8').send(_manualCache.text); return;
+    }
+    const r = await fetch(MANUAL_MD_URL);
+    if (!r.ok) throw new Error('upstream ' + r.status);
+    const text = await r.text();
+    _manualCache = { text, at: now };
+    res.type('text/markdown; charset=utf-8').send(text);
+  } catch {
+    if (_manualCache.text) { res.type('text/markdown; charset=utf-8').send(_manualCache.text); return; }
+    res.status(502).json({ success: false, message: 'Manual indisponível no momento.' });
+  }
+});
+
 // Alias /api/config/company → compatibilidade com OrderReportEngine/SendEmailDialog
 // Retorna no formato que o OrderPdfReport espera: { success, config: { logotipo, nome, ... } }
 // O campo logotipo é processado via sharp para garantir data URL válida
