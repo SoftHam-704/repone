@@ -31,7 +31,7 @@ function fmtBRL(v: number) {
 interface DashData {
   receber: { vencido: number; hoje: number; prox_7_dias: number; total_aberto: number }
   pagar:   { vencido: number; hoje: number; prox_7_dias: number; total_aberto: number }
-  grafico: { label: string; receitas: number; despesas: number }[]
+  por_centro: { centro: string; receitas: number; despesas: number }[]
   saldo_previsto: number
 }
 
@@ -85,17 +85,25 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 }
 
 export default function FinanceiroDashboardPage() {
+  const anoAtual = new Date().getFullYear()
+  const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+  const [ano, setAno] = useState(anoAtual)
+  const [meses, setMeses] = useState<number[]>([])
   const [data, setData] = useState<DashData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.get('/financeiro/dashboard/summary')
+    setLoading(true)
+    api.get('/financeiro/dashboard/summary', { params: { ano, meses: meses.join(',') } })
       .then(r => r.data.success && setData(r.data.data))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [])
+  }, [ano, meses])
 
-  if (loading) return (
+  const toggleMes = (m: number) => setMeses(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m].sort((a, b) => a - b))
+  const mesBtn = (active: boolean) => ({ padding: '5px 9px', borderRadius: 7, border: `1px solid ${active ? G.navy : G.border}`, background: active ? G.navy : '#fff', color: active ? '#fff' : G.muted, fontSize: 12, fontWeight: 600, cursor: 'pointer' as const })
+
+  if (loading && !data) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 320, color: G.muted }}>
       Carregando dados financeiros...
     </div>
@@ -180,41 +188,69 @@ export default function FinanceiroDashboardPage() {
       {/* Content */}
       <div style={{ padding: '24px 32px 32px' }}>
 
+        {/* Filtro de período (ano + meses) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', marginBottom: 18, background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: '12px 16px', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+          <span style={{ fontSize: 11, fontWeight: 800, color: G.muted, textTransform: 'uppercase', letterSpacing: '.05em' }}>Período</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {[anoAtual, anoAtual - 1, anoAtual - 2].map(a => (
+              <button key={a} onClick={() => setAno(a)} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${ano === a ? G.navy : G.border}`, background: ano === a ? G.navy : '#fff', color: ano === a ? '#fff' : G.text, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{a}</button>
+            ))}
+          </div>
+          <div style={{ width: 1, height: 22, background: G.border }} />
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            <button onClick={() => setMeses([])} style={mesBtn(meses.length === 0)}>Todos</button>
+            {MESES.map((m, idx) => (
+              <button key={m} onClick={() => toggleMes(idx + 1)} style={mesBtn(meses.includes(idx + 1))}>{m}</button>
+            ))}
+          </div>
+          {loading && <span style={{ fontSize: 11, color: G.muted, marginLeft: 'auto' }}>atualizando…</span>}
+        </div>
+
         {/* Chart + Alerts */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20, marginBottom: 20 }}>
 
-          {/* Gráfico */}
+          {/* Receitas × Despesas por Centro de Custo */}
           <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,.05)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: G.text }}>Evolução dos Últimos 6 Meses</div>
-                <div style={{ fontSize: 12, color: G.muted }}>Receitas x Despesas lançadas</div>
-              </div>
-              <Link to="/financeiro/relatorios/fluxo-caixa" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: G.mustard, fontWeight: 600, textDecoration: 'none' }}>
-                Ver fluxo <ChevronRight size={14} />
-              </Link>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: G.text }}>Receitas × Despesas por Centro de Custo</div>
+              <div style={{ fontSize: 12, color: G.muted }}>{ano}{meses.length ? ` · ${meses.length} ${meses.length === 1 ? 'mês' : 'meses'}` : ' · ano todo'} · por vencimento</div>
             </div>
-            <ResponsiveContainer width="100%" height={240}>
-              <AreaChart data={data?.grafico ?? []} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                <defs>
-                  <linearGradient id="colorRec" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={G.green} stopOpacity={0.2} />
-                    <stop offset="95%" stopColor={G.green} stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorPag" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={G.red} stopOpacity={0.2} />
-                    <stop offset="95%" stopColor={G.red} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={G.border} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: G.muted }} />
-                <YAxis tick={{ fontSize: 11, fill: G.muted }} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-                <Area type="monotone" dataKey="receitas" name="Receitas" stroke={G.green} fill="url(#colorRec)" strokeWidth={2} dot={false} />
-                <Area type="monotone" dataKey="despesas" name="Despesas" stroke={G.red}   fill="url(#colorPag)" strokeWidth={2} dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
+            {(() => {
+              const lista = data?.por_centro ?? []
+              if (!lista.length) return <div style={{ padding: 40, textAlign: 'center', color: G.muted, fontSize: 13 }}>Sem lançamentos no período selecionado.</div>
+              const max = Math.max(1, ...lista.flatMap(c => [Number(c.receitas), Number(c.despesas)]))
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: 300, overflowY: 'auto', paddingRight: 4 }}>
+                  {lista.map(c => {
+                    const rec = Number(c.receitas), desp = Number(c.despesas)
+                    return (
+                      <div key={c.centro}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12, marginBottom: 5 }}>
+                          <span style={{ color: G.text, fontWeight: 600, maxWidth: '58%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.centro}</span>
+                          <span style={{ color: G.muted, fontSize: 11 }}>Saldo <strong style={{ color: rec - desp >= 0 ? G.green : G.red }}>{fmtBRL(rec - desp)}</strong></span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                          <div style={{ flex: 1, height: 13, background: G.bg, borderRadius: 4, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${(rec / max) * 100}%`, background: G.green, borderRadius: 4, minWidth: rec > 0 ? 2 : 0 }} />
+                          </div>
+                          <span style={{ fontSize: 11, color: G.green, fontWeight: 600, width: 112, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(rec)}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ flex: 1, height: 13, background: G.bg, borderRadius: 4, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${(desp / max) * 100}%`, background: G.red, borderRadius: 4, minWidth: desp > 0 ? 2 : 0 }} />
+                          </div>
+                          <span style={{ fontSize: 11, color: G.red, fontWeight: 600, width: 112, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtBRL(desp)}</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+            <div style={{ display: 'flex', gap: 16, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${G.border}`, fontSize: 11, color: G.muted }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: G.green }} /> Receitas</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: G.red }} /> Despesas</span>
+            </div>
           </div>
 
           {/* Alertas */}

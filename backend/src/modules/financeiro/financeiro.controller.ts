@@ -1170,38 +1170,47 @@ export async function dreHandler(req: Request, res: Response): Promise<void> {
 export async function financeiroDashboardHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
+    const ano = parseInt(String(req.query.ano)) || new Date().getFullYear();
+    const meses = String(req.query.meses || '').split(',').map(s => parseInt(s)).filter(n => n >= 1 && n <= 12);
+    const mesesArr = meses.length ? meses : null;  // null = ano todo
+    // Período sobre data_vencimento (ano + meses opcionais).
+    const periodo = `EXTRACT(YEAR FROM data_vencimento) = $1 AND ($2::int[] IS NULL OR EXTRACT(MONTH FROM data_vencimento) = ANY($2::int[]))`;
 
-    const [receber, pagar, grafico] = await Promise.all([
+    const [receber, pagar, porCentro] = await Promise.all([
       db.query(`
         SELECT
           COALESCE(SUM(CASE WHEN status='ABERTO' AND data_vencimento < CURRENT_DATE  THEN valor_total - valor_recebido ELSE 0 END), 0) AS vencido,
           COALESCE(SUM(CASE WHEN status='ABERTO' AND data_vencimento = CURRENT_DATE  THEN valor_total - valor_recebido ELSE 0 END), 0) AS hoje,
           COALESCE(SUM(CASE WHEN status='ABERTO' AND data_vencimento > CURRENT_DATE AND data_vencimento <= CURRENT_DATE + 7 THEN valor_total - valor_recebido ELSE 0 END), 0) AS prox_7_dias,
           COALESCE(SUM(CASE WHEN status='ABERTO' THEN valor_total - valor_recebido ELSE 0 END), 0) AS total_aberto
-        FROM fin_contas_receber
-      `),
+        FROM fin_contas_receber WHERE ${periodo}
+      `, [ano, mesesArr]),
       db.query(`
         SELECT
           COALESCE(SUM(CASE WHEN status='ABERTO' AND data_vencimento < CURRENT_DATE  THEN valor_total - valor_pago ELSE 0 END), 0) AS vencido,
           COALESCE(SUM(CASE WHEN status='ABERTO' AND data_vencimento = CURRENT_DATE  THEN valor_total - valor_pago ELSE 0 END), 0) AS hoje,
           COALESCE(SUM(CASE WHEN status='ABERTO' AND data_vencimento > CURRENT_DATE AND data_vencimento <= CURRENT_DATE + 7 THEN valor_total - valor_pago ELSE 0 END), 0) AS prox_7_dias,
           COALESCE(SUM(CASE WHEN status='ABERTO' THEN valor_total - valor_pago ELSE 0 END), 0) AS total_aberto
-        FROM fin_contas_pagar
-      `),
+        FROM fin_contas_pagar WHERE ${periodo}
+      `, [ano, mesesArr]),
       db.query(`
-        WITH meses AS (
-          SELECT generate_series(
-            date_trunc('month', CURRENT_DATE) - INTERVAL '5 months',
-            date_trunc('month', CURRENT_DATE),
-            '1 month'::interval
-          )::date AS mes
-        )
-        SELECT
-          to_char(m.mes, 'Mon/YY') AS label,
-          COALESCE((SELECT SUM(valor_total) FROM fin_contas_receber WHERE date_trunc('month', data_vencimento) = m.mes), 0) AS receitas,
-          COALESCE((SELECT SUM(valor_total) FROM fin_contas_pagar  WHERE date_trunc('month', data_vencimento) = m.mes), 0) AS despesas
-        FROM meses m ORDER BY m.mes
-      `)
+        SELECT centro,
+               COALESCE(SUM(receitas), 0)::numeric AS receitas,
+               COALESCE(SUM(despesas), 0)::numeric AS despesas
+        FROM (
+          SELECT COALESCE(NULLIF(TRIM(cc.descricao), ''), '(Sem centro de custo)') AS centro,
+                 cr.valor_total AS receitas, 0 AS despesas
+          FROM fin_contas_receber cr LEFT JOIN fin_centro_custo cc ON cr.id_centro_custo = cc.id
+          WHERE EXTRACT(YEAR FROM cr.data_vencimento) = $1 AND ($2::int[] IS NULL OR EXTRACT(MONTH FROM cr.data_vencimento) = ANY($2::int[]))
+          UNION ALL
+          SELECT COALESCE(NULLIF(TRIM(cc.descricao), ''), '(Sem centro de custo)'),
+                 0, cp.valor_total
+          FROM fin_contas_pagar cp LEFT JOIN fin_centro_custo cc ON cp.id_centro_custo = cc.id
+          WHERE EXTRACT(YEAR FROM cp.data_vencimento) = $1 AND ($2::int[] IS NULL OR EXTRACT(MONTH FROM cp.data_vencimento) = ANY($2::int[]))
+        ) t GROUP BY centro
+        HAVING COALESCE(SUM(receitas), 0) > 0 OR COALESCE(SUM(despesas), 0) > 0
+        ORDER BY (COALESCE(SUM(receitas), 0) + COALESCE(SUM(despesas), 0)) DESC
+      `, [ano, mesesArr]),
     ]);
 
     const r = receber.rows[0];
@@ -1211,8 +1220,8 @@ export async function financeiroDashboardHandler(req: Request, res: Response): P
       data: {
         receber: r,
         pagar: p,
-        grafico: grafico.rows,
-        saldo_previsto: parseFloat(r.total_aberto) - parseFloat(p.total_aberto)
+        por_centro: porCentro.rows,
+        saldo_previsto: parseFloat(r.total_aberto) - parseFloat(p.total_aberto),
       }
     });
   } catch (e) { err(res, e, 'dashboard'); }
