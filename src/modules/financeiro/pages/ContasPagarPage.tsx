@@ -3,6 +3,7 @@ import { Plus, Search, Eye, Check, Trash2, ArrowUpCircle, X, Pencil, ChevronDown
 import { api } from '@/shared/lib/api'
 import ParcelasEditor, { type ParcelaLinha } from '../components/ParcelasEditor'
 import LancamentoLoteModal from '../components/LancamentoLoteModal'
+import RelatorioContasPagarModal from '../components/RelatorioContasPagarModal'
 import { analiticasPorTipo } from '../utils/planoContas'
 
 const G = {
@@ -896,6 +897,7 @@ export default function ContasPagarPage() {
   const [detalhesId, setDetalhesId] = useState<number | null>(null)
   const [baixaData, setBaixaData]   = useState<{ conta: Conta; parcela: Parcela } | null>(null)
   const [helpOpen, setHelpOpen]     = useState(false)
+  const [showRelatorio, setShowRelatorio] = useState(false)
 
   const setFilter = (k: string, v: string) => setFilters(f => ({ ...f, [k]: v }))
 
@@ -966,6 +968,9 @@ export default function ContasPagarPage() {
             <button onClick={() => setHelpOpen(true)} title="Ajuda"
               style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid rgba(255,255,255,.2)', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,.7)' }}>
               <HelpCircle size={17} />
+            </button>
+            <button onClick={() => setShowRelatorio(true)} style={{ ...btnPrimary(G.navy), border: `1px solid ${G.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <FileText size={15} /> Relatório
             </button>
             <button onClick={() => setShowLote(true)} style={{ ...btnPrimary(G.navy), border: `1px solid ${G.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Layers size={15} /> Lançamento em Lote
@@ -1128,6 +1133,10 @@ export default function ContasPagarPage() {
       {baixaData && (
         <BaixaModal conta={baixaData.conta} parcela={baixaData.parcela}
           onClose={() => setBaixaData(null)} onSaved={() => { setBaixaData(null); load() }} onChanged={load} />
+      )}
+
+      {showRelatorio && (
+        <RelatorioContasPagarModal filters={filters} onClose={() => setShowRelatorio(false)} />
       )}
 
       {helpOpen && (

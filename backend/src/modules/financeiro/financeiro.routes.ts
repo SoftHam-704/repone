@@ -13,7 +13,7 @@ import {
   listFinSuppliersHandler, getFinSupplierHandler, createFinSupplierHandler, updateFinSupplierHandler, deleteFinSupplierHandler,
   // Contas a Pagar
   listContasPagarHandler, getContaPagarHandler, createContaPagarHandler, updateContaPagarHandler,
-  baixaContaPagarHandler, deleteContaPagarHandler,
+  baixaContaPagarHandler, deleteContaPagarHandler, relatorioContasPagarHandler,
   estornoBaixaPagarHandler, extratoContaPagarHandler,
   // Contas a Receber
   listContasReceberHandler, getContaReceberHandler, createContaReceberHandler, updateContaReceberHandler,
@@ -65,6 +65,7 @@ router.delete('/fin-fornecedores/:id', deleteFinSupplierHandler);
 
 // Contas a Pagar — rotas específicas antes de /:id
 router.get   ('/contas-pagar',         listContasPagarHandler);
+router.get   ('/contas-pagar/relatorio', relatorioContasPagarHandler);
 router.post  ('/contas-pagar',         createContaPagarHandler);
 router.get   ('/contas-pagar/:id',     getContaPagarHandler);
 router.put   ('/contas-pagar/:id',     updateContaPagarHandler);

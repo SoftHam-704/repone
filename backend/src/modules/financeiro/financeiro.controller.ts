@@ -318,6 +318,47 @@ export async function listContasPagarHandler(req: Request, res: Response): Promi
   } catch (e) { err(res, e, 'list contas-pagar'); }
 }
 
+// GET /contas-pagar/relatorio — relatório por Centro de Custo (parcelas), respeitando os filtros.
+// Cada parcela é uma linha; o front agrupa por centro e pinta as PAGAS de amarelo (a "planilha da Lorena").
+export async function relatorioContasPagarHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { dataInicio, dataFim, status, idFornecedor, idCentroCusto } = req.query as Record<string, string>;
+    const params: any[] = [];
+    let i = 1;
+    const conds: string[] = [];
+    if (dataInicio) { conds.push(`p.data_vencimento >= $${i++}`); params.push(dataInicio); }
+    if (dataFim)    { conds.push(`p.data_vencimento <= $${i++}`); params.push(dataFim); }
+    if (status && (status === 'ABERTO' || status === 'PAGO')) { conds.push(`p.status = $${i++}`); params.push(status); }
+    if (idFornecedor)  { conds.push(`cp.id_fornecedor = $${i++}`);  params.push(idFornecedor); }
+    if (idCentroCusto) { conds.push(`cp.id_centro_custo = $${i++}`); params.push(idCentroCusto); }
+    const where = conds.length ? 'AND ' + conds.join(' AND ') : '';
+
+    const r = await db.query(`
+      SELECT COALESCE(NULLIF(TRIM(cc.descricao), ''), '(Sem centro de custo)') AS centro_custo,
+             cc.codigo                                   AS centro_codigo,
+             COALESCE(NULLIF(TRIM(f.nome_razao), ''), '(Sem fornecedor)') AS fornecedor,
+             cp.descricao                                AS conta_descricao,
+             cp.numero_documento                         AS numero_documento,
+             p.id                                        AS parcela_id,
+             p.numero_parcela                            AS numero_parcela,
+             p.data_vencimento                           AS data_vencimento,
+             p.data_pagamento                            AS data_pagamento,
+             p.valor::numeric                            AS valor,
+             p.valor_pago::numeric                       AS pago,
+             (p.valor - p.valor_pago)::numeric           AS saldo,
+             p.status                                    AS status
+      FROM fin_parcelas_pagar p
+      JOIN fin_contas_pagar cp ON cp.id = p.id_conta_pagar
+      LEFT JOIN fin_fornecedores f  ON cp.id_fornecedor  = f.id
+      LEFT JOIN fin_centro_custo cc ON cp.id_centro_custo = cc.id
+      WHERE 1=1 ${where}
+      ORDER BY centro_custo, fornecedor, p.data_vencimento, p.numero_parcela
+    `, params);
+    res.json({ success: true, data: r.rows });
+  } catch (e) { err(res, e, 'relatorio contas-pagar'); }
+}
+
 export async function getContaPagarHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
