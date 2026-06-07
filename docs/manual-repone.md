@@ -1740,11 +1740,31 @@ Registre as comissões e outros valores a receber.
 5. Para parcelamento, ajuste **N° Parcelas** e **Intervalo**
 6. Clique em **Salvar**
 
-#### Baixar uma conta (registrar recebimento)
+> **Dica:** você pode lançar **uma única parcela** com o valor total e ir recebendo aos poucos — não precisa criar várias parcelas. No **edit** o cabeçalho é atualizado (descrição, cliente, classificação); as parcelas e os recebimentos são **preservados**.
 
-O processo é semelhante ao de Contas a Pagar: clique no check da linha ou abra os detalhes e selecione a parcela a baixar. Recebimentos **parciais** são aceitos.
+#### Conta corrente da parcela (recebimento integral ou parcial)
 
-> **Em evolução:** a **conta corrente da parcela** (extrato de recebimentos + **estorno**), já disponível no Contas a Pagar, está sendo trazida também para o Contas a Receber.
+Cada parcela funciona como uma **conta corrente**: a obrigação fica registrada e os recebimentos entram como movimentos.
+
+1. Clique no **✓** da linha (ou no 👁 **Detalhes**) e escolha a parcela
+2. Na tela de recebimento você vê o **saldo**, a **barra de progresso** e o **histórico** dos recebimentos já feitos
+3. Informe a **conta de caixa**, o **valor**, **juros** e **desconto** e clique em **Confirmar Recebimento**
+4. Em recebimentos **parciais** a parcela **continua aberta** e a tela já sugere o saldo restante — receba o resto quando quiser
+5. Quando o valor **quita** a parcela, a tela avisa e fecha
+
+Todo recebimento **alimenta o caixa** automaticamente e fica no **extrato** da conta (visível nos Detalhes). Errou? Clique em **Estornar** no extrato: o valor volta ao saldo da parcela e é revertido no caixa.
+
+#### Filtro por Vencimento ou Recebimento
+
+No topo da lista, **Filtrar por**:
+- **Vencimento** — mostra o que **vence** no período (visão de planejamento)
+- **Recebimento** — mostra o que você **efetivamente recebeu** no período (integral + parcial); os cards e a coluna *Recebido no período* passam a refletir o caixa
+
+Filtre também por **Centro de Custo** e **Cliente**.
+
+#### Relatório (Excel)
+
+O botão **Relatório** abre o relatório **por Centro de Custo**, respeitando os filtros, com as parcelas **recebidas destacadas em amarelo** (estilo planilha) e subtotais por centro. Exporte em **Excel** com um clique.
 
 > **Dica:** quando a indústria paga a comissão parcelada, cada parcela pode ser baixada individualmente sem afetar as demais.
 
