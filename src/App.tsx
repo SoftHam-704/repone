@@ -68,6 +68,7 @@ function App() {
           <Route path="/utilitarios/importacao-precos" element={null} />
           <Route path="/utilitarios/catalogo-produtos" element={null} />
           <Route path="/utilitarios/tutoriais" element={null} />
+          <Route path="/utilitarios/manual" element={null} />
           <Route path="/utilitarios/usuarios" element={null} />
           <Route path="/cadastros/tabelas-precos" element={null} />
           <Route path="/pedidos" element={null} />

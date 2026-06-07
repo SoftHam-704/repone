@@ -80,6 +80,7 @@ const IrisConfigPage           = lazy(() => import('@/modules/iris/pages/IrisCon
 const PergunteIrisPage         = lazy(() => import('@/modules/iris/pages/PergunteIrisPage'))
 const RelatoriosPage           = lazy(() => import('@/modules/relatorios/pages/RelatoriosPage'))
 const CentroAprendizadoPage    = lazy(() => import('@/modules/utilitarios/pages/CentroAprendizadoPage'))
+const ManualReaderPage         = lazy(() => import('@/modules/utilitarios/pages/ManualReaderPage'))
 
 export interface RouteItem {
   id: string;
@@ -148,6 +149,7 @@ export const ROUTE_CONFIG: Record<string, RouteItem> = {
   '/utilitarios/iris-config':          { id: 'iris-config',       label: 'IRIS — Configuração',   path: '/utilitarios/iris-config', icon: Sparkles,      element: <IrisConfigPage /> },
   '/utilitarios/pergunte-iris':        { id: 'pergunte-iris',     label: 'IRIS Dev',              path: '/utilitarios/pergunte-iris', icon: Sparkles,    element: <PergunteIrisPage /> },
   '/utilitarios/tutoriais':            { id: 'centro-aprendizado', label: 'Centro de Aprendizado', path: '/utilitarios/tutoriais',   icon: BookOpen,      element: <CentroAprendizadoPage /> },
+  '/utilitarios/manual':               { id: 'manual-online',     label: 'Manual do Usuário',     path: '/utilitarios/manual',      icon: BookOpen,      element: <ManualReaderPage /> },
 };
 
 // Dynamic routes — factory + cache for unique elements per path

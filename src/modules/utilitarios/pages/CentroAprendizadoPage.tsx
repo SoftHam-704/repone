@@ -1,5 +1,6 @@
 import { BookOpen, Download, Music, ShoppingCart, Send, Loader2 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '@/shared/lib/api';
 
 // ─── palette Fresh Corporate ────────────────────────────────────────────────
@@ -182,26 +183,45 @@ export default function CentroAprendizadoPage() {
                     </div>
                   </div>
                 </div>
-                <a
-                  href={MANUAL_URL}
-                  download
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    marginTop: 'auto',
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
-                    background: C.green, color: '#FFFFFF',
-                    fontSize: 11, fontWeight: 700, letterSpacing: 1,
-                    padding: '9px 14px', borderRadius: 4, textDecoration: 'none',
-                    boxShadow: '0 4px 12px rgba(14, 165, 233, 0.25)',
-                    transition: 'all 0.2s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = '#0284C7'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = C.green; }}
-                >
-                  <Download size={12} />
-                  BAIXAR MANUAL
-                </a>
+                <div style={{ marginTop: 'auto', display: 'flex', gap: 8 }}>
+                  <Link
+                    to="/utilitarios/manual"
+                    style={{
+                      flex: 1,
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                      background: 'transparent', color: C.textPrimary,
+                      fontSize: 11, fontWeight: 700, letterSpacing: 1,
+                      padding: '9px 14px', borderRadius: 4, textDecoration: 'none',
+                      border: '1px solid rgba(255,255,255,0.18)',
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <BookOpen size={12} />
+                    LER ONLINE
+                  </Link>
+                  <a
+                    href={MANUAL_URL}
+                    download
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      flex: 1,
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                      background: C.green, color: '#FFFFFF',
+                      fontSize: 11, fontWeight: 700, letterSpacing: 1,
+                      padding: '9px 14px', borderRadius: 4, textDecoration: 'none',
+                      boxShadow: '0 4px 12px rgba(14, 165, 233, 0.25)',
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#0284C7'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = C.green; }}
+                  >
+                    <Download size={12} />
+                    BAIXAR PDF
+                  </a>
+                </div>
               </div>
             </div>
           </div>
