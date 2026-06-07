@@ -43,3 +43,7 @@ dist-ssr
 # Lock files
 package-lock.json
 backend/package-lock.json
+
+# Manual gerado (artefato — regenerar com npm run manual:pdf)
+docs/manual-repone.pdf
+docs/manual-preview-capa.png
