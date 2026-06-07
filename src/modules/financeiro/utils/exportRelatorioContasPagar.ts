@@ -16,7 +16,13 @@ function fmtD(d?: string | null) {
   return `${day}/${m}/${y}`
 }
 
-export async function exportRelatorioContasPagar(rows: any[], periodo?: string) {
+export async function exportRelatorioContasPagar(rows: any[], periodo?: string, agruparPor: 'centro' | 'entidade' = 'centro') {
+  const porCentro = agruparPor === 'centro'
+  const groupField = porCentro ? 'centro_custo' : 'fornecedor'
+  const otherField = porCentro ? 'fornecedor' : 'centro_custo'
+  const otherHeader = porCentro ? 'Fornecedor' : 'Centro de Custo'
+  const groupPrefix = porCentro ? 'CENTRO DE CUSTO' : 'FORNECEDOR'
+
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Contas a Pagar', { views: [{ showGridLines: false }], pageSetup: { orientation: 'landscape', paperSize: 9 } })
   ws.columns = [
@@ -24,12 +30,12 @@ export async function exportRelatorioContasPagar(rows: any[], periodo?: string) 
     { width: 14 }, { width: 14 }, { width: 14 }, { width: 10 },
   ]
 
-  ws.getCell('A1').value = `RELATÓRIO DE CONTAS A PAGAR — POR CENTRO DE CUSTO${periodo ? ` · ${periodo}` : ''}`
+  ws.getCell('A1').value = `RELATÓRIO DE CONTAS A PAGAR — POR ${groupPrefix}${periodo ? ` · ${periodo}` : ''}`
   ws.getCell('A1').font = { bold: true, size: 12, color: { argb: 'FF1E2D3D' } }
   ws.mergeCells('A1:H1')
 
   let r = 3
-  const headers = ['Fornecedor', 'Descrição', 'Parc.', 'Vencimento', 'Valor', 'Pago', 'Saldo', 'Status']
+  const headers = [otherHeader, 'Descrição', 'Parc.', 'Vencimento', 'Valor', 'Pago', 'Saldo', 'Status']
   headers.forEach((h, i) => {
     const c = ws.getCell(r, i + 1)
     c.value = h; c.fill = NAVY
@@ -38,14 +44,14 @@ export async function exportRelatorioContasPagar(rows: any[], periodo?: string) 
   })
   r++
 
-  // agrupa por centro de custo (rows já vem ordenado pelo backend)
+  // agrupa pela dimensão escolhida (rows já vem ordenado pelo backend)
   const grupos: Record<string, any[]> = {}
-  for (const row of rows) { (grupos[row.centro_custo] ||= []).push(row) }
+  for (const row of rows) { (grupos[row[groupField]] ||= []).push(row) }
 
   let totV = 0, totP = 0, totS = 0
   for (const [centro, items] of Object.entries(grupos)) {
     const gc = ws.getCell(r, 1)
-    gc.value = `CENTRO DE CUSTO: ${centro}`
+    gc.value = `${groupPrefix}: ${centro}`
     gc.font = { bold: true, color: { argb: 'FF155724' }, size: 10 }
     ws.mergeCells(r, 1, r, 8)
     for (let col = 1; col <= 8; col++) ws.getCell(r, col).fill = GREENBG
@@ -55,7 +61,7 @@ export async function exportRelatorioContasPagar(rows: any[], periodo?: string) 
     for (const it of items) {
       const paid = it.status === 'PAGO'
       const cells = [
-        it.fornecedor, it.conta_descricao, String(it.numero_parcela), fmtD(it.data_vencimento),
+        it[otherField], it.conta_descricao, String(it.numero_parcela), fmtD(it.data_vencimento),
         num(it.valor), num(it.pago), num(it.saldo), paid ? 'PAGO' : 'Aberto',
       ]
       cells.forEach((v, i) => {

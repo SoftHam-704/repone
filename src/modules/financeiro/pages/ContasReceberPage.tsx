@@ -1110,7 +1110,7 @@ export default function ContasReceberPage() {
       )}
 
       {showRelatorio && (
-        <RelatorioContasReceberModal filters={filters} onClose={() => setShowRelatorio(false)} />
+        <RelatorioContasReceberModal filters={filters} clientes={clientes} centrosCusto={centrosCusto} onClose={() => setShowRelatorio(false)} />
       )}
 
       {helpOpen && (

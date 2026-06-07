@@ -1138,7 +1138,7 @@ export default function ContasPagarPage() {
       )}
 
       {showRelatorio && (
-        <RelatorioContasPagarModal filters={filters} onClose={() => setShowRelatorio(false)} />
+        <RelatorioContasPagarModal filters={filters} fornecedores={fornecedores} centrosCusto={centrosCusto} onClose={() => setShowRelatorio(false)} />
       )}
 
       {helpOpen && (
