@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, Search, Eye, Check, Trash2, ArrowDownCircle, X, Pencil, ChevronDown, ChevronUp, FileText, Layers } from 'lucide-react'
+import { Plus, Search, Eye, Check, Trash2, ArrowDownCircle, X, Pencil, ChevronDown, ChevronUp, FileText, Layers, HelpCircle, Wallet, RotateCcw, CalendarClock } from 'lucide-react'
 import { api } from '@/shared/lib/api'
 import ParcelasEditor, { type ParcelaLinha } from '../components/ParcelasEditor'
 import LancamentoLoteModal from '../components/LancamentoLoteModal'
+import RelatorioContasReceberModal from '../components/RelatorioContasReceberModal'
 import { analiticasPorTipo } from '../utils/planoContas'
 
 const G = {
@@ -71,6 +72,7 @@ interface Conta {
   cliente_nome: string
   plano_contas_descricao: string
   centro_custo_descricao: string
+  recebido_periodo?: number
   parcelas?: Parcela[]
 }
 
@@ -390,9 +392,11 @@ function NovaContaModal({ onClose, onSaved, clientes, planoContas, centrosCusto,
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     const valorReais = digitsToReais(form.valor_total)
-    if (!form.descricao || valorReais <= 0 || !form.data_vencimento) { setError('Preencha os campos obrigatórios.'); return }
-    if (parcelasGrid.length === 0) { setError('Calcule as parcelas antes de salvar.'); return }
-    if (isEdit && hasPago && !confirm('Esta conta já tem recebimentos registrados. Editar irá APAGAR todas as parcelas (inclusive as recebidas) e regenerar. Continuar?')) return
+    if (!form.descricao) { setError('Informe a descrição.'); return }
+    if (!isEdit) {
+      if (valorReais <= 0 || !form.data_vencimento) { setError('Preencha os campos obrigatórios.'); return }
+      if (parcelasGrid.length === 0) { setError('Calcule as parcelas antes de salvar.'); return }
+    }
     setSaving(true); setError('')
     try {
       const payload = {
@@ -435,9 +439,9 @@ function NovaContaModal({ onClose, onSaved, clientes, planoContas, centrosCusto,
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: G.muted }}>Carregando...</div> : (
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {error && <div style={{ background: '#FEE2E2', color: G.red, padding: '10px 14px', borderRadius: 8, fontSize: 13, borderLeft: `4px solid ${G.red}` }}>{error}</div>}
-          {isEdit && hasPago && (
-            <div style={{ background: '#FEF3C7', border: '1px solid #F59E0B', color: '#92400E', padding: '10px 14px', borderRadius: 8, fontSize: 12, borderLeft: '4px solid #F59E0B' }}>
-              ⚠ Esta conta tem recebimentos registrados. Salvar irá <strong>apagar todas as parcelas (inclusive as recebidas)</strong> e regenerar a partir dos novos valores.
+          {isEdit && (
+            <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1E40AF', padding: '10px 14px', borderRadius: 8, fontSize: 12, borderLeft: '4px solid #3B82F6' }}>
+              Edição do <strong>cabeçalho</strong> (descrição, cliente, classificação). As parcelas e os recebimentos são <strong>preservados</strong> — valor e parcelas não mudam aqui. Para alterar valores/parcelas, exclua e recrie a conta.
             </div>
           )}
 
@@ -512,14 +516,16 @@ function NovaContaModal({ onClose, onSaved, clientes, planoContas, centrosCusto,
             placeholder="— Selecionar Centro de Custo —"
           />
 
-          {/* Parcelas — gerador com prévia editável */}
-          <ParcelasEditor
-            valorTotal={digitsToReais(form.valor_total)}
-            dataVencimentoInicial={form.data_vencimento}
-            accent={G.green}
-            value={parcelasGrid}
-            onChange={setParcelasGrid}
-          />
+          {/* Parcelas — gerador SÓ no INSERT (no edit as parcelas/recebimentos são preservados) */}
+          {!isEdit && (
+            <ParcelasEditor
+              valorTotal={digitsToReais(form.valor_total)}
+              dataVencimentoInicial={form.data_vencimento}
+              accent={G.green}
+              value={parcelasGrid}
+              onChange={setParcelasGrid}
+            />
+          )}
 
           {/* Observações */}
           <FormTextarea
@@ -579,56 +585,99 @@ function NovaContaModal({ onClose, onSaved, clientes, planoContas, centrosCusto,
   )
 }
 
-function BaixaModal({ conta, parcela, onClose, onSaved }: {
-  conta: Conta; parcela: Parcela; onClose: () => void; onSaved: () => void
+function BaixaModal({ conta, parcela, onClose, onSaved, onChanged }: {
+  conta: Conta; parcela: Parcela; onClose: () => void; onSaved: () => void; onChanged?: () => void
 }) {
+  const valorParcela = Number(parcela.valor)
+  const saldoInicial = Math.max(0, valorParcela - Number(parcela.valor_recebido || 0))
+  const [movs, setMovs] = useState<any[]>([])
+  const [movsLoaded, setMovsLoaded] = useState(false)
   const [form, setForm] = useState({
-    data_recebimento: todayISO(),
-    valor_recebido: String(Math.round(Number(parcela.valor) * 100)),
-    juros: '', desconto: '',
-    observacoes: '', gerar_residuo: true,
-    id_conta_caixa: '',
+    data_recebimento: todayISO(), valor_recebido: String(Math.round(saldoInicial * 100)),
+    juros: '', desconto: '', observacoes: '', id_conta_caixa: '',
   })
   const [contasCaixa, setContasCaixa] = useState<{ id: number; conta_nome: string }[]>([])
-  useEffect(() => {
-    api.get('/livro-caixa/contas').then(r => setContasCaixa(r.data.data)).catch(() => {})
-  }, [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  const carregarExtrato = () =>
+    api.get(`/financeiro/contas-receber/${conta.id}/extrato`)
+      .then(r => { setMovs((r.data.data || []).filter((m: any) => m.id_parcela === parcela.id)); setMovsLoaded(true) })
+      .catch(() => setMovsLoaded(true))
+
+  useEffect(() => {
+    api.get('/livro-caixa/contas').then(r => setContasCaixa(r.data.data)).catch(() => {})
+    carregarExtrato()
+  }, [])
+
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }))
-  const vPago = digitsToReais(form.valor_recebido)
-  const residual = parcela.valor - vPago - digitsToReais(form.desconto)
+  const sgn = (m: any) => (m.tipo === 'ESTORNO' ? -1 : 1)
+  const abatido = movsLoaded
+    ? movs.reduce((s, m) => s + sgn(m) * (Number(m.valor_recebido || 0) + Number(m.desconto || 0)), 0)
+    : Number(parcela.valor_recebido || 0)
+  const jaReceb = movsLoaded
+    ? movs.reduce((s, m) => s + sgn(m) * Number(m.valor_recebido || 0), 0)
+    : Number(parcela.valor_recebido || 0)
+  const saldoParcela = Math.max(0, valorParcela - abatido)
+  const pctReceb = valorParcela > 0 ? Math.round((abatido / valorParcela) * 100) : 0
+  const vReceb = digitsToReais(form.valor_recebido)
+  const saldoDepois = saldoParcela - vReceb - digitsToReais(form.desconto)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError('')
     if (!form.id_conta_caixa) { setError('Selecione a conta de caixa do recebimento.'); setSaving(false); return }
+    if (!(vReceb > 0)) { setError('Informe o valor recebido.'); setSaving(false); return }
     try {
       await api.post(`/financeiro/contas-receber/${conta.id}/baixa`, {
-        id_parcela: parcela.id,
-        data_recebimento: form.data_recebimento,
-        valor_recebido: vPago,
-        juros: digitsToReais(form.juros),
-        desconto: digitsToReais(form.desconto),
-        observacoes: form.observacoes,
-        gerar_residuo: form.gerar_residuo,
-        id_conta_caixa: Number(form.id_conta_caixa),
+        id_parcela: parcela.id, data_recebimento: form.data_recebimento, valor_recebido: vReceb,
+        juros: digitsToReais(form.juros), desconto: digitsToReais(form.desconto),
+        observacoes: form.observacoes, id_conta_caixa: Number(form.id_conta_caixa),
       })
-      onSaved()
-    } catch (err: any) {
-      setError(err?.response?.data?.message ?? 'Erro ao registrar')
-    } finally { setSaving(false) }
+      onChanged?.()
+      const ext = await api.get(`/financeiro/contas-receber/${conta.id}/extrato`)
+      const novos = (ext.data.data || []).filter((m: any) => m.id_parcela === parcela.id)
+      setMovs(novos); setMovsLoaded(true)
+      const novoAbatido = novos.reduce((s: number, m: any) => s + (m.tipo === 'ESTORNO' ? -1 : 1) * (Number(m.valor_recebido || 0) + Number(m.desconto || 0)), 0)
+      const novoSaldo = Math.max(0, valorParcela - novoAbatido)
+      if (novoSaldo <= 0.01) { onSaved(); return }
+      setForm(f => ({ ...f, valor_recebido: String(Math.round(novoSaldo * 100)), juros: '', desconto: '', observacoes: '' }))
+    } catch (err: any) { setError(err?.response?.data?.message ?? 'Erro ao registrar') }
+    finally { setSaving(false) }
   }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 12, padding: 28, width: 460, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: G.text }}>Registrar Recebimento</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.muted }}><X size={18} /></button>
         </div>
-        <div style={{ fontSize: 12, color: G.muted, marginBottom: 16, padding: '8px 12px', background: G.bg, borderRadius: 6 }}>
-          Parcela {parcela.numero_parcela} · {fmtBRL(parcela.valor)} · venc. {fmtDate(parcela.data_vencimento)}
+        <div style={{ marginBottom: 14, padding: '12px 14px', background: G.bg, borderRadius: 8, border: `1px solid ${G.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: G.muted }}>
+            <span>Parcela {parcela.numero_parcela} · venc. {fmtDate(parcela.data_vencimento)}</span>
+            <span>{fmtBRL(parcela.valor)}</span>
+          </div>
+          <div style={{ height: 6, borderRadius: 4, background: '#E5E0D5', marginTop: 8, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${Math.min(100, pctReceb)}%`, background: G.green, transition: 'width .2s' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 12 }}>
+            <span style={{ color: G.green }}>Já recebido {fmtBRL(jaReceb)} ({pctReceb}%)</span>
+            <span style={{ color: G.text, fontWeight: 700 }}>Saldo {fmtBRL(saldoParcela)}</span>
+          </div>
         </div>
+        {movs.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: G.muted, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.04em' }}>Histórico desta parcela</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 100, overflowY: 'auto' }}>
+              {movs.map((m: any) => (
+                <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 9px', background: G.bg, borderRadius: 6, opacity: m.estornada ? 0.5 : 1 }}>
+                  <span style={{ color: G.muted }}>{fmtDate(m.data)} · <span style={{ color: m.tipo === 'ESTORNO' ? G.amber : G.green, fontWeight: 600 }}>{m.tipo === 'ESTORNO' ? 'Estorno' : 'Recebimento'}</span>{m.caixa_nome ? ` · ${m.caixa_nome}` : ''}</span>
+                  <span style={{ color: G.text, fontWeight: 600 }}>{m.tipo === 'ESTORNO' ? '− ' : ''}{fmtBRL(m.valor_recebido)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {error && <div style={{ background: '#FEE2E2', color: G.red, padding: '8px 12px', borderRadius: 6, fontSize: 13 }}>{error}</div>}
           <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Data Recebimento
@@ -651,20 +700,20 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
               <input value={maskBRLFromDigits(form.desconto)} onChange={e => set('desconto', e.target.value.replace(/\D/g, ''))} style={inputStyle} inputMode="numeric" placeholder="R$ 0,00" />
             </label>
           </div>
-          {residual > 0.01 && (
+          {vReceb > 0 && (saldoDepois > 0.01 ? (
             <div style={{ background: '#FEF9C3', border: '1px solid #FCD34D', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: '#92400E' }}>
-              Saldo residual: {fmtBRL(residual)}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                <input type="checkbox" checked={form.gerar_residuo} onChange={e => set('gerar_residuo', e.target.checked)} />
-                Gerar parcela para o saldo residual
-              </label>
+              <strong>Recebimento parcial.</strong> Sobra <strong>{fmtBRL(saldoDepois)}</strong> nesta parcela — você baixa o resto quando quiser.
             </div>
-          )}
+          ) : (
+            <div style={{ background: '#DCFCE7', border: '1px solid #86EFAC', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: '#166534' }}>
+              ✓ Este recebimento <strong>quita a parcela</strong>.
+            </div>
+          ))}
           <label style={{ fontSize: 12, color: G.muted, fontWeight: 500 }}>Observações
             <textarea value={form.observacoes} onChange={e => set('observacoes', e.target.value)} style={{ ...inputStyle, height: 60, resize: 'vertical' }} />
           </label>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={btnSecondary}>Cancelar</button>
+            <button type="button" onClick={onClose} style={btnSecondary}>Fechar</button>
             <button type="submit" disabled={saving} style={btnPrimary(G.green)}>{saving ? 'Salvando...' : 'Confirmar Recebimento'}</button>
           </div>
         </form>
@@ -673,18 +722,33 @@ function BaixaModal({ conta, parcela, onClose, onSaved }: {
   )
 }
 
-function DetalhesModal({ contaId, onClose, onBaixa }: {
-  contaId: number; onClose: () => void; onBaixa: (conta: Conta, parcela: Parcela) => void
+function DetalhesModal({ contaId, onClose, onBaixa, onChanged }: {
+  contaId: number; onClose: () => void; onBaixa: (conta: Conta, parcela: Parcela) => void; onChanged?: () => void
 }) {
   const [conta, setConta] = useState<Conta | null>(null)
+  const [extrato, setExtrato] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [estornando, setEstornando] = useState<number | null>(null)
 
-  useEffect(() => {
-    api.get(`/financeiro/contas-receber/${contaId}`)
-      .then(r => r.data.success && setConta(r.data.data))
-      .catch(() => {})
-      .finally(() => setLoading(false))
+  const reload = useCallback(() => {
+    setLoading(true)
+    Promise.all([
+      api.get(`/financeiro/contas-receber/${contaId}`).then(r => r.data.success && setConta(r.data.data)).catch(() => {}),
+      api.get(`/financeiro/contas-receber/${contaId}/extrato`).then(r => r.data.success && setExtrato(r.data.data || [])).catch(() => setExtrato([])),
+    ]).finally(() => setLoading(false))
   }, [contaId])
+
+  useEffect(() => { reload() }, [reload])
+
+  const estornar = async (idBaixa: number) => {
+    if (!confirm('Estornar este recebimento?\n\nO valor volta ao saldo da parcela e é revertido no caixa.')) return
+    setEstornando(idBaixa)
+    try {
+      await api.post(`/financeiro/contas-receber/baixa/${idBaixa}/estornar`, {})
+      reload(); onChanged?.()
+    } catch (e: any) { alert(e?.response?.data?.message || 'Erro ao estornar.') }
+    finally { setEstornando(null) }
+  }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -733,6 +797,47 @@ function DetalhesModal({ contaId, onClose, onBaixa }: {
                 ))}
               </tbody>
             </table>
+
+            {extrato.length > 0 && (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 600, color: G.text, margin: '22px 0 10px' }}>Conta Corrente · Extrato de Recebimentos</div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: G.bg }}>
+                      {['Data', 'Parc.', 'Tipo', 'Valor', 'Caixa', ''].map(h => (
+                        <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: G.muted, fontWeight: 600, fontSize: 11 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {extrato.map((m: any) => {
+                      const isEstorno = m.tipo === 'ESTORNO'
+                      const cor = isEstorno ? G.amber : G.green
+                      return (
+                        <tr key={m.id} style={{ borderBottom: `1px solid ${G.border}`, opacity: m.estornada ? 0.5 : 1 }}>
+                          <td style={{ padding: '8px 10px', color: G.text }}>{fmtDate(m.data)}</td>
+                          <td style={{ padding: '8px 10px', color: G.muted }}>{m.numero_parcela}</td>
+                          <td style={{ padding: '8px 10px' }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 5, color: cor, background: cor + '1a' }}>{isEstorno ? 'ESTORNO' : 'RECEB.'}</span>
+                          </td>
+                          <td style={{ padding: '8px 10px', color: isEstorno ? G.amber : G.text, fontWeight: 600 }}>{isEstorno ? '− ' : ''}{fmtBRL(m.valor_recebido)}</td>
+                          <td style={{ padding: '8px 10px', color: G.muted }}>{m.caixa_nome || '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                            {!isEstorno && !m.estornada && (
+                              <button onClick={() => estornar(m.id)} disabled={estornando === m.id}
+                                style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11, color: G.red, borderColor: `${G.red}55` }}>
+                                {estornando === m.id ? '...' : 'Estornar'}
+                              </button>
+                            )}
+                            {m.estornada && <span style={{ fontSize: 11, color: G.muted }}>estornada</span>}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </>
+            )}
           </>
         ) : <div style={{ color: G.red, textAlign: 'center' }}>Conta não encontrada.</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
@@ -751,7 +856,7 @@ export default function ContasReceberPage() {
   const [centrosCusto, setCentrosCusto] = useState<any[]>([])
 
   const [filters, setFilters] = useState({
-    dataInicio: firstOfMonth(), dataFim: todayISO(), status: '', idCliente: '',
+    dataInicio: firstOfMonth(), dataFim: todayISO(), status: '', idCliente: '', idCentroCusto: '', filtrarPor: 'vencimento',
   })
   const [search, setSearch]         = useState('')
   const [showNova, setShowNova]     = useState(false)
@@ -759,6 +864,8 @@ export default function ContasReceberPage() {
   const [editingId, setEditingId]   = useState<number | null>(null)
   const [detalhesId, setDetalhesId] = useState<number | null>(null)
   const [baixaData, setBaixaData]   = useState<{ conta: Conta; parcela: Parcela } | null>(null)
+  const [helpOpen, setHelpOpen]     = useState(false)
+  const [showRelatorio, setShowRelatorio] = useState(false)
 
   const setFilter = (k: string, v: string) => setFilters(f => ({ ...f, [k]: v }))
 
@@ -769,6 +876,8 @@ export default function ContasReceberPage() {
     if (filters.dataFim)    params.set('dataFim', filters.dataFim)
     if (filters.status)     params.set('status', filters.status)
     if (filters.idCliente)  params.set('idCliente', filters.idCliente)
+    if (filters.idCentroCusto) params.set('idCentroCusto', filters.idCentroCusto)
+    params.set('filtrarPor', filters.filtrarPor)
     api.get(`/financeiro/contas-receber?${params}`)
       .then(r => r.data.success && setContas(r.data.data))
       .catch(() => {})
@@ -797,7 +906,9 @@ export default function ContasReceberPage() {
     total:    acc.total    + Number(c.valor_total),
     recebido: acc.recebido + Number(c.valor_recebido),
     saldo:    acc.saldo    + Number(c.saldo),
-  }), { total: 0, recebido: 0, saldo: 0 })
+    recebidoPeriodo: acc.recebidoPeriodo + Number(c.recebido_periodo || 0),
+  }), { total: 0, recebido: 0, saldo: 0, recebidoPeriodo: 0 })
+  const porRecebimento = filters.filtrarPor === 'recebimento'
 
   const vencidas = filtered.filter(c => c.status === 'ABERTO' && new Date(c.data_vencimento) < new Date(todayISO())).length
   const isVencida = (c: Conta) => c.status === 'ABERTO' && new Date(c.data_vencimento) < new Date(todayISO())
@@ -824,6 +935,13 @@ export default function ContasReceberPage() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setHelpOpen(true)} title="Ajuda"
+              style={{ width: 36, height: 36, borderRadius: 8, border: '1px solid rgba(255,255,255,.2)', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,.7)' }}>
+              <HelpCircle size={17} />
+            </button>
+            <button onClick={() => setShowRelatorio(true)} style={{ ...btnPrimary(G.navy), border: `1px solid ${G.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <FileText size={15} /> Relatório
+            </button>
             <button onClick={() => setShowLote(true)} style={{ ...btnPrimary(G.navy), border: `1px solid ${G.border}`, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Layers size={15} /> Lançamento em Lote
             </button>
@@ -837,12 +955,17 @@ export default function ContasReceberPage() {
       {/* KPI Strip */}
       <div style={{ padding: '0 28px', marginTop: -28, position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
-          {[
+          {(porRecebimento ? [
+            { label: 'Recebido no Período', value: fmtBRL(totais.recebidoPeriodo), color: G.green },
+            { label: 'Total das Contas',    value: fmtBRL(totais.total),           color: G.navy },
+            { label: 'Saldo Pendente',      value: fmtBRL(totais.saldo),           color: totais.saldo > 0 ? G.amber : G.muted },
+            { label: 'Contas',              value: String(filtered.length),        color: G.muted },
+          ] : [
             { label: 'Total a Receber', value: fmtBRL(totais.total),    color: G.navy },
             { label: 'Já Recebido',     value: fmtBRL(totais.recebido), color: G.green },
             { label: 'Saldo Pendente',  value: fmtBRL(totais.saldo),    color: totais.saldo > 0 ? G.amber : G.muted },
             { label: 'Vencidas',        value: String(vencidas),        color: vencidas > 0 ? G.red : G.muted },
-          ].map(({ label, value, color }) => (
+          ]).map(({ label, value, color }) => (
             <div key={label} style={{
               background: G.card, borderRadius: 10, padding: '14px 18px',
               borderLeft: `4px solid ${color}`, boxShadow: '0 2px 8px rgba(0,0,0,.08)',
@@ -857,8 +980,20 @@ export default function ContasReceberPage() {
       {/* Content */}
       <div style={{ padding: '20px 28px 28px' }}>
 
+        <p style={{ margin: '0 0 12px', fontSize: 12, color: G.muted }}>
+          {porRecebimento
+            ? <>Mostrando o que foi <strong>recebido no período</strong> (pela data do recebimento) — inclui baixas integrais e parciais.</>
+            : <>Os totais refletem o <strong>vencimento</strong> no período e os filtros selecionados — não o histórico todo.</>}
+        </p>
+
         {/* Filters */}
         <div style={{ background: G.card, border: `1px solid ${G.border}`, borderRadius: 10, padding: '14px 18px', marginBottom: 14, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', boxShadow: '0 1px 4px rgba(0,0,0,.05)' }}>
+          <label style={{ fontSize: 12, color: G.muted }}>Filtrar por
+            <select value={filters.filtrarPor} onChange={e => setFilter('filtrarPor', e.target.value)} style={{ ...inputStyle, width: 130 }}>
+              <option value="vencimento">Vencimento</option>
+              <option value="recebimento">Recebimento</option>
+            </select>
+          </label>
           <label style={{ fontSize: 12, color: G.muted }}>De
             <input type="date" value={filters.dataInicio} onChange={e => setFilter('dataInicio', e.target.value)} style={{ ...inputStyle, width: 140 }} />
           </label>
@@ -880,6 +1015,14 @@ export default function ContasReceberPage() {
               {clientes.map(c => <option key={c.id} value={c.id}>{c.nome_razao}</option>)}
             </select>
           </label>
+          <label style={{ fontSize: 12, color: G.muted }}>Centro de Custo
+            <select value={filters.idCentroCusto} onChange={e => setFilter('idCentroCusto', e.target.value)} style={{ ...inputStyle, width: 180 }}>
+              <option value="">Todos</option>
+              {centrosCusto.filter((c: any) => c.ativo !== false).map((c: any) => (
+                <option key={c.id} value={c.id}>{c.codigo ? `${c.codigo} · ` : ''}{c.descricao}</option>
+              ))}
+            </select>
+          </label>
           <div style={{ position: 'relative', marginLeft: 'auto' }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: G.muted }} />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar..." style={{ ...inputStyle, paddingLeft: 30, width: 180, marginTop: 0 }} />
@@ -896,7 +1039,7 @@ export default function ContasReceberPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: G.bg, borderBottom: `1px solid ${G.border}` }}>
-                  {['Descrição', 'Cliente', 'Vencimento', 'Valor Total', 'Recebido', 'Saldo', 'Status', ''].map(h => (
+                  {['Descrição', 'Cliente', 'Vencimento', 'Valor Total', 'Recebido', ...(porRecebimento ? ['Recebido no período'] : []), 'Saldo', 'Status', ''].map(h => (
                     <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: G.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                   ))}
                 </tr>
@@ -912,6 +1055,7 @@ export default function ContasReceberPage() {
                     <td style={{ padding: '10px 12px', color: isVencida(c) ? G.red : G.text, fontWeight: isVencida(c) ? 600 : 400 }}>{fmtDate(c.data_vencimento)}</td>
                     <td style={{ padding: '10px 12px', color: G.text }}>{fmtBRL(c.valor_total)}</td>
                     <td style={{ padding: '10px 12px', color: G.green }}>{fmtBRL(c.valor_recebido)}</td>
+                    {porRecebimento && <td style={{ padding: '10px 12px', color: G.green, fontWeight: 700 }}>{fmtBRL(c.recebido_periodo || 0)}</td>}
                     <td style={{ padding: '10px 12px', color: Number(c.saldo) > 0 ? G.amber : G.muted, fontWeight: 600 }}>{fmtBRL(c.saldo)}</td>
                     <td style={{ padding: '10px 12px' }}><StatusBadge status={c.status} /></td>
                     <td style={{ padding: '10px 12px' }}>
@@ -923,13 +1067,8 @@ export default function ContasReceberPage() {
                           <Pencil size={14} />
                         </button>
                         {(c.status === 'ABERTO' || isVencida(c)) && (
-                          <button title="Registrar recebimento" onClick={async () => {
-                            const r = await api.get(`/financeiro/contas-receber/${c.id}`)
-                            if (r.data.success) {
-                              const parcela = r.data.data.parcelas?.find((p: Parcela) => p.status === 'ABERTO' || p.status === 'VENCIDO')
-                              if (parcela) setBaixaData({ conta: r.data.data, parcela })
-                            }
-                          }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.green, padding: 4 }}>
+                          <button title="Receber (escolher a parcela)" onClick={() => setDetalhesId(c.id)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: G.green, padding: 4 }}>
                             <Check size={15} />
                           </button>
                         )}
@@ -961,11 +1100,55 @@ export default function ContasReceberPage() {
       )}
       {detalhesId !== null && (
         <DetalhesModal contaId={detalhesId} onClose={() => setDetalhesId(null)}
-          onBaixa={(conta, parcela) => setBaixaData({ conta, parcela })} />
+          onBaixa={(conta, parcela) => setBaixaData({ conta, parcela })} onChanged={load} />
       )}
       {baixaData && (
         <BaixaModal conta={baixaData.conta} parcela={baixaData.parcela}
-          onClose={() => setBaixaData(null)} onSaved={() => { setBaixaData(null); load() }} />
+          onClose={() => setBaixaData(null)} onSaved={() => { setBaixaData(null); load() }} onChanged={load} />
+      )}
+
+      {showRelatorio && (
+        <RelatorioContasReceberModal filters={filters} onClose={() => setShowRelatorio(false)} />
+      )}
+
+      {helpOpen && (
+        <div onClick={() => setHelpOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(40,55,74,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: G.card, borderRadius: 16, width: '100%', maxWidth: 580, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.22)' }}>
+            <div style={{ padding: '20px 24px 16px', borderBottom: `1px solid ${G.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: G.navy, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <HelpCircle size={20} color="#fff" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: G.text }}>Como usar o Contas a Receber</h2>
+                  <p style={{ margin: 0, fontSize: 11, color: G.muted }}>Guia rápido da funcionalidade</p>
+                </div>
+              </div>
+              <button onClick={() => setHelpOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: G.muted, padding: 4 }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {[
+                { icon: Plus, color: G.navy, title: 'Lançar a conta', desc: 'Informe descrição, cliente, valor e vencimento — e classifique por Plano de Contas e Centro de Custo. Você pode parcelar OU lançar uma única parcela com o valor total e ir recebendo aos poucos.' },
+                { icon: Check, color: G.green, title: 'Recebimento: integral ou parcial', desc: 'Registre o recebimento escolhendo a conta de caixa, o valor, juros e desconto. Receba parcialmente quantas vezes precisar até quitar — sem precisar criar várias parcelas.' },
+                { icon: Wallet, color: '#7C3AED', title: 'Conta Corrente · Extrato', desc: 'Todo recebimento entra no caixa automaticamente e fica registrado no extrato da conta. Abra os Detalhes (ícone 👁) para ver o histórico completo de recebimentos.' },
+                { icon: RotateCcw, color: G.amber, title: 'Estornar um recebimento', desc: 'Errou uma baixa? Clique em Estornar no extrato: o valor volta ao saldo da parcela e é revertido no caixa, mantendo tudo conciliado.' },
+                { icon: CalendarClock, color: G.red, title: 'Filtrar por Vencimento ou Recebimento', desc: '“Vencimento” mostra o que vence no período; “Recebimento” mostra o que você efetivamente recebeu no período (baixas integrais e parciais). Filtre também por Centro de Custo e Cliente.' },
+              ].map(({ icon: Icon, color, title, desc }) => (
+                <div key={title} style={{ display: 'flex', gap: 14, padding: '14px 16px', borderRadius: 10, background: G.bg, border: `1px solid ${G.border}` }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: color + '18', border: `1px solid ${color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon size={17} color={color} />
+                  </div>
+                  <div>
+                    <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 700, color: G.text }}>{title}</p>
+                    <p style={{ margin: 0, fontSize: 12, color: G.muted, lineHeight: 1.6 }}>{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
