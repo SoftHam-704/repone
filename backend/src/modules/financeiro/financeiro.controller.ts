@@ -516,8 +516,8 @@ async function recomputeContaFromParcelas(client: any, idConta: number): Promise
   const { total, pagas, total_pago } = t.rows[0];
   const status = parseInt(total) > 0 && parseInt(total) === parseInt(pagas) ? 'PAGO' : 'ABERTO';
   await client.query(`
-    UPDATE fin_contas_pagar SET valor_pago = $1, status = $2,
-      data_pagamento = CASE WHEN $2 = 'PAGO'
+    UPDATE fin_contas_pagar SET valor_pago = $1, status = $2::varchar,
+      data_pagamento = CASE WHEN $2::varchar = 'PAGO'
         THEN (SELECT MAX(data_pagamento) FROM fin_parcelas_pagar WHERE id_conta_pagar = $3)
         ELSE NULL END
     WHERE id = $3
@@ -905,8 +905,8 @@ async function recomputeContaReceberFromParcelas(client: any, idConta: number): 
   const { total, recebidas, total_recebido } = t.rows[0];
   const status = parseInt(total) > 0 && parseInt(total) === parseInt(recebidas) ? 'RECEBIDO' : 'ABERTO';
   await client.query(`
-    UPDATE fin_contas_receber SET valor_recebido = $1, status = $2,
-      data_recebimento = CASE WHEN $2 = 'RECEBIDO'
+    UPDATE fin_contas_receber SET valor_recebido = $1, status = $2::varchar,
+      data_recebimento = CASE WHEN $2::varchar = 'RECEBIDO'
         THEN (SELECT MAX(data_recebimento) FROM fin_parcelas_receber WHERE id_conta_receber = $3)
         ELSE NULL END
     WHERE id = $3
