@@ -208,10 +208,23 @@ export async function resumoAgendaHandler(req: Request, res: Response): Promise<
        WHERE ca.ani_mes::int = EXTRACT(MONTH FROM CURRENT_DATE)::int
          AND ca.ani_diaaniv > 0 AND ca.ani_mes > 0`
     ).catch(() => ({ rows: [] }));
+    // Contatos das indústrias (contato_for) aniversariando no mês
+    const anivContatoMes = await db.query(
+      `SELECT cf.con_nome AS con_nome,
+              COALESCE(f.for_nomered, '') AS empresa,
+              cf.con_dtnasc,
+              'industria' AS origem,
+              EXTRACT(DAY FROM cf.con_dtnasc)::int AS dia,
+              '' AS cli_redeloja
+       FROM contato_for cf
+       LEFT JOIN fornecedores f ON f.for_codigo = cf.con_fornec
+       WHERE cf.con_dtnasc IS NOT NULL
+         AND EXTRACT(MONTH FROM cf.con_dtnasc)::int = EXTRACT(MONTH FROM CURRENT_DATE)::int`
+    ).catch(() => ({ rows: [] }));
     const aniversariosMes = {
-      rows: [...anivCliAniv.rows]
+      rows: [...anivCliAniv.rows, ...anivContatoMes.rows]
         .sort((a: any, b: any) => (a.dia || 0) - (b.dia || 0))
-        .slice(0, 50),
+        .slice(0, 100),
     };
 
     // Aniversários hoje — apenas clientes ativos
@@ -233,8 +246,22 @@ export async function resumoAgendaHandler(req: Request, res: Response): Promise<
        WHERE (ca.ani_mes::int, ca.ani_diaaniv::int) IN (SELECT m::int, d::int FROM datas_alvo)
          AND ca.ani_diaaniv > 0 AND ca.ani_mes > 0${vendedorFilter}`
     ).catch(() => ({ rows: [] }));
+    // Contatos das indústrias aniversariando hoje (+ fim de semana se for segunda)
+    const hojeContato = await db.query(
+      `WITH datas_alvo AS (
+         SELECT EXTRACT(MONTH FROM CURRENT_DATE) AS m, EXTRACT(DAY FROM CURRENT_DATE) AS d
+         UNION ALL SELECT EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 day'), EXTRACT(DAY FROM CURRENT_DATE - INTERVAL '1 day') WHERE EXTRACT(DOW FROM CURRENT_DATE) = 1
+         UNION ALL SELECT EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '2 days'), EXTRACT(DAY FROM CURRENT_DATE - INTERVAL '2 days') WHERE EXTRACT(DOW FROM CURRENT_DATE) = 1
+       )
+       SELECT cf.con_nome AS con_nome, COALESCE(f.for_nomered, '') AS empresa,
+              cf.con_dtnasc, 'industria' AS origem, '' AS cli_redeloja
+       FROM contato_for cf
+       LEFT JOIN fornecedores f ON f.for_codigo = cf.con_fornec
+       WHERE cf.con_dtnasc IS NOT NULL
+         AND (EXTRACT(MONTH FROM cf.con_dtnasc)::int, EXTRACT(DAY FROM cf.con_dtnasc)::int) IN (SELECT m::int, d::int FROM datas_alvo)`
+    ).catch(() => ({ rows: [] }));
     const aniversarios = {
-      rows: [...hodjeCliAniv.rows]
+      rows: [...hodjeCliAniv.rows, ...hojeContato.rows]
         .sort((a: any, b: any) => a.con_nome?.localeCompare(b.con_nome))
         .slice(0, 15),
     };
@@ -251,6 +278,110 @@ export async function resumoAgendaHandler(req: Request, res: Response): Promise<
     });
   } catch (error: any) {
     console.error('❌ [AGENDA] resumo:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
+// ─── ANIVERSARIANTES POR PERÍODO ──────────────────────────────────────────────
+// GET /api/agenda/aniversariantes-periodo?data_inicial=YYYY-MM-DD&data_final=YYYY-MM-DD
+// Retorna aniversariantes cujo dia/mês cai dentro do período informado.
+// Lida com ranges cruzando ano (ex: 20/12 a 10/02) via CASE no WHERE.
+export async function aniversariantesPeriodoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const dataInicial = String(req.query.data_inicial || '').trim();
+    const dataFinal   = String(req.query.data_final   || '').trim();
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataInicial) || !/^\d{4}-\d{2}-\d{2}$/.test(dataFinal)) {
+      res.status(400).json({ success: false, message: 'data_inicial e data_final são obrigatórios no formato YYYY-MM-DD.' });
+      return;
+    }
+
+    const vendedorFilter = req.schema === 'borcatorep' ? ' AND c.cli_vendedor = ' + (req.user?.userId || 0) : '';
+
+    // Query principal — mesma estratégia "tolera schema legado" do resumoAgendaHandler.
+    // Se tabela/coluna não existir num tenant antigo, retorna vazio em vez de 500.
+    const r = await db.query(
+      `WITH params AS (
+         SELECT
+           EXTRACT(MONTH FROM $1::date)::int * 100 + EXTRACT(DAY FROM $1::date)::int AS start_mmdd,
+           EXTRACT(MONTH FROM $2::date)::int * 100 + EXTRACT(DAY FROM $2::date)::int AS end_mmdd
+       )
+       SELECT
+         ca.ani_nome                                                AS con_nome,
+         COALESCE(c.cli_nomred, '')                                 AS empresa,
+         ca.ani_diaaniv::int                                        AS dia,
+         ca.ani_mes::int                                            AS mes,
+         COALESCE(c.cli_redeloja, '')                               AS cli_redeloja,
+         'cliente'                                                  AS origem,
+         (LPAD(ca.ani_diaaniv::text, 2, '0') || '/' || LPAD(ca.ani_mes::text, 2, '0')) AS data_aniv
+       FROM cli_aniv ca
+       INNER JOIN clientes c ON c.cli_codigo = ca.ani_cliente AND c.cli_tipopes = 'A'
+       CROSS JOIN params p
+       WHERE ca.ani_diaaniv > 0 AND ca.ani_mes > 0
+         AND CASE
+           WHEN p.start_mmdd <= p.end_mmdd THEN
+             (ca.ani_mes::int * 100 + ca.ani_diaaniv::int) BETWEEN p.start_mmdd AND p.end_mmdd
+           ELSE
+             (ca.ani_mes::int * 100 + ca.ani_diaaniv::int) >= p.start_mmdd
+             OR (ca.ani_mes::int * 100 + ca.ani_diaaniv::int) <= p.end_mmdd
+         END
+         ${vendedorFilter}
+       ORDER BY ca.ani_mes::int, ca.ani_diaaniv::int, ca.ani_nome`,
+      [dataInicial, dataFinal]
+    ).catch((err: any) => {
+      // Loga a causa real para diagnose (tabela/coluna inexistente em tenant antigo, etc.)
+      console.warn('[AGENDA] aniversariantes-periodo query falhou:', err?.code, err?.message);
+      return { rows: [] as any[] };
+    });
+
+    // Contatos das indústrias (contato_for) aniversariando no período
+    const rInd = await db.query(
+      `WITH params AS (
+         SELECT
+           EXTRACT(MONTH FROM $1::date)::int * 100 + EXTRACT(DAY FROM $1::date)::int AS start_mmdd,
+           EXTRACT(MONTH FROM $2::date)::int * 100 + EXTRACT(DAY FROM $2::date)::int AS end_mmdd
+       )
+       SELECT
+         cf.con_nome                                                AS con_nome,
+         COALESCE(f.for_nomered, '')                                AS empresa,
+         EXTRACT(DAY   FROM cf.con_dtnasc)::int                     AS dia,
+         EXTRACT(MONTH FROM cf.con_dtnasc)::int                     AS mes,
+         ''                                                         AS cli_redeloja,
+         'industria'                                                AS origem,
+         (LPAD(EXTRACT(DAY FROM cf.con_dtnasc)::int::text, 2, '0') || '/' ||
+          LPAD(EXTRACT(MONTH FROM cf.con_dtnasc)::int::text, 2, '0')) AS data_aniv
+       FROM contato_for cf
+       LEFT JOIN fornecedores f ON f.for_codigo = cf.con_fornec
+       CROSS JOIN params p
+       WHERE cf.con_dtnasc IS NOT NULL
+         AND CASE
+           WHEN p.start_mmdd <= p.end_mmdd THEN
+             (EXTRACT(MONTH FROM cf.con_dtnasc)::int * 100 + EXTRACT(DAY FROM cf.con_dtnasc)::int) BETWEEN p.start_mmdd AND p.end_mmdd
+           ELSE
+             (EXTRACT(MONTH FROM cf.con_dtnasc)::int * 100 + EXTRACT(DAY FROM cf.con_dtnasc)::int) >= p.start_mmdd
+             OR (EXTRACT(MONTH FROM cf.con_dtnasc)::int * 100 + EXTRACT(DAY FROM cf.con_dtnasc)::int) <= p.end_mmdd
+         END`,
+      [dataInicial, dataFinal]
+    ).catch((err: any) => {
+      console.warn('[AGENDA] aniversariantes-periodo (indústrias) falhou:', err?.code, err?.message);
+      return { rows: [] as any[] };
+    });
+
+    // Dedup: clientes pela rede (cli_redeloja); contatos de indústria por empresa+origem
+    const seen = new Set<string>();
+    const dedup = [...r.rows, ...rInd.rows]
+      .sort((a: any, b: any) => (a.mes - b.mes) || (a.dia - b.dia) || String(a.con_nome || '').localeCompare(String(b.con_nome || '')))
+      .filter((row: any) => {
+        const key = `${row.origem || 'cliente'}|${(row.con_nome || '').trim().toUpperCase()}|${(row.cli_redeloja || row.empresa || '').trim().toUpperCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+    res.json({ success: true, data: dedup, total: dedup.length });
+  } catch (error: any) {
+    console.error('❌ [AGENDA] aniversariantes-periodo:', error.message, error.stack);
     res.status(500).json({ success: false, message: error.message });
   }
 }

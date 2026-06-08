@@ -1370,7 +1370,8 @@ const PortalHome = () => {
       {/* Modal Aniversariantes do mês */}
       {showAniversariosModal && agendaResumo?.aniversarios_mes && (() => {
         const todos = Array.from(
-          new Map((agendaResumo.aniversarios_mes as any[]).map((a: any) => [`${a.con_nome?.trim().toUpperCase()}|${a.cli_redeloja || ''}`, a])).values()
+          // dedup: clientes pela rede (cli_redeloja); contatos de indústria por empresa+origem
+          new Map((agendaResumo.aniversarios_mes as any[]).map((a: any) => [`${a.origem || 'cliente'}|${a.con_nome?.trim().toUpperCase()}|${(a.cli_redeloja || a.empresa || '').trim().toUpperCase()}`, a])).values()
         );
         const todayDay  = new Date().getDate();
         const todayMon  = new Date().getMonth() + 1;
