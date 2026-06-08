@@ -9,6 +9,9 @@ import {
   MessageCircle, Mail, SendHorizontal,
   History, Sparkles, ClipboardCheck, HelpCircle, X, CheckCircle2,
 } from 'lucide-react';
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip as RTooltip, CartesianGrid, ResponsiveContainer, Legend,
+} from 'recharts';
 import { AppSidebar } from '@/shared/components/layout/AppSidebar';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { IrisAvatar } from '@/shared/components/iris/IrisAvatar';
@@ -54,12 +57,12 @@ interface Order {
   ped_datdigit?: string;
   cli_nomred: string;
   cli_nome: string;
+  cli_cnpj?: string;
   cli_cidade?: string;
   cli_uf?: string;
   for_nomered: string;
   ven_nome: string;
   ped_oc?: string | null;
-  ped_pedcli?: string | null;
   ped_consolidado_id?: number | null;
   ped_total_quant?: number;
   ped_total_items?: number;
@@ -350,6 +353,14 @@ function IndustrySidebar({
   );
 }
 
+// Formata CNPJ (14 dígitos) ou devolve o valor cru.
+function fmtCnpj(v?: string): string {
+  if (!v) return '';
+  const d = v.replace(/\D/g, '');
+  if (d.length === 14) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
+  return v;
+}
+
 // ─── Order Card (list item) ───────────────────────────────────────────────────
 const OrderCard = memo(function OrderCard({
   order, index, isSelected, onSelect, onContextMenu, showIndustry,
@@ -390,6 +401,14 @@ const OrderCard = memo(function OrderCard({
               #{order.ped_cliente}
             </span>
           </div>
+          {order.cli_cnpj && (
+            <div style={{
+              fontSize: 10, fontWeight: 800, fontFamily: 'monospace',
+              color: G.textSec, letterSpacing: 0.3, marginBottom: 1,
+            }}>
+              {fmtCnpj(order.cli_cnpj)}
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 900, color: G.textSec, fontFamily: 'monospace', letterSpacing: -0.5 }}>
               #{order.ped_pedido}
@@ -411,7 +430,7 @@ const OrderCard = memo(function OrderCard({
               </>
             )}
           </div>
-          {(order.ped_oc || order.ped_pedcli) && (
+          {order.ped_oc && (
             <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{
                 fontSize: 9, fontWeight: 900, letterSpacing: 0.8, textTransform: 'uppercase',
@@ -421,7 +440,7 @@ const OrderCard = memo(function OrderCard({
                 fontSize: 13, fontWeight: 900, fontFamily: 'monospace',
                 color: G.text, letterSpacing: 0.5, lineHeight: 1,
               }}>
-                {order.ped_oc || order.ped_pedcli}
+                {order.ped_oc}
               </span>
             </div>
           )}
@@ -480,10 +499,13 @@ function useCountUp(target: number, trigger: number | string | undefined): numbe
 
 // ─── Order Detail Panel ───────────────────────────────────────────────────────
 function OrderDetailPanel({
-  order, orders, onEdit, onView, onDuplicate, onDelete, onPrint, onShare, onBilling, onPortals, onIris,
+  order, orders, dataInicio, dataFim,
+  onEdit, onView, onDuplicate, onDelete, onPrint, onShare, onBilling, onPortals, onIris,
 }: {
   order: Order | null;
   orders: Order[];
+  dataInicio: string;
+  dataFim: string;
   onEdit: (o: Order) => void;
   onView: (o: Order) => void;
   onDuplicate: (o: Order) => void;
@@ -527,10 +549,37 @@ function OrderDetailPanel({
   }, [shareOpen]);
 
   const sc = statusColor(order.ped_situacao);
-  const pct = order.ped_situacao === 'F' ? 100 : order.ped_situacao === 'P' ? 75 : 35;
-  const circ = 2 * Math.PI * 28;
-  const offset = circ - (pct / 100) * circ;
   const animatedTotal = useCountUp(order.ped_totliq, order.ped_numero);
+
+  // ── Curva ABC do cliente DENTRO da indústria (Pareto 80/95) no período do painel ──
+  const [abc, setAbc] = useState<{ curva: string; total: number; total_geral: number; sem_compras: boolean } | null>(null);
+  useEffect(() => {
+    setAbc(null);
+    if (!order.ped_cliente || !order.ped_industria || !dataInicio || !dataFim) return;
+    api.get(`/orders/cliente-curva-abc?cli=${order.ped_cliente}&ind=${order.ped_industria}&inicio=${dataInicio}&fim=${dataFim}`)
+      .then(r => setAbc(r.data?.data || null))
+      .catch(() => setAbc(null));
+  }, [order.ped_cliente, order.ped_industria, dataInicio, dataFim]);
+
+  const abcColor =
+    abc?.curva === 'A' ? '#16A34A' :
+    abc?.curva === 'B' ? '#D97600' :
+    abc?.curva === 'C' ? G.textMuted :
+    G.border;
+
+  // ── Últimos 12 meses corridos (mês atual pra trás) — fat + qtd dual axis ──
+  const [histData, setHistData] = useState<{ serie: any[] } | null>(null);
+  useEffect(() => {
+    setHistData(null);
+    if (!order.ped_cliente || !order.ped_industria) return;
+    api.get(`/orders/cliente-historico-mensal?cli=${order.ped_cliente}&ind=${order.ped_industria}`)
+      .then(r => setHistData(r.data?.data || null))
+      .catch(() => setHistData(null));
+  }, [order.ped_cliente, order.ped_industria]);
+
+  const tlData = histData?.serie ?? [];
+  const fmtFat = (v: number) => v >= 1000 ? `R$${(v / 1000).toFixed(0)}k` : `R$${v.toFixed(0)}`;
+  const fmtQtd = (v: number) => v.toLocaleString('pt-BR');
 
 
   const actions: { icon: any; label: string; bg: string; color: string; border: string; onClick: () => void }[] = [
@@ -598,15 +647,15 @@ function OrderDetailPanel({
         )}
 
         {/* ── Bento grid ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 180px', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
 
           {/* Hero: valor total com sparkline */}
-          <div style={{ ...bentoCard, gridColumn: '1 / 3', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ ...bentoCard, gridColumn: '1 / 4', position: 'relative', overflow: 'hidden' }}>
             <span style={{ fontSize: 10, fontWeight: 700, color: G.textMuted, textTransform: 'uppercase', letterSpacing: 1 }}>
               Valor Total do Pedido
             </span>
-            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 6 }}>
-              <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, gap: 16 }}>
+              <div style={{ flexShrink: 0 }}>
                 <motion.span
                   key={order.ped_pedido}
                   initial={{ scale: 0.94, opacity: 0 }}
@@ -638,49 +687,158 @@ function OrderDetailPanel({
                 </div>
               </div>
 
-              {/* ── Botão IRIS ── */}
-              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingLeft: 16 }}>
-                <button
-                  onClick={() => onIris(order)}
-                  title="IRIS — Análise estratégica com IA"
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 7,
-                    padding: '8px 14px', borderRadius: 10, border: 'none', cursor: 'pointer',
-                    background: '#28374A',
-                    color: '#E8E1D4', fontSize: 12, fontWeight: 800,
-                    boxShadow: '0 2px 8px rgba(40,55,74,.4)',
-                    whiteSpace: 'nowrap',
-                  }}
+              {/* Últimos 12 meses corridos — cliente × indústria — fat (R$) + qtd (un) dual axis */}
+              <div style={{ flex: 1, minWidth: 0, maxWidth: 520 }}>
+                <div style={{ width: '100%', height: 180 }}>
+                  {histData === null
+                    ? <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: G.textMuted }}>carregando…</div>
+                    : tlData.length === 0 || tlData.every(d => d.fat_atual === 0 && d.qtd_atual === 0)
+                      ? <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: G.textMuted }}>sem histórico nos últimos 12 meses</div>
+                      : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={tlData} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
+                          <defs>
+                            <linearGradient id="histFat" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%"   stopColor="#0F766E" stopOpacity={0.32} />
+                              <stop offset="100%" stopColor="#0F766E" stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id="histQtd" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%"   stopColor="#7C3AED" stopOpacity={0.18} />
+                              <stop offset="100%" stopColor="#7C3AED" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(40,55,74,0.05)" vertical={false} />
+                          <XAxis dataKey="mes" tick={{ fontSize: 9, fill: G.textMuted }} axisLine={false} tickLine={false} interval={0} />
+                          <YAxis yAxisId="fat" orientation="left"  tick={{ fontSize: 9, fill: '#0F766E' }} axisLine={false} tickLine={false} tickFormatter={fmtFat} width={48} />
+                          <YAxis yAxisId="qtd" orientation="right" tick={{ fontSize: 9, fill: '#7C3AED' }} axisLine={false} tickLine={false} tickFormatter={fmtQtd} width={40} />
+                          <RTooltip
+                            contentStyle={{
+                              background:   '#F8F4EE',
+                              border:       '1px solid #D3C7AD',
+                              borderRadius: 10,
+                              fontSize:     11,
+                              color:        '#28374A',
+                              boxShadow:    '0 4px 12px rgba(40,55,74,.12)',
+                              padding:      '8px 12px',
+                            }}
+                            labelStyle={{ color: '#28374A', fontWeight: 800, marginBottom: 4 }}
+                            itemStyle={{ padding: '1px 0' }}
+                            formatter={(v: any, name: any) => {
+                              if (name === 'Faturamento') return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                              return `${Number(v).toLocaleString('pt-BR')} un`;
+                            }}
+                          />
+                          <Legend verticalAlign="top" align="right" iconType="circle"
+                            wrapperStyle={{ paddingBottom: 2, fontSize: 9, fontWeight: 700, color: G.textSec }} />
+                          <Area yAxisId="fat" type="monotone" dataKey="fat_atual" stroke="#0F766E" strokeWidth={2.4}
+                                fill="url(#histFat)" name="Faturamento" dot={false} activeDot={{ r: 3, fill: '#0F766E', strokeWidth: 0 }} />
+                          <Area yAxisId="qtd" type="monotone" dataKey="qtd_atual" stroke="#7C3AED" strokeWidth={1.6}
+                                strokeDasharray="5 4" fill="url(#histQtd)" name="Quantidade" dot={false} activeDot={{ r: 3, fill: '#7C3AED', strokeWidth: 0 }} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    )
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Curva ABC do cliente na indústria (Pareto, período do painel) */}
+          {(() => {
+            // Cor escura (sólida) e clara (10% opaca) derivadas da curva
+            const colorDark  = abcColor;
+            const colorLight = abc?.curva === 'A' ? 'rgba(22,163,74,0.10)'
+                             : abc?.curva === 'B' ? 'rgba(217,118,0,0.10)'
+                             : abc?.curva === 'C' ? 'rgba(94,114,130,0.10)'
+                             : 'transparent';
+            const pctTotal = (abc && !abc.sem_compras && abc.total_geral > 0)
+              ? (abc.total / abc.total_geral * 100)
+              : 0;
+            const gradId = `abcGrad-${abc?.curva ?? 'none'}`;
+            return (
+              <div
+                style={{ ...bentoCard, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '16px 12px' }}
+                title={
+                  'Mostra a importância deste cliente dentro da indústria, pelo princípio de Pareto.\n\n' +
+                  'A = clientes que juntos somam até 80% do faturamento da indústria (os mais valiosos).\n' +
+                  'B = clientes entre 80% e 95% do acumulado.\n' +
+                  'C = últimos 5% (cauda).\n\n' +
+                  `O valor é o quanto o cliente comprou desta indústria no período ${dataInicio} a ${dataFim} (filtro do painel).`
+                }
+              >
+                <span style={{ fontSize: 9, fontWeight: 700, color: G.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                  Classificação
+                </span>
+
+                {/* Medalhão com letra + anel duplo + gradiente */}
+                <motion.div
+                  key={abc?.curva ?? 'loading'}
+                  initial={{ scale: 0.7, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', stiffness: 220, damping: 18 }}
+                  style={{ position: 'relative', width: 96, height: 96 }}
                 >
-                  <IrisAvatar size={20} animated={false} />
-                  IRIS
-                </button>
-              </div>
-            </div>
-          </div>
+                  <svg width="96" height="96" viewBox="0 0 96 96" style={{ display: 'block' }}>
+                    <defs>
+                      <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%"   stopColor={colorDark} stopOpacity="0.95" />
+                        <stop offset="100%" stopColor={colorDark} stopOpacity="0.55" />
+                      </linearGradient>
+                      <filter id={`shadow-${abc?.curva ?? 'none'}`} x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur in="SourceAlpha" stdDeviation="1.5" />
+                        <feOffset dx="0" dy="1" result="offsetblur" />
+                        <feComponentTransfer><feFuncA type="linear" slope="0.35" /></feComponentTransfer>
+                        <feMerge>
+                          <feMergeNode />
+                          <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                      </filter>
+                    </defs>
+                    {/* Background interno tom claro */}
+                    <circle cx="48" cy="48" r="40" fill={colorLight} />
+                    {/* Anel externo tracejado fino — efeito moldura */}
+                    <circle cx="48" cy="48" r="44" fill="none" stroke={colorDark} strokeOpacity="0.15" strokeWidth="1" strokeDasharray="2 3" />
+                    {/* Anel principal espesso com gradiente */}
+                    <circle cx="48" cy="48" r="40" fill="none" stroke={`url(#${gradId})`} strokeWidth="4.5"
+                      strokeOpacity={abc?.sem_compras ? 0.25 : 1} />
+                  </svg>
+                  {/* Letra grande com sombra */}
+                  <span
+                    style={{
+                      position: 'absolute', inset: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 50, fontWeight: 900, color: colorDark, lineHeight: 1,
+                      letterSpacing: -2.5, fontFamily: 'system-ui',
+                      textShadow: abc?.sem_compras ? 'none' : `0 2px 4px ${colorLight.replace('0.10', '0.45')}`,
+                    }}
+                  >
+                    {abc === null ? '…' : abc.sem_compras ? '—' : abc.curva}
+                  </span>
+                </motion.div>
 
-          {/* Anel de progresso */}
-          <div style={{ ...bentoCard, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            <div style={{ position: 'relative', width: 72, height: 72 }}>
-              <svg width="72" height="72" style={{ transform: 'rotate(-90deg)' }}>
-                <circle cx="36" cy="36" r="28" fill="none" stroke={G.border} strokeWidth="5" />
-                <circle
-                  cx="36" cy="36" r="28" fill="none"
-                  stroke={sc.color} strokeWidth="5" strokeLinecap="round"
-                  strokeDasharray={circ} strokeDashoffset={offset}
-                  style={{ transition: 'stroke-dashoffset 0.8s ease' }}
-                />
-              </svg>
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ fontSize: 15, fontWeight: 900, color: G.text }}>{pct}%</span>
-              </div>
-            </div>
-            <span style={{ fontSize: 10, fontWeight: 700, color: G.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-              Aprovação
-            </span>
-          </div>
+                {/* % do cliente no total da indústria — informação nova */}
+                {abc && !abc.sem_compras && pctTotal > 0 && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 800, color: colorDark, letterSpacing: 0.3,
+                    padding: '2px 8px', borderRadius: 10, background: colorLight,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    {pctTotal < 0.1 ? '<0,1' : pctTotal.toFixed(pctTotal < 10 ? 1 : 0)}% da indústria
+                  </span>
+                )}
 
-          {/* 3 info cards */}
+                <span style={{ fontSize: 14, fontWeight: 900, color: G.text, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.3 }}>
+                  {abc === null
+                    ? ''
+                    : abc.sem_compras
+                      ? 'sem compras'
+                      : abc.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </span>
+              </div>
+            );
+          })()}
+
+          {/* 4 info cards — Data · Canal · OC · IRIS */}
           <div style={bentoCard}>
             <InfoRow icon={Calendar} label="Data" value={fmtDate(order.ped_data)} />
           </div>
@@ -688,12 +846,51 @@ function OrderDetailPanel({
             <InfoRow icon={Globe} label="Canal" value={order.ped_tabela || 'Padrão'} />
           </div>
           <div style={bentoCard}>
-            <InfoRow icon={Hash} label="OC do Cliente" value={order.ped_oc || order.ped_pedcli || '—'} mono />
+            <InfoRow icon={Hash} label="OC do Cliente" value={order.ped_oc || '—'} mono />
           </div>
+
+          {/* Card IRIS — assistente comercial com IA */}
+          <button
+            onClick={() => onIris(order)}
+            title={
+              'IRIS é sua assistente comercial com inteligência artificial.\n\n' +
+              'Analisa este pedido + o histórico do cliente e te entrega:\n' +
+              '• Oportunidades de cross-sell (indústrias que faltam no cliente)\n' +
+              '• Sinais de risco do cliente (silêncio, queda de frequência)\n' +
+              '• Sugestões concretas de ação para fechar a venda\n' +
+              '• Narrativa em linguagem de gerente experiente\n\n' +
+              'Clique para abrir a análise completa deste pedido.'
+            }
+            style={{
+              ...bentoCard,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6,
+              background: '#28374A',
+              border: '1px solid #28374A',
+              cursor: 'pointer',
+              padding: 12,
+              transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(40,55,74,.45)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.transform = '';
+              e.currentTarget.style.boxShadow = '';
+            }}
+          >
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#E8E1D4', textTransform: 'uppercase', letterSpacing: 0.8, opacity: 0.7 }}>
+              IRIS
+            </span>
+            <IrisAvatar size={32} animated={false} />
+            <span style={{ fontSize: 13, fontWeight: 900, color: '#FFD200', letterSpacing: 0.5 }}>
+              INSIGHTS
+            </span>
+          </button>
 
           {/* Action buttons — full width, coloridos */}
           <div style={{ ...bentoCard, gridColumn: '1 / -1', padding: '12px 16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${actions.length}, 1fr)`, gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
               {actions.map(({ icon: Icon, label, bg, color, border, onClick }) => {
                 const isShare = label === 'Compartilhar';
                 return (
@@ -703,7 +900,7 @@ function OrderDetailPanel({
                       style={{
                         width: '100%',
                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                        padding: '8px 0', borderRadius: 10,
+                        padding: '10px 12px', borderRadius: 10,
                         background: isShare && shareOpen ? bg.replace('18', '35') : bg,
                         border: `1px solid ${isShare && shareOpen ? border.replace('33', '66') : border}`,
                         color, fontSize: 12, fontWeight: 800, cursor: 'pointer',
@@ -788,7 +985,7 @@ function OrderDetailPanel({
               .sort((a, b) => new Date(b.ped_data).getTime() - new Date(a.ped_data).getTime())
               .slice(0, 15);
             return (
-              <div style={{ ...bentoCard, gridColumn: '1 / 3' }}>
+              <div style={{ ...bentoCard, gridColumn: '1 / 4' }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: G.textMuted, textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 12 }}>
                   Últimos pedidos — {order.cli_nomred || order.cli_nome}
                 </span>
@@ -1313,7 +1510,7 @@ export default function PedidosPage() {
       if (!items?.length || !cliente || !industriaId) return;
 
       const user = useAuthStore.getState().user;
-      const initials = user?.nome?.substring(0, 2).toUpperCase() || 'IMP';
+      const initials = user?.iniciais || user?.nome?.substring(0, 2).toUpperCase() || 'IMP';
 
       const formattedItems = items.map((it: any) => ({
         codigo:         (it.codigo || it.ite_produto || '').toString().trim().toUpperCase(),
@@ -1476,7 +1673,7 @@ export default function PedidosPage() {
               }}>
                 <Search size={12} style={{ color: G.textMuted }} />
                 <input
-                  placeholder="Buscar cliente, pedido..."
+                  placeholder="Buscar cliente, pedido, OC..."
                   value={searchInput}
                   onChange={e => setSearchInput(e.target.value)}
                   style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: 11, fontWeight: 600, color: G.text, width: 160 }}
@@ -1569,28 +1766,6 @@ export default function PedidosPage() {
                 Ajuda
               </button>
 
-              {/* Novo */}
-              <button
-                onClick={() => {
-                  if (!selectedInd) {
-                    showToast('Selecione uma indústria no painel lateral antes de criar um pedido.', false);
-                    return;
-                  }
-                  setModalMode('new');
-                  setSelectedOrder(null);
-                  setModalOpen(true);
-                }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px',
-                  borderRadius: 8, border: 'none', cursor: 'pointer',
-                  background: selectedInd ? G.text : G.border,
-                  color: selectedInd ? '#fff' : G.textMuted,
-                  fontSize: 12, fontWeight: 800,
-                }}
-              >
-                <Plus size={13} />
-                Novo Pedido
-              </button>
             </div>
           </div>
 
@@ -1721,6 +1896,8 @@ export default function PedidosPage() {
               <OrderDetailPanel
                 order={selectedOrder}
                 orders={orders}
+                dataInicio={dataInicio}
+                dataFim={dataFim}
                 onEdit={() => { setModalMode('edit'); setModalOpen(true); }}
                 onView={() => { setModalMode('view'); setModalOpen(true); }}
                 onDuplicate={o => setCloneTarget(o)}
@@ -1906,6 +2083,112 @@ export default function PedidosPage() {
         onCancel={() => !cloning && setCloneTarget(null)}
         cloning={cloning}
       />
+
+      {/* ── FAB Orbital — Novo Pedido — só quando nenhum modal aberto ── */}
+      {!modalOpen && <div style={{ position: 'fixed', bottom: 88, right: 28, zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {/* Anéis orbitais */}
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
+            style={{ position: 'absolute', width: 110, height: 110, borderRadius: '50%', border: '1px dashed rgba(40,55,74,0.25)' }}
+          />
+          <motion.div
+            animate={{ rotate: -360 }}
+            transition={{ duration: 16, repeat: Infinity, ease: 'linear' }}
+            style={{ position: 'absolute', width: 140, height: 140, borderRadius: '50%', border: '1px dashed rgba(255,210,0,0.18)' }}
+          />
+          {/* Partículas orbitais */}
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
+            style={{ position: 'relative', width: 80, height: 80 }}
+          >
+            {[0, 72, 144, 216, 288].map((angle, i) => (
+              <motion.div
+                key={angle}
+                style={{
+                  position: 'absolute',
+                  width: 6, height: 6,
+                  borderRadius: '50%',
+                  left: `calc(50% + ${Math.cos((angle * Math.PI) / 180) * 45}px - 3px)`,
+                  top: `calc(50% + ${Math.sin((angle * Math.PI) / 180) * 45}px - 3px)`,
+                  background: i % 2 === 0 ? '#28374A' : '#FFD200',
+                  boxShadow: i % 2 === 0 ? '0 0 6px rgba(40,55,74,0.5)' : '0 0 6px rgba(255,210,0,0.6)',
+                }}
+                animate={{ scale: [1, 1.4, 1], opacity: [0.4, 1, 0.4] }}
+                transition={{ duration: 2, repeat: Infinity, delay: i * 0.3 }}
+              />
+            ))}
+          </motion.div>
+        </div>
+
+        {/* Botão principal */}
+        <motion.button
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => {
+            if (!selectedInd) {
+              showToast('Selecione uma indústria no painel lateral antes de criar um pedido.', false);
+              return;
+            }
+            setModalMode('new');
+            setSelectedOrder(null);
+            setModalOpen(true);
+          }}
+          className="group"
+          style={{ position: 'relative', background: 'none', border: 'none', cursor: 'pointer', outline: 'none' }}
+        >
+          <div style={{ position: 'relative', width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {/* Glow + disco */}
+            <motion.div
+              animate={{ boxShadow: ['0 0 18px rgba(40,55,74,0.35)', '0 0 36px rgba(40,55,74,0.55)', '0 0 18px rgba(40,55,74,0.35)'] }}
+              transition={{ duration: 2.2, repeat: Infinity }}
+              style={{
+                position: 'absolute', inset: 0, borderRadius: '50%',
+                background: selectedInd
+                  ? 'linear-gradient(135deg, #28374A, #1a2535)'
+                  : 'linear-gradient(135deg, #94A3B8, #64748B)',
+              }}
+            />
+            {/* Brilho interno */}
+            <div style={{ position: 'absolute', inset: 4, borderRadius: '50%', background: 'linear-gradient(135deg, rgba(255,255,255,0.18) 0%, transparent 60%)', pointerEvents: 'none' }} />
+            {/* Ícone */}
+            <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0 }}>
+              <Plus size={26} color="#FFD200" strokeWidth={3} />
+              <span style={{ fontSize: 7, fontWeight: 900, color: '#FFD200', letterSpacing: 1, textTransform: 'uppercase', marginTop: -2 }}>NOVO</span>
+            </div>
+            {/* Ripple hover */}
+            <motion.div
+              initial={{ scale: 1, opacity: 0 }}
+              whileHover={{ scale: 1.55, opacity: [0, 0.25, 0] }}
+              transition={{ duration: 0.9, repeat: Infinity }}
+              style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid #FFD200', pointerEvents: 'none' }}
+            />
+          </div>
+
+          {/* Tooltip */}
+          <div style={{
+            position: 'absolute', right: '100%', marginRight: 14, top: '50%', transform: 'translateY(-50%)',
+            opacity: 0, transition: 'opacity 0.2s', pointerEvents: 'none', whiteSpace: 'nowrap',
+          }} className="group-hover:opacity-100">
+            <div style={{
+              padding: '5px 12px', background: '#28374A', color: '#FFD200',
+              fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1,
+              borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+            }}>
+              Novo Pedido
+              <div style={{
+                position: 'absolute', left: '100%', top: '50%', transform: 'translateY(-50%)',
+                borderWidth: 5, borderStyle: 'solid', borderColor: 'transparent transparent transparent #28374A',
+              }} />
+            </div>
+          </div>
+        </motion.button>
+      </div>}
 
       {/* ── Toast ── */}
       {toast && (

@@ -213,7 +213,7 @@ export async function listOrdersHandler(req: Request, res: Response): Promise<vo
     let query = `
       SELECT
         p.*,
-        c.cli_nomred, c.cli_nome,
+        c.cli_nomred, c.cli_nome, c.cli_cnpj,
         f.for_nomered, f.for_email,
         v.ven_nome,
         (SELECT COALESCE(SUM(i.ite_quant), 0) FROM itens_ped i WHERE i.ite_pedido = p.ped_pedido) AS ped_total_quant,
