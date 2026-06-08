@@ -921,6 +921,34 @@ export async function consolidateOrdersHandler(req: Request, res: Response): Pro
   }
 }
 
+// ─── POST /api/orders/descartar-fila ──────────────────────────────────────────
+// Descarta o "carrinho": tira os pedidos da fila de consolidação (status 'Q')
+// e os devolve a pedido normal ('P'). NÃO exclui — o pedido continua existindo.
+export async function descartarFilaHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { indu_id, cli_id } = req.body;
+    if (!indu_id || !cli_id) {
+      res.status(400).json({ success: false, message: 'Informe a indústria (indu_id) e o cliente (cli_id).' });
+      return;
+    }
+    const r = await db.query(
+      `UPDATE pedidos SET ped_situacao = 'P'
+       WHERE ped_industria = $1 AND ped_cliente = $2 AND ped_situacao = 'Q'
+       RETURNING ped_pedido`,
+      [indu_id, cli_id]
+    );
+    if (r.rowCount === 0) {
+      res.status(400).json({ success: false, message: 'Nenhum pedido na fila para este cliente e indústria.' });
+      return;
+    }
+    res.json({ success: true, message: `${r.rowCount} pedido(s) retirado(s) da fila.`, count: r.rowCount });
+  } catch (error: any) {
+    console.error('❌ [ORDERS] descartar-fila:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+}
+
 // ─── POST /api/orders/:id/clone ───────────────────────────────────────────────
 export async function cloneOrderHandler(req: Request, res: Response): Promise<void> {
   const schema = req.schema!;

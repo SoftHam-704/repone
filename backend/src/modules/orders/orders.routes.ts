@@ -14,6 +14,7 @@ import {
   cloneOrderHandler,
   consolidationStatsHandler,
   consolidateOrdersHandler,
+  descartarFilaHandler,
   printDataHandler,
   statusEnvioHandler,
   enviadoIndustriaHandler,
@@ -24,6 +25,9 @@ import {
   irisPanelNarrativeHandler,
   createOrderFromPortalHandler,
   countWhatsappHandler,
+  resolveCompradorHandler,
+  clienteCurvaAbcHandler,
+  clienteHistoricoMensalHandler,
 } from './orders.controller';
 import {
   exportStahlHandler,
@@ -45,6 +49,9 @@ router.use(authMiddleware, tenantMiddleware);
 // Rotas específicas ANTES de /:id para evitar conflito
 router.get('/next-number',        nextNumberHandler);
 router.get('/count-whatsapp',     countWhatsappHandler);
+router.get('/resolve-comprador',  resolveCompradorHandler);
+router.get('/cliente-curva-abc',       clienteCurvaAbcHandler);
+router.get('/cliente-historico-mensal', clienteHistoricoMensalHandler);
 router.get('/stats',              orderStatsHandler);
 router.get('/smart-suggestions',  smartSuggestionsHandler);
 router.get('/expand-mix',          expandMixHandler);
@@ -52,6 +59,7 @@ router.post('/iris-analisa',          irisAnalisaHandler);
 router.post('/iris-panel-narrative',  irisPanelNarrativeHandler);
 router.get('/consolidation-stats', consolidationStatsHandler);
 router.post('/consolidate',      consolidateOrdersHandler);
+router.post('/descartar-fila',   descartarFilaHandler);
 router.post('/from-portal',      createOrderFromPortalHandler);
 
 router.post('/mobile',    createMobileOrderHandler);

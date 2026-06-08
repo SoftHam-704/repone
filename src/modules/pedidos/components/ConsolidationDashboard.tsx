@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Factory, TrendingUp, ShoppingCart, ArrowRight, Loader2, HelpCircle, Info } from 'lucide-react';
+import { Factory, TrendingUp, ShoppingCart, ArrowRight, Loader2, HelpCircle, Info, Trash2 } from 'lucide-react';
 import { api } from '@/shared/lib/api';
 import { G } from '@/shared/components/layout/CadastroShell';
 
@@ -332,6 +332,34 @@ export default function ConsolidationDashboard() {
                       : <ArrowRight size={13} />
                     }
                     CONSOLIDAR AGORA
+                  </button>
+                </Tooltip>
+              </div>
+
+              {/* ── Descartar carrinho (tira os pedidos da fila → pedido normal) ── */}
+              <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${G.border}`, display: 'flex', justifyContent: 'flex-end' }}>
+                <Tooltip text={`Tira os ${item.order_count} pedido${Number(item.order_count) !== 1 ? 's' : ''} desta fila e os devolve a pedido normal.\n\nNÃO exclui — o pedido continua existindo; só sai da consolidação.`}>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm(
+                        `Descartar o carrinho de ${item.cli_nomred || item.cli_nome} (${item.for_nomered})?\n\n` +
+                        `Os ${item.order_count} pedido${Number(item.order_count) !== 1 ? 's' : ''} saem da fila e voltam a ser pedido normal. Não serão excluídos.`
+                      )) return;
+                      try {
+                        await api.post('/orders/descartar-fila', { indu_id: item.for_codigo, cli_id: item.ped_cliente });
+                        load();
+                      } catch (e: any) {
+                        alert(e.response?.data?.message || 'Erro ao descartar o carrinho');
+                      }
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 5,
+                      background: 'transparent', border: 'none', cursor: 'pointer',
+                      color: G.danger, fontSize: 11, fontWeight: 800, padding: 0,
+                    }}
+                  >
+                    <Trash2 size={12} />
+                    Descartar carrinho
                   </button>
                 </Tooltip>
               </div>
