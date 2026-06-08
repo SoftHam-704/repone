@@ -704,7 +704,7 @@ export async function consolidationStatsHandler(req: Request, res: Response): Pr
     // Clientes diferentes na mesma indústria NÃO somam progresso entre si.
     const result = await db.query(`
       SELECT
-        f.for_codigo, f.for_nomered, f.for_min_order,
+        f.for_codigo, f.for_nomered, COALESCE(f.for_min_order, 0) AS for_min_order,
         p.ped_cliente,
         c.cli_nomred, c.cli_nome,
         COALESCE(ROUND(SUM(p.ped_totliq)::NUMERIC, 2), 0) AS current_total,
@@ -712,7 +712,10 @@ export async function consolidationStatsHandler(req: Request, res: Response): Pr
       FROM fornecedores f
       JOIN pedidos p  ON p.ped_industria = f.for_codigo AND p.ped_situacao = 'Q'
       JOIN clientes c ON c.cli_codigo = p.ped_cliente
-      WHERE f.for_min_order > 0
+      -- Mostra TODO carrinho com pedidos na fila. Indústrias sem mínimo
+      -- (for_min_order 0/NULL) entram como "pronto pra consolidar" (100%),
+      -- senão os pedidos 'Q' ficam órfãos: contam no badge mas somem do painel.
+      WHERE COALESCE(f.for_min_order, 0) >= 0
         ${filterClause}
       GROUP BY f.for_codigo, f.for_nomered, f.for_min_order, p.ped_cliente, c.cli_nomred, c.cli_nome
       ORDER BY f.for_nomered, c.cli_nomred
