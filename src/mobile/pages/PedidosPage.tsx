@@ -33,13 +33,13 @@ const fmtDate = (s: string) => {
 };
 
 const SIT_LABEL: Record<string, string> = {
-  P: 'Pedido', F: 'Faturado', C: 'Cotação', E: 'Excluído',
+  P: 'Pedido', F: 'Faturado', C: 'Cotação', E: 'Excluído', D: 'Bonif. Pendente',
 };
 const SIT_COLOR: Record<string, string> = {
-  P: '#2563EB', F: '#16A34A', C: '#D97706', E: '#DC2626',
+  P: '#2563EB', F: '#16A34A', C: '#D97706', E: '#DC2626', D: '#CA8A04',
 };
 const SIT_ICON: Record<string, any> = {
-  P: Send, F: CheckCircle2, C: FileText,
+  P: Send, F: CheckCircle2, C: FileText, D: FileText,
 };
 
 export default function PedidosPage() {

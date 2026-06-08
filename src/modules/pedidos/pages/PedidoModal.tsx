@@ -12,7 +12,8 @@ import {
 } from 'lucide-react';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
-import { useAuthStore } from '@/shared/stores/useAuthStore';
+import { temSuframa } from '@/shared/lib/suframa';
+import { useAuthStore, useIaEnabled } from '@/shared/stores/useAuthStore';
 import { ItemsSection } from './ItemsSection';
 import { ConferenciaSection } from './ConferenciaSection';
 import { XmsModal, TxtModal, XmlSection, MagicModal } from './ImportModals';
@@ -47,6 +48,7 @@ interface OrderFull {
   ped_tabela: string;
   ped_condpag: string;
   ped_comprador: string;
+  ped_emailcomp?: string;
   ped_tipofrete: string;
   ped_cliind: string;
   ped_transp?: number;
@@ -59,7 +61,6 @@ interface OrderFull {
   ped_pri: number; ped_seg: number; ped_ter: number;
   ped_qua: number; ped_qui: number; ped_sex: number;
   ped_set: number; ped_oit: number; ped_nov: number;
-  ped_pedcli?: string;
   ped_pedindustria?: string;
   cli_nomred: string;
   cli_nome: string;
@@ -379,12 +380,13 @@ function fmtCnpj(v?: string) {
 }
 
 function ClientCombobox({
-  value, onChange, style, selectedLabel,
+  value, onChange, style, selectedLabel, autoOpen,
 }: {
   value: number;
   onChange: (v: number, vendedor?: number, nomred?: string) => void;
   style?: React.CSSProperties;
   selectedLabel?: string;
+  autoOpen?: boolean;
 }) {
   const [open, setOpen]       = useState(false);
   const [q,    setQ]          = useState('');
@@ -430,6 +432,15 @@ function ClientCombobox({
     setHiIdx(-1);
     setTimeout(() => inputRef.current?.focus(), 50);
   }, []);
+
+  // Em novo pedido, abre o combobox sozinho e cai o foco direto no campo de busca
+  useEffect(() => {
+    if (autoOpen && value === 0 && !open) {
+      const t = setTimeout(() => handleOpen(), 120);
+      return () => clearTimeout(t);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen]);
 
   const handleSelect = useCallback((code: number, vendedor?: number) => {
     const client = clients.find(c => c.cli_codigo === code);
@@ -645,23 +656,34 @@ function PrincipalSection({
 
   const saveComprador = async () => {
     const clienteId = fd.ped_cliente ?? order.ped_cliente;
-    if (!clienteId || !compForm.ani_nome.trim()) return;
+    if (!clienteId) { toast.error('Selecione um cliente antes de cadastrar comprador.'); return; }
+    if (!compForm.ani_nome.trim()) { toast.error('Informe o nome do comprador.'); return; }
     setModalSaving(true);
     try {
       await api.post(`/clients/${clienteId}/contacts`, compForm);
+      toast.success('Comprador cadastrado.');
+      onChangeField('ped_comprador', compForm.ani_nome.trim().toUpperCase());
       setCompradorModal(false);
-    } catch (err) { console.error(err); }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.response?.data?.message || 'Erro ao cadastrar comprador.');
+    }
     finally { setModalSaving(false); }
   };
 
   const saveTornarPadrao = async () => {
     const clienteId = fd.ped_cliente ?? order.ped_cliente;
-    if (!clienteId || !industriaId) return;
+    if (!clienteId) { toast.error('Selecione um cliente antes de tornar padrão.'); return; }
+    if (!industriaId) { toast.error('Selecione uma indústria antes de tornar padrão.'); return; }
     setModalSaving(true);
     try {
       await api.post(`/clients/${clienteId}/industries`, { ...padForm, cli_forcodigo: industriaId });
+      toast.success('Configuração padrão salva.');
       setTornarPadraoModal(false);
-    } catch (err) { console.error(err); }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.response?.data?.message || 'Erro ao salvar configuração padrão.');
+    }
     finally { setModalSaving(false); }
   };
 
@@ -780,6 +802,7 @@ function PrincipalSection({
                 <option value="Q">FILA</option>
                 <option value="G">Garantia</option>
                 <option value="B">Bonificação</option>
+                <option value="D">Bonificação Pendente</option>
                 <option value="X">Cancelado</option>
               </select>
             )}
@@ -938,6 +961,7 @@ function PrincipalSection({
                   }}
                   style={einp}
                   selectedLabel={(fd as any).cli_nomred || order.cli_nomred || order.cli_nome}
+                  autoOpen={mode === 'new'}
                 />
                 {onReaplicarPolitica && (
                   <button
@@ -1095,7 +1119,6 @@ function PrincipalSection({
               <ReadField label="Pagamento" value={fd.ped_condpag ?? order.ped_condpag} />
               <ReadField label="Contato" value={fd.ped_comprador ?? order.ped_comprador} />
               <div style={{ display: 'flex', gap: 8 }}>
-                <div style={{ flex: 1 }}><ReadField label="Ped. Cliente / OC" value={order.ped_pedcli} mono /></div>
                 <div style={{ flex: 1 }}><ReadField label="Ped. Ind." value={order.ped_pedindustria} mono /></div>
               </div>
             </>
@@ -1128,9 +1151,6 @@ function PrincipalSection({
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <div style={{ flex: 1 }}>
-                  <EditField label="Ped. Cliente / OC" value={(fd.ped_pedcli ?? order.ped_pedcli ?? '') as string} onChange={v => onChangeField('ped_pedcli', v)} />
-                </div>
                 <div style={{ flex: 1 }}>
                   <EditField label="Ped. Ind." value={(fd.ped_pedindustria ?? order.ped_pedindustria ?? '') as string} onChange={v => onChangeField('ped_pedindustria', v)} />
                 </div>
@@ -1182,7 +1202,7 @@ function PrincipalSection({
             {[
               { label: 'Subtotal', value: fmt(totalBruto), color: G.text },
               { label: 'Descontos', value: `-${discPct}%`, color: G.danger },
-              { label: 'IPI', value: fmt(order.ped_totalipi), color: G.text },
+              { label: 'IPI', value: fmt(Math.max(0, (order.ped_totalipi || 0) - totalLiq)), color: G.text },
               { label: 'Frete', value: order.ped_tipofrete === 'C' ? 'CIF' : 'FOB', color: G.textMuted },
             ].map(({ label, value, color }) => (
               <div key={label} style={{
@@ -1628,6 +1648,7 @@ function PlaceholderSection({ label }: { label: string }) {
 export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onUpdated, initialIndustriaId, initialClienteId, initialClienteLabel }: PedidoModalProps) {
   const navigate = useNavigate();
   const authUser = useAuthStore(s => s.user);
+  const iaEnabled = useIaEnabled();
   const [activeSection, setActiveSection] = useState<SectionKey | 'xml'>('principal');
   const [hoveredNav, setHoveredNav]       = useState<SectionKey | null>(null);
   const [showXms,    setShowXms]          = useState(false);
@@ -1711,8 +1732,17 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
         if (match.cli_prazopg)        onChangeField('ped_condpag',   match.cli_prazopg);
         if (match.cli_tabela)         onChangeField('ped_tabela',    match.cli_tabela);
         if (match.cli_frete)          onChangeField('ped_tipofrete', String(match.cli_frete).trim().substring(0, 1) || 'C');
-        if (match.cli_comprador)      onChangeField('ped_comprador', match.cli_comprador);
         if (match.cli_transportadora) onChangeField('ped_transp',    parseInt(match.cli_transportadora));
+      })
+      .catch(() => {});
+
+    // Comprador + email: regra cli_ind → fallback cli_aniv "compra*"
+    // Endpoint dedicado aplica a mesma lógica do INSERT no backend (comprador-resolver).
+    api.get(`/orders/resolve-comprador?cli=${newCliId}&ind=${newIndId}`)
+      .then(r => {
+        const { nome, email } = r.data?.data || {};
+        if (nome)  onChangeField('ped_comprador', nome);
+        if (email) onChangeField('ped_emailcomp', email);
       })
       .catch(() => {});
   }, [newCliId, newIndId]);
@@ -1946,7 +1976,6 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
         ped_tipofrete:   formData.ped_tipofrete     ?? fullOrder.ped_tipofrete,
         ped_tabela:      formData.ped_tabela        ?? fullOrder.ped_tabela,
         ped_cliind:      formData.ped_cliind        ?? fullOrder.ped_cliind,
-        ped_pedcli:      formData.ped_pedcli        ?? fullOrder.ped_pedcli  ?? '',
         ped_pedindustria:     formData.ped_pedindustria       ?? fullOrder.ped_pedindustria ?? '',
         ped_pri:  formData.ped_pri  ?? fullOrder.ped_pri,
         ped_seg:  formData.ped_seg  ?? fullOrder.ped_seg,
@@ -2019,8 +2048,12 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
         <ItemsSection
           order={fullOrder as any}
           mode={mode}
-          hasSuframa={!!fullOrder.cli_suframa}
+          hasSuframa={temSuframa(fullOrder.cli_suframa)}
           usaMenorPreco={!!fullOrder.for_usa_menor_preco}
+          cliCanal={
+            (clientIndustries.find(i => Number(i.cli_forcodigo) === Number(fullOrder.ped_industria))?.cli_canal === 'distribuidor')
+              ? 'distribuidor' : 'varejo'
+          }
           priceTableItems={priceTableItems}
           userParams={userParams ? {
             usaDecimais:   userParams.usaDecimais,
@@ -2052,7 +2085,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
           setOrderItems={setOrderItems}
           priceTableItems={priceTableItems}
           isView={isView}
-          hasSuframa={!!fullOrder.cli_suframa}
+          hasSuframa={temSuframa(fullOrder.cli_suframa)}
           userParams={userParams ? { usaDecimais: userParams.usaDecimais, qtdDecimais: userParams.qtdDecimais, mostraCodigoOri: userParams.mostraCodigoOri } : null}
           autoApplyGroupDisc={pendingGroupDisc}
           onGroupDiscApplied={() => setPendingGroupDisc(false)}
@@ -2184,9 +2217,9 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
             {/* Divisor */}
             <div style={{ width: 40, height: 1, background: G.border, margin: '4px 0' }} />
 
-            {/* Import buttons */}
+            {/* Import buttons — Magic Load fica oculto quando IRIS está desligada */}
             {[
-              { icon: Wand2,    label: 'Magic', color: '#EC4899', action: () => requireSaved(() => setShowMagic(true)), tooltip: 'Magic Load — IA', sub: 'PDF, Excel, Imagem' },
+              ...(iaEnabled ? [{ icon: Wand2, label: 'Magic', color: '#EC4899', action: () => requireSaved(() => setShowMagic(true)), tooltip: 'Magic Load — IA', sub: 'PDF, Excel, Imagem' }] : []),
               { icon: Table2,   label: 'XLS',   color: '#10B981', action: () => requireSaved(() => setShowXms(true)),   tooltip: 'Importar via Planilha', sub: 'Copiar/colar colunas do Excel' },
               { icon: FileCode, label: 'XML',   color: '#8B5CF6', action: () => requireSaved(() => setActiveSection('xml')), tooltip: 'Importar Nota Fiscal', sub: 'Arquivo .xml de NF-e' },
               { icon: FileText, label: 'TXT',   color: '#F59E0B', action: () => requireSaved(() => setShowTxt(true)),   tooltip: 'Importar via Texto', sub: 'Formato PP2, Arca/KV ou livre' },

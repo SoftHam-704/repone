@@ -195,6 +195,7 @@ function statusLabel(s: string) {
     case 'Q': return 'FILA';
     case 'G': return 'GARANTIA';
     case 'B': return 'BONIFICAÇÃO';
+    case 'D': return 'BONIF. PENDENTE';
     case 'N': return 'NOTIFICAÇÃO';
     case 'L': return 'FATURADO';
     case 'E': case 'X': return 'EXCLUÍDO';
@@ -214,6 +215,7 @@ function statusColor(s: string): { bg: string; color: string; border: string } {
     case 'Q':  return { bg: '#D9760018', color: '#D97600',   border: '#D9760033' };
     case 'G':  return { bg: '#7C3AED18', color: '#7C3AED',   border: '#7C3AED33' };
     case 'B':  return { bg: '#E7661D18', color: '#E7661D',   border: '#E7661D33' };
+    case 'D':  return { bg: '#CA8A0418', color: '#CA8A04',   border: '#CA8A0433' };
     case 'N':  return { bg: '#FFC10718', color: '#B45309',   border: '#FFC10733' };
     case 'E': case 'X': return { bg: '#8B451318', color: '#8B4513', border: '#8B451333' };
     case 'J':           return { bg: '#DCFCE7',   color: '#15803D', border: '#86EFAC' };
@@ -227,6 +229,7 @@ function leftBorder(s: string): string {
     case 'C':  return '#D97600';
     case 'F':  return G.success;
     case 'G': case 'B': return '#7C3AED';
+    case 'D':           return '#CA8A04';
     case 'J':           return '#15803D';
     default:   return G.danger;
   }
@@ -1196,6 +1199,7 @@ function PedidosHelpModal({ onClose }: { onClose: () => void }) {
     { code: 'P', label: 'Pedido', color: '#10B981', desc: 'Pedido confirmado e ativo. Conta em todas as estatísticas.' },
     { code: 'Q', label: 'Aguard. Consolidação', color: '#0891B2', desc: 'Pedido pronto para ser consolidado e enviado à indústria.' },
     { code: 'F', label: 'Faturado', color: '#059669', desc: 'Pedido foi faturado pela indústria. Histórico permanente.' },
+    { code: 'D', label: 'Bonificação Pendente', color: '#CA8A04', desc: 'Bonificação aguardando aprovação. Não conta em vendas/BI até virar Bonificação (B).' },
     { code: 'E', label: 'Excluído', color: '#94A3B8', desc: 'Cancelado. Não aparece em vendas nem estatísticas.' },
   ];
 
@@ -1813,6 +1817,7 @@ export default function PedidosPage() {
                 <option value="F">Faturado</option>
                 <option value="G">Garantia</option>
                 <option value="B">Bonificação</option>
+                <option value="D">Bonificação Pendente</option>
                 <option value="N">Notificação</option>
                 <option value="E">Excluído</option>
               </select>
