@@ -5,7 +5,7 @@ import path from 'path';
 // _tecnico/ (briefing de DBA) NUNCA entra aqui — é referência de quem constrói tools.
 const FILES = [
   // Referência (o que as coisas SÃO — regras, dados, navegação)
-  'negocio-autopecas.md', 'glossario-kpis.md', 'modelo-comercial.md', 'mapa-modulos.md', 'mapa-navegacao.md', 'financeiro.md', 'regras-negocio.md',
+  'negocio-autopecas.md', 'glossario-kpis.md', 'modelo-comercial.md', 'mapa-modulos.md', 'mapa-navegacao.md', 'mapa-sistema-completo.md', 'financeiro.md', 'regras-negocio.md',
   // Ofício — a Escola SoftHam (como SER a melhor funcionária do representante)
   'oficio-00-postura.md', 'oficio-01-ciclo-comercial.md', 'oficio-02-ler-a-carteira.md', 'oficio-03-jogo-das-industrias.md', 'oficio-04-negociacao.md', 'oficio-05-qual-tool-usar.md', 'oficio-decisoes.md',
 ];
