@@ -8,7 +8,8 @@ Versão 2.0 · Atualizado em 28/05/2026 · Softham Sistemas
 
 1. [Introdução](#introdução)
 2. [Primeiros Passos](#primeiros-passos)
-3. [Cadastros](#cadastros)
+3. [Mapa Completo do Sistema](#mapa-completo-do-sistema)
+4. [Cadastros](#cadastros)
    - [Indústrias](#indústrias)
    - [Clientes](#clientes)
    - [Vendedores](#vendedores)
@@ -20,15 +21,15 @@ Versão 2.0 · Atualizado em 28/05/2026 · Softham Sistemas
    - [Itinerários de Visita](#itinerários-de-visita)
    - [Área de Atuação](#área-de-atuação)
    - [Transportadoras](#transportadoras)
-4. [Pedidos de Venda](#pedidos)
-5. [Carrinho em Lote](#carrinho-em-lote)
-6. [Campanhas](#campanhas)
-7. [Baixa via XML](#baixa-via-xml)
-8. [Sell-Out](#sell-out)
-9. [Produtos](#produtos)
-10. [Central Estatísticos](#central-estatísticos)
-11. [BI — Business Intelligence](#bi--business-intelligence)
-12. [CRM — Relacionamento com Clientes](#crm--relacionamento-com-clientes)
+5. [Pedidos de Venda](#pedidos)
+6. [Carrinho em Lote](#carrinho-em-lote)
+7. [Campanhas](#campanhas)
+8. [Baixa via XML](#baixa-via-xml)
+9. [Sell-Out](#sell-out)
+10. [Produtos](#produtos)
+11. [Central Estatísticos](#central-estatísticos)
+12. [BI — Business Intelligence](#bi--business-intelligence)
+13. [CRM — Relacionamento com Clientes](#crm--relacionamento-com-clientes)
    - [Radar do Rep](#radar-do-rep)
    - [Carteira](#carteira)
    - [Atividades](#atividades)
@@ -37,13 +38,13 @@ Versão 2.0 · Atualizado em 28/05/2026 · Softham Sistemas
    - [Visitas — Check-in / Check-out](#visitas--check-in--check-out)
    - [Campo Digital — O Promotor em Ação](#campo-digital--o-promotor-em-ação)
    - [Campo Ao Vivo — Painel do Diretor](#campo-ao-vivo--painel-do-diretor)
-13. [Agenda](#agenda)
-14. [Financeiro](#financeiro)
-15. [Relatórios](#relatórios)
-16. [Importador de Preços](#importador-de-preços)
-17. [Configurações da Empresa](#configurações-da-empresa)
-18. [IRIS — Assistente de IA](#iris--assistente-de-ia)
-19. [Dúvidas Frequentes](#dúvidas-frequentes)
+14. [Agenda](#agenda)
+15. [Financeiro](#financeiro)
+16. [Relatórios](#relatórios)
+17. [Importador de Preços](#importador-de-preços)
+18. [Configurações da Empresa](#configurações-da-empresa)
+19. [IRIS — Assistente de IA](#iris--assistente-de-ia)
+20. [Dúvidas Frequentes](#dúvidas-frequentes)
 
 ---
 
@@ -102,6 +103,50 @@ Se o sistema ficar travado mostrando informação desatualizada após uma atuali
 ### Alterar sua senha
 
 Clique no ícone do seu perfil no canto superior direito e selecione **Alterar Senha**.
+
+---
+
+## Mapa Completo do Sistema
+
+Esta é a visão geral de **tudo** que o RepOne faz, área por área. Use como índice rápido: bata o olho, descubra um recurso que talvez você nem saiba que existe, e vá ao capítulo correspondente para os detalhes.
+
+> O RepOne é grande de propósito — ele cobre o ciclo inteiro da representação, do primeiro contato com o cliente até a comissão. Você não precisa usar tudo de uma vez; vá adotando conforme a necessidade.
+
+### 🛒 Comercial — Pedidos
+Lançar, visualizar, editar, **duplicar** e excluir pedidos · filtros por data, cliente (combobox), indústria, situação e OC · faixa de indicadores (faturamento, ticket, PDVs) · painel de detalhe com gráfico de 12 meses e curva ABC do cliente · **Faturar** por nota fiscal (com comissão e baixa item a item) · **Imprimir** (vários modelos), **Excel**, **WhatsApp** e **e-mail** do pedido · **IRIS Insights** (recompra, expandir mix, análise estratégica) · **Consolidação** (junta pedidos na fila até o mínimo da indústria) · importar itens por **Excel, Texto, XML de NF-e e Magic Load (IA)** · **Portais Industriais** (exporta o pedido no formato de cada fábrica). → *capítulo [Pedidos de Venda](#pedidos)*
+
+### 📦 Produtos, Tabelas & Catálogo
+Cadastro de produtos com linhas (leve/pesada/agrícola…) · **Tabelas de Preço** por indústria (ajuste linear %, IPI/ST em massa, grupos de desconto, desativar vencidas, exportar) · **Catálogo Digital** · **Importação de Preços** (por colagem ou arquivo, com wizard de mapeamento). → *capítulos [Produtos](#produtos) e [Importador de Preços](#importador-de-preços)*
+
+### 🌐 Portal do Lojista
+Link sem login para o seu cliente: ele vê os pedidos dele, **cota sozinho** (repetir mix, produtos esquecidos, explorar catálogo), vê insights, curva ABC e sugestões de recompra, e baixa a tabela de preços em PDF. → *capítulo [Configurações](#configurações-da-empresa) (como habilitar) e ficha do cliente*
+
+### 🤝 Clientes & CRM
+**Clientes**: ficha completa (dados com consulta à Receita, contatos com aniversário, condições por indústria, descontos, prospecção, áreas). **CRM**: Radar do Rep, Carteira (com LTV e risco), Atividades/Follow-ups, Relacionamentos, Pipeline (Kanban), Visitas com **check-in/out por GPS**, Campo Ao Vivo (mapa em tempo real), Aftermarket (oficinas/aplicadores). → *capítulos [Cadastros → Clientes](#clientes) e [CRM](#crm--relacionamento-com-clientes)*
+
+### 🗓️ Agenda, Rotas & Sell-Out
+**Agenda** (tarefas, lembretes, aniversariantes — inclusive contatos das indústrias) · **Itinerários de Visita** com mapa e km · **Sell-Out** (o que a loja vendeu ao consumidor, com pendências e importação). → *capítulos [Agenda](#agenda), [Cadastros → Itinerários](#itinerários-de-visita) e [Sell-Out](#sell-out)*
+
+### 💰 Financeiro (Gerência/Master)
+Dashboard Hub (A Pagar/Receber, roscas por centro de custo, vencimentos) · **Contas a Pagar e a Receber** com parcelas, baixa em conta-corrente, estorno e relatório PDF · Plano de Contas · Centro de Custo · **Livro Caixa** · **Fluxo de Caixa** · **DRE Gerencial** · **NFS-e / Comissões** · Despesas de Viagem. → *capítulo [Financeiro](#financeiro)*
+
+### 📊 Inteligência — BI, Estatísticas, Metas & Campanhas
+**BI Intelligence** (9 abas: Visão Geral, Indústrias, Clientes, Estatísticas, Curva ABC, Metas, Equipe, Produtos, Sell In/Out, com alertas e drill-down) · **Central de Estatísticos** (mais de 20 mapas: Vendas, Itens×Clientes, Churn, Inativos, ABC, 3 Anos, Gap de Catálogo, Indústrias Adormecidas…) · **Metas por Indústria** · **Campanhas** (Crescimento, Mix, Positivação, Volume — medem sell-out). → *capítulos [Central Estatísticos](#central-estatísticos), [BI](#bi--business-intelligence) e [Campanhas](#campanhas)*
+
+### 📑 Relatórios
+Central com 4 categorias (Cadastros, Vendas Realizadas, Faturamento, Financeiro) — clientes, tabelas de preço, comissão de vendedores, faturamento no período, produtos vendidos e muito mais. → *capítulo [Relatórios](#relatórios)*
+
+### ⚙️ Cadastros & Administração
+Indústrias (com meta anual e conhecimento da IRIS por marca) · Vendedores (com vínculo a usuário, metas e comissão por indústria) · Transportadoras · Grupos de Produtos e de Desconto · Regiões/Setores/Área de Atuação · **Usuários e Permissões** (níveis Master/Gerência/Operador) · **Parâmetros** (preferências de operação + SMTP/IMAP) · **Configurações da Empresa**. → *capítulos [Cadastros](#cadastros) e [Configurações](#configurações-da-empresa)*
+
+### 🤖 IRIS & Inteligência Artificial
+**Pergunte à IRIS** (relatórios em linguagem natural) · IRIS na Cotação (resolve preços sozinha) · IRIS Voice (briefing por voz) · Carta Confidencial (instruções de atendimento no WhatsApp). → *capítulo [IRIS](#iris--assistente-de-ia)*
+
+### 📨 Fiscal, E-mails, Notícias & WhatsApp
+**Baixa via XML** (NF-e fatura o pedido) · Envio de e-mails em massa · **Central de E-mails Inteligente** (IA classifica leads/cotações) · Central de Notícias · atendimento por **WhatsApp com IA** · Centro de Aprendizado · Manual online. → *capítulos [Baixa via XML](#baixa-via-xml) e [IRIS](#iris--assistente-de-ia)*
+
+### 📱 App Mobile (o RepOne na rua)
+Aplicativo que **funciona offline**: Home com metas, Clientes da carteira (ligar/WhatsApp/rota), Pedido com **Smart Order** (sugestões de recompra), Tabela de Preços, Sell-Out, Campanhas, Agenda, Rotas no mapa, BI e Despesas. Sincroniza sozinho quando volta o sinal.
 
 ---
 
