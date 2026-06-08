@@ -26,7 +26,7 @@ import { exportOrderToExcel } from '@/shared/utils/exportOrderToExcel';
 import BillingDialog from './BillingDialog';
 import PortalsDialog from './PortalsDialog';
 import FaniaPortalModal from '../components/FaniaPortalModal';
-import { LayoutList, PieChart } from 'lucide-react';
+import { LayoutList, PieChart, Users, ChevronDown } from 'lucide-react';
 import IrisPanel from './IrisPanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -359,6 +359,104 @@ function fmtCnpj(v?: string): string {
   const d = v.replace(/\D/g, '');
   if (d.length === 14) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
   return v;
+}
+
+// ─── Combobox de cliente (filtro) ─────────────────────────────────────────────
+// Busca no /clients?search= com debounce; passa o cli_codigo escolhido pro filtro.
+function ClientFilterCombo({ value, label, onChange }: {
+  value: number | null; label: string;
+  onChange: (id: number | null, nome: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<{ cli_codigo: number; cli_nomred?: string; cli_nome?: string; cli_cnpj?: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const url = q.trim()
+          ? `/clients?search=${encodeURIComponent(q.trim())}&limit=50`
+          : '/clients?limit=50';
+        const r = await api.get(url);
+        setResults(r.data.data || r.data.clientes || []);
+      } catch { setResults([]); }
+      finally { setLoading(false); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative' }}>
+      <div
+        onClick={() => { setOpen(o => !o); if (!value) setQ(''); }}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 8,
+          background: value ? '#28374A12' : G.cardHi,
+          border: `1px solid ${value ? `${G.text}55` : G.border}`,
+          cursor: 'pointer', minWidth: 130, maxWidth: 200,
+        }}
+      >
+        <Users size={12} style={{ color: value ? G.text : G.textMuted, flexShrink: 0 }} />
+        {value ? (
+          <span style={{ fontSize: 11, fontWeight: 800, color: G.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        ) : (
+          <span style={{ fontSize: 11, fontWeight: 700, color: G.textMuted }}>Cliente</span>
+        )}
+        {value ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onChange(null, ''); setOpen(false); }}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: G.textMuted, fontSize: 14, lineHeight: 1, display: 'flex' }}
+          >×</button>
+        ) : (
+          <ChevronDown size={12} style={{ marginLeft: 'auto', color: G.textMuted, flexShrink: 0 }} />
+        )}
+      </div>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 60, width: 300,
+          background: '#fff', border: `1px solid ${G.border}`, borderRadius: 10,
+          boxShadow: '0 10px 30px rgba(0,0,0,0.16)', overflow: 'hidden',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderBottom: `1px solid ${G.border}` }}>
+            <Search size={12} style={{ color: G.textMuted }} />
+            <input
+              autoFocus placeholder="Digite o nome do cliente…"
+              value={q} onChange={e => setQ(e.target.value)}
+              style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: 12, fontWeight: 600, color: G.text, width: '100%' }}
+            />
+          </div>
+          <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+            {loading && <div style={{ padding: '10px 12px', fontSize: 11, color: G.textMuted }}>Buscando…</div>}
+            {!loading && results.length === 0 && <div style={{ padding: '10px 12px', fontSize: 11, color: G.textMuted }}>Nenhum cliente encontrado.</div>}
+            {results.map(c => (
+              <button
+                key={c.cli_codigo}
+                onClick={() => { onChange(c.cli_codigo, c.cli_nomred || c.cli_nome || `#${c.cli_codigo}`); setOpen(false); }}
+                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'transparent', border: 'none', borderBottom: `1px solid ${G.border}`, cursor: 'pointer' }}
+                onMouseEnter={e => (e.currentTarget.style.background = G.cardHi)}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: G.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.cli_nomred || c.cli_nome}</div>
+                {c.cli_cnpj && <div style={{ fontSize: 10, fontWeight: 800, fontFamily: 'monospace', color: G.textMuted, marginTop: 1 }}>{fmtCnpj(c.cli_cnpj)}</div>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Order Card (list item) ───────────────────────────────────────────────────
@@ -1401,6 +1499,8 @@ export default function PedidosPage() {
   const [dataFim, setDataFim]               = useState(iso(today));
   const [view, setView]                     = useState<'list' | 'consolidation'>('list');
   const [showHelp, setShowHelp]             = useState(false);
+  const [clienteFiltro, setClienteFiltro]   = useState<number | null>(null);
+  const [clienteFiltroNome, setClienteFiltroNome] = useState('');
 
   // Auto-trigger search 500ms after user stops typing
   useEffect(() => {
@@ -1431,6 +1531,7 @@ export default function PedidosPage() {
       };
       if (selectedInd) params.industria = String(selectedInd);
       if (search) params.pesquisa = search;
+      if (clienteFiltro) params.cliente = String(clienteFiltro);
       if (!selectedInd) params.ignorarIndustria = 'true';
 
       // Carregar pedidos (principal) — nunca deve falhar silenciosamente
@@ -1487,7 +1588,7 @@ export default function PedidosPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedInd, search, situacao, sortBy, dataInicio, dataFim]);
+  }, [selectedInd, search, situacao, sortBy, dataInicio, dataFim, clienteFiltro]);
 
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
@@ -1686,6 +1787,13 @@ export default function PedidosPage() {
                   >×</button>
                 )}
               </div>
+
+              {/* Filtro por cliente (combobox) */}
+              <ClientFilterCombo
+                value={clienteFiltro}
+                label={clienteFiltroNome}
+                onChange={(id, nome) => { setClienteFiltro(id); setClienteFiltroNome(nome); }}
+              />
 
               {/* Situação */}
               <select
