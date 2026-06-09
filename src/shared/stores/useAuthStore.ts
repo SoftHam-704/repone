@@ -67,17 +67,19 @@ export const useAuthStore = create<AuthState>()(
   )
 );
 
-// ─── Helper: kill switch da IRIS ────────────────────────────────────────────
-// Convenção: empresas.plano_ia_nivel = 'NONE' → IRIS DESLIGADA em TUDO
-// (Magic Load/Import, InsightNarrative, IrisTerminal, IrisPanel, SmartInsights,
-// RiskInsights, PortfolioIris, página nexus-ia, etc).
-// Qualquer outro valor (ex.: 'ATIVO') = ligada.
+// ─── Helper canônico: IA ligada? (kill switch + paywall da IRIS) ─────────────
+// FONTE ÚNICA DA VERDADE pra "a IA está ligada?". Use SEMPRE este helper —
+// não recrie a comparação inline (foi assim que 'NONE' e 'INATIVA' driftaram).
 //
-// Uso:
-//   const iaEnabled = useIaEnabled();
-//   if (!iaEnabled) return null;
-//   // ou: {iaEnabled && <IrisPanel ... />}
+// empresas.plano_ia_nivel — gravado pelo toggle "Acesso à IRIS" do SoftHam-ADM:
+//   DESLIGADO → 'INATIVA' (canônico)  ·  'NONE' = legado, também conta como off.
+//   LIGADO    → 'ATIVA' (canônico)    ·  'ATIVO'/'BASIC'/qualquer outro = ligado.
+export function iaLigada(planLevel?: string | null): boolean {
+  return !['INATIVA', 'NONE', ''].includes(String(planLevel ?? 'ATIVA').toUpperCase());
+}
+
+// Hook pra componentes:
+//   if (!useIaEnabled()) return null;   // ou: {useIaEnabled() && <IrisPanel/>}
 export function useIaEnabled(): boolean {
-  const planLevel = useAuthStore(s => s.user?.iaPlanLevel);
-  return String(planLevel || 'ATIVO').toUpperCase() !== 'NONE';
+  return iaLigada(useAuthStore(s => s.user?.iaPlanLevel));
 }

@@ -13,7 +13,7 @@ import {
   BookOpen, Gamepad2, LogOut, ChevronRight, MessageSquare, RefreshCw,
   Radar, Users2, CalendarCheck, Sparkles,
 } from 'lucide-react';
-import { useAuthStore } from '@/shared/stores/useAuthStore';
+import { useAuthStore, iaLigada } from '@/shared/stores/useAuthStore';
 import { useIrisModal } from '@/shared/stores/useIrisModal';
 import { useAlertasStore } from '@/shared/stores/useAlertasStore';
 import { api } from '@/shared/lib/api';
@@ -403,7 +403,7 @@ export function AppSidebar() {
   // Checa só o gate de feature/plano (usado pela barra IRIS que não é NavLeaf).
   const featureOk = (f?: NavLeaf['feature']) => {
     if (!f) return true;
-    if (f === 'iaEnabled') return String(user?.iaPlanLevel || 'ATIVO').toUpperCase() !== 'NONE';
+    if (f === 'iaEnabled') return iaLigada(user?.iaPlanLevel);
     return user?.[f] !== false;
   };
 

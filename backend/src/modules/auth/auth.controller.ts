@@ -33,7 +33,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
              COALESCE(modulo_bi_ativo, false) as modulo_bi_ativo,
              COALESCE(modulo_whatsapp_ativo, false) as modulo_whatsapp_ativo,
              COALESCE(modulo_crmrep_ativo, false) as modulo_crmrep_ativo,
-             COALESCE(plano_ia_nivel, 'ATIVO') as plano_ia_nivel
+             COALESCE(plano_ia_nivel, 'ATIVA') as plano_ia_nivel
       FROM empresas
       WHERE regexp_replace(cnpj, '[^0-9]', '', 'g') = $1 AND status = 'ATIVO'
     `, [rawCnpj]);
@@ -63,7 +63,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
         modulo_bi_ativo: true,
         modulo_whatsapp_ativo: false,
         modulo_crmrep_ativo: false,
-        plano_ia_nivel: 'ATIVO',
+        plano_ia_nivel: 'ATIVA',
       };
     }
 
@@ -255,7 +255,8 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
         name: `${user.nome} ${user.sobrenome}`,
         empresaId: empresa.id,
         cnpj: empresa.cnpj,
-        iaAtiva: (empresa.plano_ia_nivel || 'INATIVA') !== 'INATIVA',  // toggle "Acesso à IRIS" do ADM — gateia IRIS Dev
+        iaAtiva: !['INATIVA', 'NONE', ''].includes(String(empresa.plano_ia_nivel || 'INATIVA').toUpperCase()),  // toggle "Acesso à IRIS" do ADM ('INATIVA'/'NONE' = off) — gateia IRIS Dev
+
         isPromotor,  // promotor de vendas: esconde opções de venda no mobile
       },
       env.JWT_SECRET,
