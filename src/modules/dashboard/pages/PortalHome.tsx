@@ -20,7 +20,7 @@ import { Link, useNavigate } from 'react-router-dom';
 // AppSidebar é renderizado pelo MainLayout — não duplicar aqui.
 import { NoticiasBanner } from '../components/NoticiasBanner';
 import { api } from '@/shared/lib/api';
-import { useAuthStore, iaLigada } from '@/shared/stores/useAuthStore';
+import { useAuthStore, iaLigada, podeUsarIris } from '@/shared/stores/useAuthStore';
 import { useIrisModal } from '@/shared/stores/useIrisModal';
 
 // ─── TOKENS — Mustard Precision ──────────────────────────────────────────────
@@ -2387,7 +2387,7 @@ function PergunteIrisTeaser() {
   const navigate = useNavigate();
   const user = useAuthStore.getState().user;
   // IRIS Dev: Master + IA habilitada (toggle "Acesso à IRIS" do ADM = plano_ia_nivel != INATIVA).
-  const irisLive = ['admin', 'superadmin'].includes(user?.role || '') && iaLigada(user?.iaPlanLevel);
+  const irisLive = podeUsarIris(user?.role) && iaLigada(user?.iaPlanLevel);
 
   return (
     <>

@@ -3,7 +3,7 @@ import { Sparkles, Send, Loader2, Trash2, Wand2, Bot, User as UserIcon, CheckCir
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '@/shared/lib/api';
-import { useAuthStore, iaLigada } from '@/shared/stores/useAuthStore';
+import { useAuthStore, iaLigada, podeUsarIris } from '@/shared/stores/useAuthStore';
 import { IrisArtifactRenderer, type Artifact } from '../components/IrisArtifacts';
 
 // Exporta um nó DOM (a resposta da IRIS) pra PDF — captura tabela, KPI e gráfico (canvas).
@@ -119,13 +119,10 @@ interface ImproveResult {
   improved: string;
 }
 
-// IRIS Dev: vitrine pra TODOS os Reps Master — sem mais lista de schemas (espelha o backend).
-const ROLES_MASTER = ['admin', 'superadmin'];
-
 export default function PergunteIrisPage({ onClose }: { onClose?: () => void } = {}) {
   const user = useAuthStore(s => s.user);
-  // Master + IA habilitada (toggle "Acesso à IRIS" do ADM = plano_ia_nivel != INATIVA)
-  const autorizado = ROLES_MASTER.includes(user?.role || '') && iaLigada(user?.iaPlanLevel);
+  // Gerência+ (espelha o backend) + IA habilitada pro tenant.
+  const autorizado = podeUsarIris(user?.role) && iaLigada(user?.iaPlanLevel);
   const inModal = !!onClose;
 
   const [input, setInput] = useState('');

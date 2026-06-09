@@ -83,3 +83,11 @@ export function iaLigada(planLevel?: string | null): boolean {
 export function useIaEnabled(): boolean {
   return iaLigada(useAuthStore(s => s.user?.iaPlanLevel));
 }
+
+// ─── Helper canônico: quem pode USAR a IRIS conversacional (Pergunte à IRIS) ──
+// Gerência ou acima (manager/admin/superadmin). Operador (vendedor) NÃO.
+// A Carta Confidencial (config WhatsApp) segue só-Master, à parte deste gate.
+// Liberado pra Gerência em 2026-06-09 (Hamilton). Espelha o backend (levelOf >= GERENCIA).
+export function podeUsarIris(role?: string | null): boolean {
+  return ['manager', 'admin', 'superadmin'].includes(String(role || ''));
+}
