@@ -41,7 +41,10 @@ const BORDER_THIN = {
 
 // --- MAIN BUILDER ---
 
-async function buildWorkbook(order: any, items: any[], separateGroups: 'S' | 'N' = 'N') {
+// incluirCodigoInterno: quando true, a coluna ITEM COMPLEMENTO mostra o código
+// interno/SAP (ite_embuch) — usado pra importar no portal da fábrica. Quando false,
+// omite o código interno (o lojista não precisa vê-lo). Pedido do REP da Remap.
+async function buildWorkbook(order: any, items: any[], separateGroups: 'S' | 'N' = 'N', incluirCodigoInterno = true) {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Pedido', {
         pageSetup: { paperSize: 9, orientation: 'landscape' }, // A4 Landscape usually
@@ -98,7 +101,8 @@ async function buildWorkbook(order: any, items: any[], separateGroups: 'S' | 'N'
     setCell(1, 'B', order.ped_pedido, FONT_BOLD, 'left').alignment = { horizontal: 'left' };
 
     setCell(1, 'D', 'OC do Cliente:', FONT_NORMAL, 'right');
-    setCell(1, 'E', order.ped_oc || '', FONT_BOLD, 'right');
+    // Sem OC do cliente → usa o nº do pedido interno como OC (só exibição). Pedido REP Remap.
+    setCell(1, 'E', order.ped_oc || order.ped_pedido || '', FONT_BOLD, 'right');
 
     setCell(1, 'G', 'Data:', FONT_NORMAL, 'right');
     setCell(1, 'H', formatDate(order.ped_data), FONT_BOLD, 'left');
@@ -249,7 +253,11 @@ async function buildWorkbook(order: any, items: any[], separateGroups: 'S' | 'N'
             setCell(currentRowIdx, 'A', item.ite_produto || '', FONT_NORMAL, 'left');
             setCell(currentRowIdx, 'B', item.ite_nomeprod || '', FONT_NORMAL, 'left');
             const codOrig = (item.pro_codigooriginal && String(item.pro_codigooriginal).trim() !== String(item.ite_produto).trim()) ? item.pro_codigooriginal : '';
-            setCell(currentRowIdx, 'C', item.ite_embuch || codOrig || item.ite_complemento || '', FONT_NORMAL, 'left');
+            // Código interno/SAP (ite_embuch) só quando selecionado; senão cai no complemento normal.
+            const complementoVal = incluirCodigoInterno
+                ? (item.ite_embuch || codOrig || item.ite_complemento || '')
+                : (codOrig || item.ite_complemento || '');
+            setCell(currentRowIdx, 'C', complementoVal, FONT_NORMAL, 'left');
             // D skipped
             setCell(currentRowIdx, 'E', quant, FONT_NORMAL, 'right').numFmt = '0';
             setCell(currentRowIdx, 'F', parseFloat(item.ite_puni) || 0, FONT_NORMAL, 'right').numFmt = '#,##0.00';
@@ -294,9 +302,9 @@ async function buildWorkbook(order: any, items: any[], separateGroups: 'S' | 'N'
 
 // --- EXPORTS ---
 
-export async function exportOrderToExcel(order: any, items: any[], separateGroups: 'S' | 'N' = 'N') {
+export async function exportOrderToExcel(order: any, items: any[], separateGroups: 'S' | 'N' = 'N', incluirCodigoInterno = true) {
     try {
-        const workbook = await buildWorkbook(order, items, separateGroups);
+        const workbook = await buildWorkbook(order, items, separateGroups, incluirCodigoInterno);
         const buffer = await workbook.xlsx.writeBuffer();
 
         const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

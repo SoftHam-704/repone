@@ -6,7 +6,7 @@ interface PrintOrderDialogProps {
   onClose: () => void;
   orderNumber: string | null;
   onPrint: (model: number, sorting: string) => void;
-  onExportExcel: (sorting: string) => void;
+  onExportExcel: (sorting: string, incluirCodigoInterno: boolean) => void;
   onSendEmail: (sorting: string) => void;
   onWhatsApp: (model: number, sorting: string, encodedMessage: string) => void;
   defaultModel?: number;
@@ -15,7 +15,7 @@ interface PrintOrderDialogProps {
   orderTotal?: string;
 }
 
-const activeModels = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+const activeModels = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19];
 
 const PrintOrderDialog: React.FC<PrintOrderDialogProps> = ({
   isOpen,
@@ -32,6 +32,7 @@ const PrintOrderDialog: React.FC<PrintOrderDialogProps> = ({
 }) => {
   const [sorting, setSorting] = useState(defaultSorting);
   const [selectedModel, setSelectedModel] = useState(defaultModel);
+  const [incluirCodInterno, setIncluirCodInterno] = useState(true);
 
   useEffect(() => {
     if (isOpen) {
@@ -171,7 +172,7 @@ const PrintOrderDialog: React.FC<PrintOrderDialogProps> = ({
               ))}
               {/* Excel */}
               <button
-                onClick={() => onExportExcel(sorting)}
+                onClick={() => onExportExcel(sorting, incluirCodInterno)}
                 style={{
                   height: 44, border: '1px solid #D1FAE5', borderRadius: 12,
                   background: '#ECFDF5', color: '#059669', cursor: 'pointer',
@@ -183,6 +184,20 @@ const PrintOrderDialog: React.FC<PrintOrderDialogProps> = ({
                 <FileSpreadsheet style={{ width: 20, height: 20 }} />
               </button>
             </div>
+
+            {/* Toggle: código interno/SAP no Excel (pra importar no portal da fábrica) */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, cursor: 'pointer', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={incluirCodInterno}
+                onChange={e => setIncluirCodInterno(e.target.checked)}
+                style={{ width: 15, height: 15, accentColor: '#059669', cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: 11, color: '#475569' }}>
+                Incluir <strong>código interno (SAP)</strong> no Excel
+                <span style={{ color: '#94A3B8' }}> — pra importar no portal da fábrica</span>
+              </span>
+            </label>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 12 }}>
               <div style={{

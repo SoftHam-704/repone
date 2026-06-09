@@ -2083,11 +2083,11 @@ export default function PedidosPage() {
           const w = 900, h = 700;
           window.open(url, 'PrintPreview', `width=${w},height=${h},left=${(window.screen.width - w) / 2},top=${(window.screen.height - h) / 2},scrollbars=yes,resizable=yes`);
         }}
-        onExportExcel={async (sorting) => {
+        onExportExcel={async (sorting, incluirCodigoInterno) => {
           if (!selectedOrder) return;
           try {
             const res = await api.get(`/orders/${selectedOrder.ped_pedido}/print-data?industria=${selectedOrder.ped_industria}&sortBy=${sorting}`);
-            await exportOrderToExcel(res.data.data.order, res.data.data.items, separaLinhas);
+            await exportOrderToExcel(res.data.data.order, res.data.data.items, separaLinhas, incluirCodigoInterno);
             setPrintDialogOpen(false);
           } catch { showToast('Erro ao exportar Excel', false); }
         }}
