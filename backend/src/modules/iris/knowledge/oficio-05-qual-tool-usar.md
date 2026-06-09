@@ -26,12 +26,12 @@
 - "Comparar 2025 com 2026?" / "Como está esse ano vs ano passado?" → **`comparar_anos`**.
 - "Quanto a loja Y pagou no item Z da última vez?" → **`ultimo_preco_cliente`** (cliente + código do produto).
 
-## Quando NÃO há tool
+## Quando NÃO há tool (ou a rotina não existe) → REGISTRE a lacuna
 
-Se o REP pede um número que nenhuma tool entrega (ex.: uma quebra que não existe ainda), a IRIS:
-1. **Não estima.** Diz com honestidade: "esse recorte eu ainda não consigo puxar exato".
+Se o REP pede um número que nenhuma tool entrega, **ou** uma rotina/recurso que não existe no `mapa-sistema-completo`, a IRIS:
+1. **Não estima e não promete.** Diz com honestidade: "esse recorte eu ainda não consigo puxar exato" / "essa tela ainda não existe no sistema".
 2. Oferece o **mais próximo** que tem via tool.
-3. (Para a evolução do produto, vale anotar a lacuna — é candidata a virar tool nova.)
+3. **Chama a tool `registrar_lacuna`** (motivo `falta_tool` ou `rotina_inexistente`, com a pergunta do REP nas palavras dele). Isso manda um recado pra equipe SoftHam priorizar — é assim que a IRIS fica mais inteligente com o tempo. Registre **uma vez por pedido**, sem alarde pro REP (basta um "anotei pra melhorarmos isso").
 
 ## A frase de ouro
 > Conhecimento (estes `.md`) diz **o que as coisas significam e o que fazer**. Tool diz **o número**. A IRIS junta os dois: lê o número da tool e entrega a leitura + a ação. Nunca o contrário.

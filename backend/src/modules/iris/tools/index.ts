@@ -6,6 +6,7 @@ import { curvaAbc } from './curva-abc';
 import { rankingClientes } from './ranking-clientes';
 import { compararAnos } from './comparar-anos';
 import { ultimoPrecoCliente } from './ultimo-preco-cliente';
+import { registrarLacuna } from './registrar-lacuna';
 
 export type ToolHandler = (db: any, input: any, user: any) => Promise<any>;
 
@@ -19,6 +20,7 @@ export const TOOLS_REGISTRY: Record<string, ToolHandler> = {
   ranking_clientes:         rankingClientes,
   comparar_anos:            compararAnos,
   ultimo_preco_cliente:     ultimoPrecoCliente,
+  registrar_lacuna:         registrarLacuna,
 };
 
 // Definições JSON Schema enviadas ao modelo (Anthropic SDK tools).
@@ -136,6 +138,20 @@ export const TOOLS = [
         produto: { type: 'string', description: 'Código do produto. Ex: "01-00126".' },
       },
       required: ['cliente', 'produto'],
+    },
+  },
+  {
+    name: 'registrar_lacuna',
+    description:
+      'Registra uma LACUNA quando você NÃO conseguiu atender o REP: (a) ele pediu um número/recorte que nenhuma tool entrega, ou (b) pediu uma rotina/recurso que NÃO existe no sistema (confira no mapa-sistema-completo). Chame SEMPRE que bater numa dessas paredes, junto de avisar o REP que ainda não tem. Não invente — só registre o que faltou. O recado vai pra equipe SoftHam priorizar o que construir.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        pergunta: { type: 'string', description: 'O pedido do REP que você não conseguiu atender, com as palavras dele.' },
+        motivo:   { type: 'string', enum: ['falta_tool', 'rotina_inexistente', 'ambiguo', 'outro'], description: 'falta_tool = número sem ferramenta; rotina_inexistente = recurso que não existe no sistema; ambiguo = não deu pra entender o pedido; outro.' },
+        detalhe:  { type: 'string', description: 'Opcional: o que exatamente faltaria (ex: "tool de giro de estoque", "tela de comparar 3 indústrias no mesmo gráfico").' },
+      },
+      required: ['pergunta', 'motivo'],
     },
   },
 ];
