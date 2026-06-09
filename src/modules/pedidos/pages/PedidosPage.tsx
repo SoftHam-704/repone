@@ -1134,6 +1134,16 @@ function OrderDetailPanel({
             <span style={{ fontSize: 10, fontWeight: 700, color: G.textMuted, textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 14 }}>
               Dados do Pedido
             </span>
+            {/* Desconto aplicado em destaque — REP confere no 1º clique, sem editar o pedido */}
+            {order.ped_totbruto > 0 && (order.ped_totbruto - order.ped_totliq) > 0.01 && (
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14, padding: '8px 12px', borderRadius: 8, background: `${G.mustard}1A`, border: `1px solid ${G.mustard}55` }}>
+                <span style={{ fontSize: 9, fontWeight: 800, color: G.textSec, textTransform: 'uppercase', letterSpacing: 0.8 }}>Desconto aplicado</span>
+                <span style={{ fontSize: 15, fontWeight: 900, color: G.text }}>
+                  {((1 - order.ped_totliq / order.ped_totbruto) * 100).toFixed(2).replace('.', ',')}%
+                  <span style={{ fontSize: 11, fontWeight: 700, color: G.textMuted, marginLeft: 6 }}>{fmt(order.ped_totbruto - order.ped_totliq)}</span>
+                </span>
+              </div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
                 { label: 'Cond. Pagamento', value: order.ped_condpag || '—' },
