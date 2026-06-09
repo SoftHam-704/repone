@@ -2664,7 +2664,7 @@ const RemapReport = ({ order, items, repInfo, industryLogo }) => {
                     <RemapBox label="Pedido N." value={order.ped_pedido} flex={1.3} valueStyle={{ fontFamily: 'Courier' }} />
                     <RemapBox label="Data Pedido" value={dataPedido} flex={1} />
                     <RemapBox label="Entrega" value={dataEntrega} flex={1} />
-                    <RemapBox label="Ordem de Compra" value={order.ped_oc ||''} flex={1.4} />
+                    <RemapBox label="Ordem de Compra" value={order.ped_oc || order.ped_pedido || ''} flex={1.4} />
                 </View>
 
                 <View style={remapStyles.boxRow}>

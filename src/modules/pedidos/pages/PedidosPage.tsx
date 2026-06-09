@@ -947,7 +947,7 @@ function OrderDetailPanel({
             <InfoRow icon={Globe} label="Canal" value={order.ped_tabela || 'Padrão'} />
           </div>
           <div style={bentoCard}>
-            <InfoRow icon={Hash} label="OC do Cliente" value={order.ped_oc || '—'} mono />
+            <InfoRow icon={Hash} label="OC do Cliente" value={order.ped_oc || order.ped_pedido || '—'} mono />
           </div>
 
           {/* Card IRIS — assistente comercial com IA */}
