@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useGridSort, useSortedRows, useColumnWidths, sortArrow, type ColW } from '../utils/useGridSort';
 import { motion } from 'framer-motion';
 import { AlertTriangle, RefreshCw, CheckCircle, Trash2 } from 'lucide-react';
 import { G } from '@/shared/components/layout/CadastroShell';
@@ -340,6 +341,37 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
   const [showIpiSt,      setShowIpiSt]      = useState(false);
   const [showAdd,        setShowAdd]        = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
+
+  // ─── Ordenação (clique no cabeçalho) + redimensionamento (arrasta a borda) ───
+  type CCol = ColW & { label: string; align: 'left' | 'right' | 'center'; sortable?: boolean; noResize?: boolean; acc?: (it: ItemRow) => any };
+  const cOrigIdx = useMemo(() => new Map(orderItems.map((it, idx) => [it.tempId, idx])), [orderItems]);
+  const descPctOf = (it: ItemRow) => (Number(it.ite_puni) > 0 ? (1 - Number(it.ite_puniliq) / Number(it.ite_puni)) * 100 : 0);
+  const CONF_COLS = useMemo<CCol[]>(() => [
+    { key: 'seq',     label: '#',           align: 'center', width: 40,  minWidth: 34, acc: (it) => cOrigIdx.get(it.tempId) ?? 0 },
+    { key: 'codigo',  label: 'Código',      align: 'left',   width: 100, minWidth: 64, acc: (it) => it.ite_produto },
+    { key: 'compl',   label: 'Complemento', align: 'left',   width: 120, minWidth: 70, acc: (it) => it.ite_embuch || '' },
+    { key: 'descr',   label: 'Descrição',   align: 'left',   width: 420, minWidth: 120, acc: (it) => it.ite_nomeprod || '' },
+    { key: 'qtd',     label: 'Qtd',         align: 'right',  width: 72,  minWidth: 52, acc: (it) => Number(it.ite_quant) },
+    { key: 'bruto',   label: 'Bruto',       align: 'right',  width: 84,  minWidth: 60, acc: (it) => Number(it.ite_puni) },
+    { key: 'descpct', label: 'Desc%',       align: 'right',  width: 60,  minWidth: 50, acc: descPctOf },
+    { key: 'liq',     label: 'Líquido',     align: 'right',  width: 84,  minWidth: 60, acc: (it) => Number(it.ite_puniliq) },
+    { key: 'totliq',  label: 'Total Líq.',  align: 'right',  width: 90,  minWidth: 64, acc: (it) => Number(it.ite_totliquido) },
+    { key: 'cimp',    label: 'c/ Imp.',     align: 'right',  width: 90,  minWidth: 64, acc: (it) => Number(it.ite_valcomst) },
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(nn => ({
+      key: `des${nn}`, label: `${nn}º%`, align: 'center' as const, width: 38, minWidth: 34,
+      acc: (it: ItemRow) => Number((it as any)[`ite_des${nn}`]) || 0,
+    })),
+    { key: 'add', label: 'ADD%', align: 'center', width: 38, minWidth: 34, acc: (it) => Number(it.ite_des10) || 0 },
+    { key: 'ipi', label: 'IPI%', align: 'center', width: 38, minWidth: 34, acc: (it) => Number(it.ite_ipi) || 0 },
+    { key: 'st',  label: 'ST%',  align: 'center', width: 38, minWidth: 34, acc: (it) => Number(it.ite_st) || 0 },
+  ], [cOrigIdx]);
+  const confAccessors = useMemo(
+    () => Object.fromEntries(CONF_COLS.filter(c => c.acc).map(c => [c.key, c.acc!])),
+    [CONF_COLS],
+  );
+  const { sort: confSort, cycle: confCycle } = useGridSort();
+  const sortedConfItems = useSortedRows(orderItems, confSort, confAccessors);
+  const { widths: confWidths, startResize: confResize } = useColumnWidths('repone:grid:pedido-conferencia', CONF_COLS);
   const autoApplied = useRef(false);
 
   // Load client discounts + group descs on mount (needed for Desc. Grupo)
@@ -440,12 +472,15 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
     }));
   }, [setOrderItems]);
 
-  // Retorna true se o item tem preço promocional (flag OU tabela de preços)
+  // Regra canônica (mesma de handleAtzTabNova):
+  //   ite_promocao='S' = preço fechado (promo ou importado/negociado) → não aceita desconto
+  //   ite_promocao='N' = preço especial OU bruto → aceita desconto normal
+  // NÃO checar `priceTableItems[].preco_promo` aqui — um produto pode ter promo
+  // cadastrada na tabela, mas o item DESTE pedido estar com preço especial
+  // intencional. Confiar apenas na flag do próprio item.
   const isPromoItem = useCallback((it: ItemRow) => {
-    if (it.ite_promocao === 'S') return true;
-    const p = priceTableItems.find(c => c.pro_codigo === it.ite_produto);
-    return p ? (parseFloat(String(p.preco_promo)) || 0) > 0 : false;
-  }, [priceTableItems]);
+    return it.ite_promocao === 'S';
+  }, []);
 
   // ── 1 · Atz. Valores — reload IPI/ST/nome + recalc + sync to DB ──────────
   async function handleAtzValores() {
@@ -460,6 +495,21 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
         if (p) {
           updated.ite_nomeprod = p.pro_nome || it.ite_nomeprod;
           if (hasSuframa) { updated.ite_ipi = 0; updated.ite_st = 0; }
+
+          // Re-classifica item mal-marcado como promo: se a tabela tem promo
+          // cadastrada (> 0) mas o ite_puni do item NÃO bate com ela, o item
+          // está em outro preço (especial/bruto/manual) e a flag ficou 'S'
+          // indevidamente. Corrige pra 'N' antes da zeragem abaixo — resolve
+          // resíduo do bug do botão "Preço 3" antigo que marcava especial
+          // como promo.
+          const promoTabela = Number(p.preco_promo) || 0;
+          if (
+            updated.ite_promocao === 'S' &&
+            promoTabela > 0 &&
+            Math.abs(Number(updated.ite_puni) - promoTabela) > 0.001
+          ) {
+            updated.ite_promocao = 'N';
+          }
         } else if (hasSuframa) {
           updated.ite_ipi = 0;
           updated.ite_st  = 0;
@@ -574,7 +624,19 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
   // ── 4 · Atz. Tabela Nova ─────────────────────────────────────────────────
   // Prioridade: preco_promo > preco_especial > preco_bruto
   // preco_promo → marca como promoção, zera descontos
-  // preco_especial / preco_bruto → mantém descontos normais
+  // preco_especial / preco_bruto → mantém descontos normais, marca como N
+  //
+  // Comportamento explícito: "Atz. Tabela" SEMPRE sobrescreve com a tabela
+  // atual, mesmo quando o item está com ite_promocao='S' herdado de outro
+  // caminho (Magic Load, XML, digitação). Razão: o botão se chama "Atz. Tabela"
+  // — REP que clica espera que sobrescreva. Pra preservar preço digitado, o
+  // REP usa "Vlr. Normal" ou "Preço 3", que não tocam em ite_puni desnecessariamente.
+  //
+  // Removido em 2026-05-29 (incidente FA008997 schema Target): o early return
+  // que preservava itens com ite_promocao='S' quando a tabela não tinha promo
+  // travava a única via de escape pro REP corrigir pedidos importados via Magic
+  // Load com promo marcado indevidamente. Risco era pedido sair pra fábrica e
+  // preço errado ser informado ao cliente.
   const handleAtzTabNova = useCallback(() => {
     let count = 0;
     setOrderItems(prev => prev.map(it => {
@@ -584,9 +646,6 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
       const promo    = n(p.preco_promo);
       const especial = n(p.preco_especial);
       const bruto    = n(p.preco_bruto);
-
-      // Preço importado/negociado (ite_promocao='S' mas tabela sem promo): preserva
-      if (it.ite_promocao === 'S' && promo === 0) return it;
 
       const ipi = hasSuframa ? 0 : (n(p.ipi) ?? it.ite_ipi);
       const st  = hasSuframa ? 0 : (n(p.st)  ?? it.ite_st);
@@ -606,19 +665,46 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
       }
       if (especial > 0) {
         count++;
-        return calcItem({ ...it, ite_puni: especial, ite_promocao: 'N', ite_nomeprod: nome, ite_ipi: ipi, ite_st: st, ite_des10: descAdd });
+        return calcItem({
+          ...it,
+          ite_puni: especial, ite_promocao: 'N', ite_nomeprod: nome,
+          ite_ipi: ipi, ite_st: st, ite_des10: descAdd,
+          // Aplica descontos do cabeçalho (caso item viesse com promo herdado e descontos zerados)
+          ite_des1: order.ped_pri || 0, ite_des2: order.ped_seg || 0,
+          ite_des3: order.ped_ter || 0, ite_des4: order.ped_qua || 0,
+          ite_des5: order.ped_qui || 0, ite_des6: order.ped_sex || 0,
+          ite_des7: order.ped_set || 0, ite_des8: order.ped_oit || 0,
+          ite_des9: order.ped_nov || 0,
+        });
       }
       if (bruto > 0) {
         count++;
-        return calcItem({ ...it, ite_puni: bruto, ite_promocao: 'N', ite_nomeprod: nome, ite_ipi: ipi, ite_st: st, ite_des10: descAdd });
+        return calcItem({
+          ...it,
+          ite_puni: bruto, ite_promocao: 'N', ite_nomeprod: nome,
+          ite_ipi: ipi, ite_st: st, ite_des10: descAdd,
+          // Aplica descontos do cabeçalho — fundamental quando o item vinha
+          // com promo='S' herdado do Magic Load/XML e descontos zerados.
+          ite_des1: order.ped_pri || 0, ite_des2: order.ped_seg || 0,
+          ite_des3: order.ped_ter || 0, ite_des4: order.ped_qua || 0,
+          ite_des5: order.ped_qui || 0, ite_des6: order.ped_sex || 0,
+          ite_des7: order.ped_set || 0, ite_des8: order.ped_oit || 0,
+          ite_des9: order.ped_nov || 0,
+        });
       }
       return it;
     }));
     toast.success(`Tabela atualizada em ${count} item(s).`);
-  }, [priceTableItems, setOrderItems]);
+  }, [priceTableItems, setOrderItems, order, hasSuframa]);
 
   // ── 5 · Atz. IPI/ST — (dialog confirms) ──────────────────────────────────
   const handleAtzIpiSt = useCallback((ipi: number | null, st: number | null) => {
+    // Cliente SUFRAMA é isento: ignora o override manual e mantém IPI/ST = 0.
+    if (hasSuframa) {
+      setOrderItems(prev => prev.map(it => calcItem({ ...it, ite_ipi: 0, ite_st: 0 })));
+      toast('Cliente SUFRAMA — IPI/ST mantidos isentos (0).', { icon: 'ℹ️' });
+      return;
+    }
     setOrderItems(prev => prev.map(it => calcItem({
       ...it,
       ite_ipi: ipi !== null ? ipi : it.ite_ipi,
@@ -628,21 +714,19 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
     if (ipi !== null) parts.push(`IPI ${fmtPct(ipi)}%`);
     if (st  !== null) parts.push(`ST ${fmtPct(st)}%`);
     toast.success(`${parts.join(' e ')} aplicado(s).`);
-  }, [setOrderItems]);
+  }, [setOrderItems, hasSuframa]);
 
-  // ── 6 · Vlr. Normal ──────────────────────────────────────────────────────
-  // Restaura o preço sem promoção: especial > bruto. Remove flag de promoção.
+  // ── 6 · Vlr. Normal — restaura itab_precobruto, remove flag promoção ────
   const handleVlrNormal = useCallback(() => {
     let count = 0;
     setOrderItems(prev => prev.map(it => {
-      const p = priceTableItems.find(c => c.pro_codigo === it.ite_produto);
+      const cod = String(it.ite_produto ?? '').trim().toUpperCase();
+      const p = priceTableItems.find(c => String(c.pro_codigo ?? '').trim().toUpperCase() === cod);
       if (!p) return it;
-      const especial = n(p.preco_especial);
-      const bruto    = n(p.preco_bruto);
-      const preco    = especial > 0 ? especial : bruto;
-      if (!preco) return it;
+      const bruto = n(p.preco_bruto);
+      if (!bruto) return it;
       count++;
-      return calcItem({ ...it, ite_puni: preco, ite_promocao: 'N' });
+      return calcItem({ ...it, ite_puni: bruto, ite_promocao: 'N' });
     }));
     toast.success(`Preço normal restaurado em ${count} item(s).`);
   }, [priceTableItems, setOrderItems]);
@@ -828,6 +912,9 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
   }, [order, orderItems, priceTableItems]);
 
   // ── B · Preço 3 (Especial) ───────────────────────────────────────────────
+  // Preço especial = ite_promocao='N' (aceita desconto), preserva descontos já
+  // aplicados. Antes este botão setava 'S' + zerava descontos — incompatível
+  // com a regra canônica (preço especial aceita desconto, só promo é fechado).
   const handlePreco3 = useCallback(() => {
     let count = 0;
     setOrderItems(prev => prev.map(it => {
@@ -835,7 +922,7 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
       const p3 = p?.preco_especial;
       if (!p3 || p3 <= 0) return it;
       count++;
-      return calcItem({ ...it, ite_puni: p3, ite_promocao: 'S', ite_des1: 0, ite_des2: 0, ite_des3: 0, ite_des4: 0, ite_des5: 0, ite_des6: 0, ite_des7: 0, ite_des8: 0, ite_des9: 0 });
+      return calcItem({ ...it, ite_puni: p3, ite_promocao: 'N' });
     }));
     toast.success(count > 0 ? `Preço 3 (especial) aplicado em ${count} item(s).` : 'Nenhum item possui preço especial cadastrado.');
   }, [priceTableItems, setOrderItems]);
@@ -987,29 +1074,29 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
 
       {/* ── Grid ── */}
       <div ref={gridRef} style={{ flex: 1, overflowX: 'auto', overflowY: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%', minWidth: 900 }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 12, width: 'max-content', minWidth: '100%', tableLayout: 'fixed' }}>
+          <colgroup>
+            {CONF_COLS.map(c => <col key={c.key} style={{ width: confWidths[c.key] ? `${confWidths[c.key]}px` : undefined }} />)}
+          </colgroup>
           <thead>
             <tr>
-              <th style={{ ...thStyle('center', 40) }}>#</th>
-              <th style={{ ...thStyle('left', 100) }}>Código</th>
-              <th style={{ ...thStyle('left', 120) }}>Complemento</th>
-              <th style={{ ...thStyle('left', 180) }}>Descrição</th>
-              <th style={{ ...thStyle('right', 72) }}>Qtd</th>
-              <th style={{ ...thStyle('right', 84) }}>Bruto</th>
-              <th style={{ ...thStyle('right', 60) }}>Desc%</th>
-              <th style={{ ...thStyle('right', 84) }}>Líquido</th>
-              <th style={{ ...thStyle('right', 90) }}>Total Líq.</th>
-              <th style={{ ...thStyle('right', 90) }}>c/ Imp.</th>
-              {[1,2,3,4,5,6,7,8,9].map(n => (
-                <th key={n} style={{ ...thStyle('center', 54) }}>{n}º%</th>
-              ))}
-              <th style={{ ...thStyle('center', 54) }}>ADD%</th>
-              <th style={{ ...thStyle('center', 46) }}>IPI%</th>
-              <th style={{ ...thStyle('center', 46) }}>ST%</th>
+              {CONF_COLS.map(c => {
+                const canSort = c.sortable !== false;
+                return (
+                  <th key={c.key} onClick={canSort ? () => confCycle(c.key) : undefined}
+                    style={{ ...thStyle(c.align), cursor: canSort ? 'pointer' : 'default', userSelect: 'none', overflow: 'hidden' }}>
+                    {c.label}{canSort && <span style={{ opacity: confSort?.key === c.key ? 0.9 : 0.3 }}>{sortArrow(confSort, c.key)}</span>}
+                    {!c.noResize && (
+                      <span onMouseDown={(e) => confResize(c.key, e)} title="Arraste para ajustar a largura"
+                        style={{ position: 'absolute', top: 0, right: 0, height: '100%', width: 6, cursor: 'col-resize', zIndex: 3 }} />
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {orderItems.map((item, i) => {
+            {sortedConfItems.map((item, i) => {
               const catalogProd  = priceTableItems.find((p: any) => p.pro_codigo === item.ite_produto);
               const mult         = (catalogProd as any)?.pro_embalagem || 0;
               const multWarning  = mult > 0 && item.ite_quant % mult !== 0;
@@ -1054,7 +1141,7 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
                   </td>
 
                   {/* Descrição */}
-                  <td style={tdBase('left', { maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: G.text })}>
+                  <td style={tdBase('left', { maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: G.text })}>
                     {item.ite_nomeprod}
                   </td>
 
