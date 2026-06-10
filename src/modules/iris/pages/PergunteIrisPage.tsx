@@ -699,11 +699,12 @@ export default function PergunteIrisPage({ onClose }: { onClose?: () => void } =
               onKeyDown={handleKey}
               placeholder="Pergunta direto…  (Enter envia · Shift+Enter quebra linha)"
               disabled={loading}
-              rows={2}
+              rows={3}
               style={{
                 width: '100%',
-                padding: '10px 12px',
-                fontSize: 13,
+                padding: '12px 14px',
+                fontSize: 15,
+                fontWeight: 400,
                 border: '1px solid rgba(255,255,255,0.12)',
                 borderRadius: 10,
                 outline: 'none',
@@ -711,6 +712,7 @@ export default function PergunteIrisPage({ onClose }: { onClose?: () => void } =
                 color: '#F3F4F6',
                 fontFamily: 'inherit',
                 resize: 'none',
+                minHeight: 84,
                 lineHeight: 1.5,
                 transition: 'border-color 0.2s, box-shadow 0.2s',
               }}
