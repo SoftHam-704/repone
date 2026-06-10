@@ -196,7 +196,8 @@ export default function PergunteIrisPage({ onClose }: { onClose?: () => void } =
   };
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Enter = quebra de linha (padrão do textarea). Envia com Ctrl/Cmd+Enter ou no botão.
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       send();
     }
@@ -697,7 +698,7 @@ export default function PergunteIrisPage({ onClose }: { onClose?: () => void } =
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKey}
-              placeholder="Pergunta direto…  (Enter envia · Shift+Enter quebra linha)"
+              placeholder="Pergunta direto…  (Enter quebra linha · Ctrl+Enter ou botão Enviar)"
               disabled={loading}
               rows={3}
               style={{
