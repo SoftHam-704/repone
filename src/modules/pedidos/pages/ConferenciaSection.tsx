@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useGridSort, useSortedRows, useColumnWidths, sortArrow, type ColW } from '../utils/useGridSort';
 import { motion } from 'framer-motion';
-import { AlertTriangle, RefreshCw, CheckCircle, Trash2 } from 'lucide-react';
+import { AlertTriangle, RefreshCw, CheckCircle, Trash2, RotateCcw } from 'lucide-react';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 import { toast } from 'sonner';
@@ -371,7 +371,7 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
   );
   const { sort: confSort, cycle: confCycle } = useGridSort();
   const sortedConfItems = useSortedRows(orderItems, confSort, confAccessors);
-  const { widths: confWidths, startResize: confResize, autoFit: confAutoFit, measuring: confMeasuring, tableRef: confTableRef } = useColumnWidths('repone:grid:pedido-conferencia', CONF_COLS);
+  const { widths: confWidths, startResize: confResize, reset: confReset } = useColumnWidths('repone:grid:pedido-conferencia:v2', CONF_COLS);
   const autoApplied = useRef(false);
 
   // Load client discounts + group descs on mount (needed for Desc. Grupo)
@@ -1054,8 +1054,8 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
         )}
 
         <button
-          onClick={confAutoFit}
-          title="Ajustar a largura das colunas ao conteúdo"
+          onClick={confReset}
+          title="Restaurar a largura padrão das colunas"
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '7px 14px', borderRadius: 8, border: `1px solid ${G.border}`,
@@ -1065,7 +1065,7 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
           onMouseEnter={e => { e.currentTarget.style.borderColor = G.mustard; }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = G.border; }}
         >
-          <span style={{ fontSize: 14, lineHeight: 1 }}>↔</span> Auto-ajustar
+          <RotateCcw size={13} /> Restaurar larguras
         </button>
 
         <div style={{ flex: 1 }} />
@@ -1091,9 +1091,9 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
 
       {/* ── Grid ── */}
       <div ref={gridRef} style={{ flex: 1, overflowX: 'auto', overflowY: 'auto' }}>
-        <table ref={confTableRef} style={{ borderCollapse: 'collapse', fontSize: 12, width: confMeasuring ? 'auto' : 'max-content', minWidth: '100%', tableLayout: confMeasuring ? 'auto' : 'fixed' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 12, width: 'max-content', tableLayout: 'fixed' }}>
           <colgroup>
-            {CONF_COLS.map(c => <col key={c.key} style={{ width: !confMeasuring && confWidths[c.key] ? `${confWidths[c.key]}px` : undefined }} />)}
+            {CONF_COLS.map(c => <col key={c.key} style={{ width: confWidths[c.key] ? `${confWidths[c.key]}px` : undefined }} />)}
           </colgroup>
           <thead>
             <tr>
