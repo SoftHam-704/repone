@@ -14,6 +14,7 @@
 | **`ranking_clientes`** | **Top N clientes** por valor ou quantidade | `data_inicio`, `data_fim`, `por` (valor/quantidade), `limite`, `industria_id` opcional |
 | **`comparar_anos`** | **Comparativo YoY** (2 anos) em valor e quantidade | `ano_a`, `ano_b`, `agrupar_por` (mes/industria/nenhum) |
 | **`ultimo_preco_cliente`** | **Último preço** que um cliente pagou num produto + histórico | `cliente`, `produto` |
+| **`cadastrar_itens_tabela`** ✍️ | **ESCRITA** — cadastra itens na(s) tabela(s) de preço de uma indústria | `industria`, `itens[]`, `confirmar` — ver `oficio-06` (2 passos: prévia→confirma) |
 
 ## Mapa pergunta → tool
 

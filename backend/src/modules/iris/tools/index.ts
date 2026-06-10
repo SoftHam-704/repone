@@ -7,6 +7,7 @@ import { rankingClientes } from './ranking-clientes';
 import { compararAnos } from './comparar-anos';
 import { ultimoPrecoCliente } from './ultimo-preco-cliente';
 import { registrarLacuna } from './registrar-lacuna';
+import { cadastrarItensTabela } from './cadastrar-itens-tabela';
 
 export type ToolHandler = (db: any, input: any, user: any) => Promise<any>;
 
@@ -21,6 +22,7 @@ export const TOOLS_REGISTRY: Record<string, ToolHandler> = {
   comparar_anos:            compararAnos,
   ultimo_preco_cliente:     ultimoPrecoCliente,
   registrar_lacuna:         registrarLacuna,
+  cadastrar_itens_tabela:   cadastrarItensTabela,
 };
 
 // Definições JSON Schema enviadas ao modelo (Anthropic SDK tools).
@@ -152,6 +154,34 @@ export const TOOLS = [
         detalhe:  { type: 'string', description: 'Opcional: o que exatamente faltaria (ex: "tool de giro de estoque", "tela de comparar 3 indústrias no mesmo gráfico").' },
       },
       required: ['pergunta', 'motivo'],
+    },
+  },
+  {
+    name: 'cadastrar_itens_tabela',
+    description:
+      'ESCRITA — Cadastra uma relação de itens que o REP passar na(s) tabela(s) de preço de UMA indústria (cria/atualiza produto + preço). SEMPRE em 2 passos: 1) chame com confirmar=false pra ver a PRÉVIA (não grava) e MOSTRE ao REP, peça "confirma?"; 2) só depois do REP confirmar, chame com confirmar=true pra gravar. A indústria é OBRIGATÓRIA — se o REP não informou, NÃO chame a tool: pergunte qual indústria antes. Mínimo por item: código + preço. Cadastra em TODAS as tabelas da indústria automaticamente. Use o nome reduzido da indústria.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        industria: { type: 'string', description: 'Nome reduzido (ou nome) da indústria. OBRIGATÓRIO — se o REP não disse, pergunte antes de chamar.' },
+        itens: {
+          type: 'array',
+          description: 'Lista de itens a cadastrar. Mínimo por item: código e preço.',
+          items: {
+            type: 'object',
+            properties: {
+              codigo:    { type: 'string', description: 'Código do produto (obrigatório).' },
+              preco:     { type: 'number', description: 'Preço bruto (obrigatório). Aceita 45,90 ou 45.90.' },
+              descricao: { type: 'string', description: 'Opcional: nome/descrição do produto.' },
+              ipi:       { type: 'number', description: 'Opcional: IPI %.' },
+              st:        { type: 'number', description: 'Opcional: ST %.' },
+            },
+            required: ['codigo', 'preco'],
+          },
+        },
+        confirmar: { type: 'boolean', description: 'false (default) = prévia sem gravar; true = grava (só após o REP confirmar a prévia).' },
+      },
+      required: ['industria', 'itens'],
     },
   },
 ];
