@@ -2,7 +2,7 @@
 // Exibição-só: ordena uma CÓPIA das linhas; nunca muta a fonte (ite_seq, etc.).
 // Ciclo de 3 estados: asc → desc → sem ordem. Comparador pt-BR (numérico quando
 // ambos os valores parecem número "1.234,56"; senão texto; nulos por último).
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
 import type React from 'react';
 
 export type SortDir = 'asc' | 'desc';
@@ -96,5 +96,33 @@ export function useColumnWidths(storageKey: string | undefined, cols: ColW[]) {
     document.addEventListener('mouseup', up);
   }, [widths, cols]);
 
-  return { widths, startResize, setWidths };
+  // ── Auto-ajuste (fit-to-content) ──────────────────────────────────────────────
+  // Liga `measuring` → o grid renderiza com tableLayout:auto (colunas pelo conteúdo)
+  // → medimos a largura real de cada <th> (= largura da coluna, inclui o corpo) →
+  // congelamos como largura fixa. Uma passada, sem flicker (useLayoutEffect).
+  const tableRef = useRef<HTMLTableElement | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+  const autoFit = useCallback(() => setMeasuring(true), []);
+
+  useLayoutEffect(() => {
+    if (!measuring) return;
+    const table = tableRef.current;
+    if (table) {
+      const ths = Array.from(table.querySelectorAll('thead > tr > th')) as HTMLElement[];
+      if (ths.length === cols.length) {
+        const next: Record<string, number> = {};
+        cols.forEach((c, i) => {
+          const w = ths[i].getBoundingClientRect().width;
+          next[c.key] = Math.max(c.minWidth ?? 40, Math.ceil(w) + 1);
+        });
+        setWidths(next);
+      }
+    }
+    setMeasuring(false);
+  }, [measuring, cols]);
+
+  /** volta às larguras padrão definidas nas colunas. */
+  const reset = useCallback(() => setWidths(defaults), [defaults]);
+
+  return { widths, startResize, setWidths, autoFit, reset, measuring, tableRef };
 }

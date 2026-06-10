@@ -371,7 +371,7 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
   );
   const { sort: confSort, cycle: confCycle } = useGridSort();
   const sortedConfItems = useSortedRows(orderItems, confSort, confAccessors);
-  const { widths: confWidths, startResize: confResize } = useColumnWidths('repone:grid:pedido-conferencia', CONF_COLS);
+  const { widths: confWidths, startResize: confResize, autoFit: confAutoFit, measuring: confMeasuring, tableRef: confTableRef } = useColumnWidths('repone:grid:pedido-conferencia', CONF_COLS);
   const autoApplied = useRef(false);
 
   // Load client discounts + group descs on mount (needed for Desc. Grupo)
@@ -968,11 +968,13 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
     padding: '7px 6px', textAlign: align, fontSize: 9, fontWeight: 900,
     color: G.textMuted, textTransform: 'uppercase', letterSpacing: 0.5,
     background: G.cardHi, borderBottom: `2px solid ${G.border}`,
+    borderRight: `1px solid ${G.border}`,
     whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 2, minWidth: w,
   });
 
   const tdBase = (align: 'left' | 'right' | 'center' = 'left', extra: React.CSSProperties = {}): React.CSSProperties => ({
     padding: '2px 4px', textAlign: align, borderBottom: `1px solid ${G.border}40`,
+    borderRight: `1px solid ${G.border}55`,
     verticalAlign: 'middle', ...extra,
   });
 
@@ -1051,6 +1053,21 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
           </button>
         )}
 
+        <button
+          onClick={confAutoFit}
+          title="Ajustar a largura das colunas ao conteúdo"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 14px', borderRadius: 8, border: `1px solid ${G.border}`,
+            background: G.cardHi, color: G.textSec, fontSize: 12, fontWeight: 800,
+            cursor: 'pointer', letterSpacing: 0.3,
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = G.mustard; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = G.border; }}
+        >
+          <span style={{ fontSize: 14, lineHeight: 1 }}>↔</span> Auto-ajustar
+        </button>
+
         <div style={{ flex: 1 }} />
 
         {/* Summary totals */}
@@ -1074,9 +1091,9 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
 
       {/* ── Grid ── */}
       <div ref={gridRef} style={{ flex: 1, overflowX: 'auto', overflowY: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', fontSize: 12, width: 'max-content', minWidth: '100%', tableLayout: 'fixed' }}>
+        <table ref={confTableRef} style={{ borderCollapse: 'collapse', fontSize: 12, width: confMeasuring ? 'auto' : 'max-content', minWidth: '100%', tableLayout: confMeasuring ? 'auto' : 'fixed' }}>
           <colgroup>
-            {CONF_COLS.map(c => <col key={c.key} style={{ width: confWidths[c.key] ? `${confWidths[c.key]}px` : undefined }} />)}
+            {CONF_COLS.map(c => <col key={c.key} style={{ width: !confMeasuring && confWidths[c.key] ? `${confWidths[c.key]}px` : undefined }} />)}
           </colgroup>
           <thead>
             <tr>
