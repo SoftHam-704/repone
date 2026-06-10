@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { ShoppingCart, Search, Trash2, CheckCircle, AlertTriangle, RotateCcw, ChevronDown, RefreshCw } from 'lucide-react';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 import { toast } from 'sonner';
+import { resolverPrecoFinal, type Canal } from '@/shared/utils/precoResolver';
+import { useGridSort, useSortedRows, useColumnWidths, sortArrow, type ColW } from '../utils/useGridSort';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -80,6 +82,8 @@ interface Props {
   onFinalizar: () => void;
   hasSuframa?: boolean;
   usaMenorPreco?: boolean;
+  /** Canal do cliente nesta indústria (cli_ind.cli_canal). 'varejo' ignora precoEspecial. */
+  cliCanal?: Canal;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -187,7 +191,7 @@ function DiscountBadge({ source }: { source?: 'CLIENT_GROUP' | 'TABLE_GROUP' | '
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ItemsSection({ order, mode, priceTableItems, userParams, orderItems, setOrderItems, onFinalizar, hasSuframa = false, usaMenorPreco = false }: Props) {
+export function ItemsSection({ order, mode, priceTableItems, userParams, orderItems, setOrderItems, onFinalizar, hasSuframa = false, usaMenorPreco = false, cliCanal = 'varejo' }: Props) {
   const isView        = mode === 'view';
   const qtdEnter      = userParams?.qtdEnter      ?? 2;
   const usaDecimais   = userParams?.usaDecimais   ?? true;
@@ -206,6 +210,26 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
   const [productHistory,   setProductHistory]   = useState<any[]>([]);
   const [loadingHistory,   setLoadingHistory]   = useState(false);
   const [conversao,        setConversao]        = useState<string>('');
+
+  // ─── Ordenação + redimensionamento dos grids (clique no cabeçalho / arrasta borda) ───
+  type GCol = ColW & { label: string; align: 'left' | 'right'; sortable?: boolean; noResize?: boolean; acc?: (it: ItemRow) => any };
+  // índice original (pra coluna "#" reordenar de volta à sequência de digitação)
+  const origIdx = useMemo(() => new Map(orderItems.map((it, idx) => [it.tempId, idx])), [orderItems]);
+  const ITEM_COLS = useMemo<GCol[]>(() => [
+    { key: 'seq',     label: '#',        align: 'left',  width: 46,  minWidth: 36, acc: (it) => origIdx.get(it.tempId) ?? 0 },
+    { key: 'codigo',  label: 'Código',   align: 'left',  width: 130, minWidth: 70, acc: (it) => it.ite_produto },
+    { key: 'qtd',     label: 'Qtd',      align: 'left',  width: 70,  minWidth: 48, acc: (it) => Number(it.ite_quant) },
+    { key: 'puniliq', label: 'Liq.Unit', align: 'right', width: 92,  minWidth: 60, acc: (it) => Number(it.ite_puniliq) },
+    { key: 'totliq',  label: 'Tot.Líq.', align: 'right', width: 100, minWidth: 60, acc: (it) => Number(it.ite_totliquido) },
+    { key: '_acoes',  label: '',         align: 'left',  width: 36,  minWidth: 30, sortable: false, noResize: true },
+  ], [origIdx]);
+  const itemAccessors = useMemo(
+    () => Object.fromEntries(ITEM_COLS.filter(c => c.acc).map(c => [c.key, c.acc!])),
+    [ITEM_COLS],
+  );
+  const { sort: itemSort, cycle: itemCycle } = useGridSort();
+  const sortedItems = useSortedRows(orderItems, itemSort, itemAccessors);
+  const { widths: itemWidths, startResize: itemResize } = useColumnWidths('repone:grid:pedido-itens', ITEM_COLS);
 
   // Refs for focus management
   const codigoRef  = useRef<HTMLInputElement>(null);
@@ -280,9 +304,13 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
     const q = normalizeStr(catalogFilter);
     if (!q) return priceTableItems.slice(0, 200);
     return priceTableItems.filter(p => {
+      // 'C' = Código exato: casa só quando o código (ou conversão) é IGUAL ao digitado.
+      if (fmtPesquisa === 'C') {
+        return normalizeStr(p.pro_codigo) === q || normalizeStr(p.pro_conversao || '') === q;
+      }
+      // 'D' = Código + Descrição: LIKE no código/conversão OU na descrição.
       const byCode = normalizeStr(p.pro_codigo).includes(q)
         || normalizeStr(p.pro_conversao || '').includes(q);
-      if (fmtPesquisa === 'C') return byCode;
       return byCode || normalizeStr(p.pro_nome).includes(q);
     }).slice(0, 200);
   }, [catalogFilter, priceTableItems, fmtPesquisa]);
@@ -404,7 +432,8 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
     let puni: number;
 
     if (usaMenorPreco) {
-      // Política de menor preço: compara bruto líquido (com descontos), promo e especial
+      // Política de menor preço (flag for_usa_menor_preco): compara bruto líquido,
+      // promo e — só pra distribuidor — especial. Varejo nunca compara contra especial.
       let netBruto = product.preco_bruto;
       [discs.des1, discs.des2, discs.des3, discs.des4, discs.des5,
        discs.des6, discs.des7, discs.des8, discs.des9]
@@ -414,7 +443,8 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
         { net: netBruto, raw: product.preco_bruto, isPromo: false },
       ];
       if ((product.preco_promo    || 0) > 0) candidates.push({ net: product.preco_promo,    raw: product.preco_promo,    isPromo: true });
-      if ((product.preco_especial || 0) > 0) candidates.push({ net: product.preco_especial, raw: product.preco_especial, isPromo: true });
+      if (cliCanal === 'distribuidor' && (product.preco_especial || 0) > 0)
+        candidates.push({ net: product.preco_especial, raw: product.preco_especial, isPromo: true });
 
       const best = candidates.reduce((a, b) => a.net <= b.net ? a : b);
       puni = best.raw;
@@ -425,11 +455,25 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
         discs.des6 = discs.des7 = discs.des8 = discs.des9 = 0;
       }
     } else {
-      // Padrão: promo > especial > peso > bruto
-      puni = product.preco_bruto;
-      if (product.preco_peso > 0 && product.pro_peso > 0) puni = product.preco_peso;
-      if (product.preco_especial > 0) puni = product.preco_especial;
-      if (product.preco_promo > 0) puni = product.preco_promo;
+      // Padrão: helper canônico resolve base por canal (skill preco-canal).
+      // Descontos `discs.*` continuam sendo aplicados depois no recalc — por isso
+      // passamos `descontos: []` aqui, só queremos a base correta.
+      const r = resolverPrecoFinal(
+        {
+          precoBruto:    product.preco_bruto,
+          precoPromo:    product.preco_promo,
+          precoEspecial: product.preco_especial,
+          precoPeso:     product.preco_peso,
+          pesoProduto:   product.pro_peso,
+        },
+        { canal: cliCanal, descontos: [] },
+      );
+      puni = r.precoBase;
+      if (r.isPromo) {
+        // Promo é líquido absoluto — zera cascata pra recalc não duplo-aplicar
+        discs.des1 = discs.des2 = discs.des3 = discs.des4 = discs.des5 = 0;
+        discs.des6 = discs.des7 = discs.des8 = discs.des9 = 0;
+      }
     }
 
     const mult = product.pro_embalagem > 0 ? product.pro_embalagem : 1;
@@ -461,8 +505,9 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
     setCatalogFilter('');
     setSelectedCatIdx(-1);
 
-    // Level 1: auto-save
+    // Level 1: auto-save — aplica a regra canônica de duplicação
     if (qtdEnter === 1) {
+      if (checkDuplicateAndMaybeAbort(filled)) return;
       doSaveItem(filled);
       return;
     }
@@ -473,9 +518,26 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
     }, 30);
   }
 
+  // ── Validação canônica de duplicidade — ÚNICA fonte da verdade.
+  // Retorna true se a operação deve ABORTAR (modal aberto pra decisão).
+  // Chamada em 3 pontos: nível 1 auto-save, Enter no embuch, e handleSaveItem.
+  // SEMPRE abre o modal pra perguntar; "Novo Item" só fica visível quando itemDuplicado=true.
+  function checkDuplicateAndMaybeAbort(currentForm: typeof form): boolean {
+    if (currentForm.editingTempId) return false;
+    const codigo = (currentForm.produto || '').toUpperCase();
+    if (!codigo) return false;
+    const dup = orderItems.find(it => it.ite_produto === codigo);
+    if (!dup) return false;
+    const quant = parseFloat((currentForm.quant || '0').replace(',', '.')) || 0;
+    setDupDialog({ item: dup, newQuant: quant > 0 ? quant : 1 });
+    return true;
+  }
+
   // ── Focus sequence after Enter in each field ─────────────────────────────────
   function focusAfter(field: string) {
     if (field === 'embuch') {
+      // Checa duplicado ANTES de avançar — evita o rep digitar quantidade à toa
+      if (checkDuplicateAndMaybeAbort(form)) return;
       if (qtdEnter >= 3) { desRefs.current[0]?.focus(); return; }
       quantRef.current?.focus();
     } else if (field.startsWith('des')) {
@@ -559,14 +621,14 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
       return;
     }
 
-    // Check duplicate
-    if (!form.editingTempId && !itemDuplicado) {
-      const dup = orderItems.find(it => it.ite_produto === form.produto.toUpperCase());
-      if (dup) {
-        setDupDialog({ item: dup, newQuant: quant });
-        return;
-      }
-    }
+    // Regra de duplicação canônica (validada com Hamilton em 2026-05-22):
+    //   par_itemduplicado='N' (não permite) → bloqueia totalmente.
+    //   par_itemduplicado='S' (permite via embuch) → abre modal pra decidir
+    //     entre SOMAR à linha existente ou criar NOVA linha (com seq nova).
+    //   Importações em lote (smart-importer, XLS, Magic Load) NÃO passam por aqui
+    //     — sobrescrevem com a última quantidade encontrada no arquivo.
+    // Checagem disparada em 3 pontos: nível 1 auto-save, Enter em embuch, e aqui.
+    if (checkDuplicateAndMaybeAbort(form)) return;
 
     doSaveItem(form);
   }
@@ -574,6 +636,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
   function handleSumDuplicate() {
     if (!dupDialog) return;
     const { item, newQuant } = dupDialog;
+    if (!(newQuant > 0)) { toast.error('Informe uma quantidade maior que zero.'); return; }
     const totalQuant = item.ite_quant + newQuant;
     const calc = calculateItem(
       item.ite_puni, totalQuant,
@@ -747,8 +810,8 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={labelStyle}>Conversão</span>
             <span style={{
-              fontSize: 11, fontWeight: 700, color: G.mustard,
-              background: `${G.mustard}18`, border: `1px solid ${G.mustard}44`,
+              fontSize: 11, fontWeight: 700, color: G.text,
+              background: G.cardHi, border: `1px solid ${G.border}`,
               borderRadius: 6, padding: '2px 8px', letterSpacing: 0.3,
             }}>
               {conversao}
@@ -871,16 +934,30 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
           Nenhum item digitado.
         </div>
       ) : (
-        <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+        <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          <colgroup>
+            {ITEM_COLS.map(c => <col key={c.key} style={{ width: itemWidths[c.key] ? `${itemWidths[c.key]}px` : undefined }} />)}
+          </colgroup>
           <thead>
             <tr style={{ background: G.cardHi }}>
-              {['#', 'Código', 'Qtd', 'Liq.Unit', 'Tot.Líq.', ''].map(h => (
-                <th key={h} style={{ padding: '6px 8px', textAlign: h === 'Liq.Unit' || h === 'Tot.Líq.' ? 'right' : 'left', fontSize: 9, fontWeight: 900, color: G.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: `1px solid ${G.border}` }}>{h}</th>
-              ))}
+              {ITEM_COLS.map(c => {
+                const canSort = c.sortable !== false && !!c.label;
+                return (
+                  <th key={c.key}
+                    onClick={canSort ? () => itemCycle(c.key) : undefined}
+                    style={{ padding: '6px 8px', textAlign: c.align, fontSize: 9, fontWeight: 900, color: G.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: `1px solid ${G.border}`, position: 'relative', cursor: canSort ? 'pointer' : 'default', userSelect: 'none', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                    {c.label}{canSort && <span style={{ opacity: itemSort?.key === c.key ? 0.9 : 0.3 }}>{sortArrow(itemSort, c.key)}</span>}
+                    {!c.noResize && (
+                      <span onMouseDown={(e) => itemResize(c.key, e)} title="Arraste para ajustar a largura"
+                        style={{ position: 'absolute', top: 0, right: 0, height: '100%', width: 7, cursor: 'col-resize', zIndex: 2 }} />
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {orderItems.map((item, i) => {
+            {sortedItems.map((item, i) => {
               const isEditing = form.editingTempId === item.tempId;
               return (
                 <motion.tr
@@ -895,7 +972,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
                   }}
                 >
                   <td style={{ padding: '5px 8px', fontFamily: 'monospace', color: G.textMuted }}>{String(i + 1).padStart(3, '0')}</td>
-                  <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontWeight: 900, color: G.textSec }}>
+                  <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontWeight: 900, color: G.textSec, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.ite_produto}
                     {item.ite_embuch && <span style={{ color: G.textMuted, fontWeight: 400 }}> /{item.ite_embuch}</span>}
                   </td>
@@ -1164,7 +1241,13 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}
           style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }}
-          onClick={() => setDupDialog(null)}
+          onClick={() => {
+            // Cancelar via overlay — reseta form pra liberar EnterAsTab
+            setDupDialog(null);
+            setForm(emptyForm());
+            setConversao('');
+            setTimeout(() => codigoRef.current?.focus(), 30);
+          }}
         >
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
@@ -1173,26 +1256,60 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
           >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
                 <AlertTriangle size={20} style={{ color: G.mustard }} />
-                <span style={{ fontWeight: 900, fontSize: 15, color: G.text }}>Produto Duplicado</span>
+                <span style={{ fontWeight: 900, fontSize: 15, color: G.text }}>Produto já lançado</span>
               </div>
               <p style={{ fontSize: 13, color: G.textSec, marginBottom: 8 }}>
                 O produto <strong>{dupDialog.item.ite_produto}</strong> já está na lista com quantidade <strong>{fmtQuant(dupDialog.item.ite_quant)}</strong>.
               </p>
+              <div style={{ marginBottom: 14 }}>
+                <span style={labelStyle}>Aumentar em quanto?</span>
+                <input
+                  type="text"
+                  autoFocus
+                  value={usaDecimais
+                    ? dupDialog.newQuant.toFixed(qtdDecimais).replace('.', ',')
+                    : String(Math.trunc(dupDialog.newQuant))}
+                  onChange={e => {
+                    const v = parseFloat(e.target.value.replace(',', '.')) || 0;
+                    setDupDialog(prev => prev ? { ...prev, newQuant: v } : prev);
+                  }}
+                  onFocus={e => e.currentTarget.select()}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); handleSumDuplicate(); }
+                    else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setDupDialog(null);
+                      setForm(emptyForm());
+                      setConversao('');
+                      setTimeout(() => codigoRef.current?.focus(), 30);
+                    }
+                  }}
+                  style={{ ...einp, textAlign: 'right', fontFamily: 'monospace', fontWeight: 900, fontSize: 15 }}
+                />
+              </div>
               <p style={{ fontSize: 13, color: G.textSec, marginBottom: 20 }}>
-                Deseja <strong>somar</strong> mais <strong>{fmtQuant(dupDialog.newQuant)}</strong> (total: <strong>{fmtQuant(dupDialog.item.ite_quant + dupDialog.newQuant)}</strong>)?
+                Total ficará <strong>{fmtQuant(dupDialog.item.ite_quant + (dupDialog.newQuant || 0))}</strong>.
               </p>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => setDupDialog(null)}
+                <button onClick={() => {
+                  // Cancelar — reseta form pra liberar EnterAsTab
+                  setDupDialog(null);
+                  setForm(emptyForm());
+                  setConversao('');
+                  setTimeout(() => codigoRef.current?.focus(), 30);
+                }}
                   style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1px solid ${G.border}`, background: G.cardHi, color: G.textMuted, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                   Cancelar
                 </button>
-                <button onClick={() => { doSaveItem({ ...form }); setDupDialog(null); }}
-                  style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: G.textSec, color: '#fff', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
-                  Novo Item
-                </button>
+                {itemDuplicado && (
+                  <button onClick={() => { doSaveItem({ ...form }); setDupDialog(null); }}
+                    style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: G.textSec, color: '#fff', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
+                    Novo Item
+                  </button>
+                )}
                 <button onClick={handleSumDuplicate}
                   style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: G.mustard, color: G.text, fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
-                  Somar
+                  Sim, aumentar
                 </button>
               </div>
             </motion.div>
