@@ -2634,6 +2634,9 @@ const RemapReport = ({ order, items, repInfo, industryLogo }) => {
     const totBruto = parseFloat(order.ped_totbruto) || 0;
     const totLiq = parseFloat(order.ped_totliq) || 0;
     const totImp = totLiq + (parseFloat(order.ped_totalipi) || 0) + items?.reduce((s, it) => s + (parseFloat(it.ite_st) || 0), 0);
+    // Desconto EFETIVO do pedido (bruto → líquido), mesmo cálculo do card "Dados do Pedido".
+    const descEfetivoPct = totBruto > 0 ? ((totBruto - totLiq) / totBruto) * 100 : 0;
+    const descEfetivoLabel = `${descEfetivoPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
     const enderecoCompleto = [order.cli_endereco, order.cli_numero].filter(Boolean).join(' ');
     const cidadeUf = [order.cli_cidade, order.cli_uf].filter(Boolean).join(' / ');
 
@@ -2713,7 +2716,7 @@ const RemapReport = ({ order, items, repInfo, industryLogo }) => {
                 </View>
 
                 <View style={remapStyles.boxRow}>
-                    <RemapBox label="Desconto" value={remapNum(order.ped_descadic || 0)} flex={1} valueStyle={{ fontFamily: 'Courier' }} />
+                    <RemapBox label="Desconto" value={descEfetivoLabel} flex={1} valueStyle={{ fontFamily: 'Courier' }} />
                     <RemapBox label="Prazos" value={order.ped_condpag || ''} flex={3} />
                 </View>
             </View>
