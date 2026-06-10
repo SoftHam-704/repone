@@ -495,8 +495,16 @@ export default function PergunteIrisPage({ onClose }: { onClose?: () => void } =
           </div>
 
           {/* Área de chat — transparente, sobre o ambiente escuro */}
+          <style>{`
+            .iris-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.12) transparent; }
+            .iris-scroll::-webkit-scrollbar { width: 8px; }
+            .iris-scroll::-webkit-scrollbar-track { background: transparent; }
+            .iris-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.07); border-radius: 4px; }
+            .iris-scroll:hover::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); }
+          `}</style>
           <div
             ref={scrollRef}
+            className="iris-scroll"
             style={{
               flex: 1, overflowY: 'auto', minHeight: 0,
               background: 'transparent',
