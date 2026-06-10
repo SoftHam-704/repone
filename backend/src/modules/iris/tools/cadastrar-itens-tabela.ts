@@ -97,6 +97,15 @@ export async function cadastrarItensTabela(db: any, input: any, _user: any) {
 
   // ── PRÉVIA (não grava) ──────────────────────────────────────────────────────
   if (!confirmar) {
+    // Resumo claro de "criar do zero" × "já existe (preço será substituído)".
+    let resumo: string;
+    if (atualiza === 0) {
+      resumo = `Todos ${novos === 1 ? 'é produto novo' : `os ${novos} são produtos novos`} — vou criar do zero (nenhum já existia na ${industria.for_nomered}, então nenhum preço atual será sobrescrito).`;
+    } else if (novos === 0) {
+      resumo = `${atualiza === 1 ? 'O item já existe' : `Os ${atualiza} já existem`} na ${industria.for_nomered} — vou **atualizar o preço** ${atualiza === 1 ? 'dele' : 'deles'} pro novo valor.`;
+    } else {
+      resumo = `${novos} ${novos === 1 ? 'é novo (criar do zero)' : 'são novos (criar do zero)'} e ${atualiza} já ${atualiza === 1 ? 'existe — vou atualizar o preço dele' : 'existem — vou atualizar o preço deles'}.`;
+    }
     return {
       previa: true,
       industria: industria.for_nomered,
@@ -109,7 +118,7 @@ export async function cadastrarItensTabela(db: any, input: any, _user: any) {
       mensagem:
         `Vou cadastrar ${itens.length} ${itens.length === 1 ? 'item' : 'itens'} na **${industria.for_nomered}**, ` +
         `em ${tabelas.length} ${tabelas.length === 1 ? 'tabela' : 'tabelas'} (${tabelas.join(', ')}). ` +
-        `${novos} ${novos === 1 ? 'novo' : 'novos'}, ${atualiza} ${atualiza === 1 ? 'atualiza' : 'atualizam'} o preço.` +
+        resumo +
         (semDescricao.length ? ` ${semDescricao.length} novo(s) sem descrição (uso o código como nome até você completar).` : '') +
         (semPreco.length ? ` ⚠ ${semPreco.length} sem preço — esses NÃO serão cadastrados.` : '') +
         ` Confirma?`,
