@@ -24,7 +24,9 @@ A inteligência artificial deixou de ser assunto de notícia de tecnologia. Ela 
 
 ## O que isso tem a ver com você?
 
-Nós ativamos no SalesMasters uma assistente de inteligência artificial chamada **IRIS** — construída sobre a tecnologia da **Anthropic**, reconhecida mundialmente como referência em IA responsável e de alta performance.
+Nós criamos a **IRIS** — a inteligência artificial **da SoftHam**. Ela é construída sobre a tecnologia da **Anthropic** (reconhecida mundialmente como referência em IA responsável e de alta performance), mas tem algo que nenhum assistente genérico do mercado tem: **a IRIS foi treinada no ofício da representação comercial de autopeças.**
+
+Ela não responde "no geral". Ela entende positivação, giro, campanha de indústria, sell-out, o código da peça e o jeito que **você** vende. É inteligência de ponta falando a **sua** língua — a do balcão, da rua e da carteira.
 
 E aqui está o ponto que muda tudo: **a IRIS não é uma promessa para o futuro. Ela já está trabalhando hoje, dentro do sistema, do seu lado.**
 
@@ -61,13 +63,15 @@ A IRIS está sendo treinada para ir muito além — e cada novo recurso entra se
 - O **mix ideal na hora do pedido**: produtos que clientes parecidos compram e o seu ainda não experimentou — mais itens por pedido, mais comissão, sem forçar a barra.
 - A **narrativa do seu mês**: o painel de BI contando, em texto claro, onde você cresceu, onde perdeu espaço e onde está a oportunidade do próximo mês.
 
+E o destino dela é claro: **em breve, a IRIS será uma funcionária obediente — capaz de agir, falar e pensar dentro da sua operação.** Vai inserir o pedido, responder o lojista no WhatsApp, baixar a comissão, importar a tabela. Você manda, ela executa. Sem reclamar, sem férias, sem esquecer nada.
+
 Você está entrando agora, na fundação — e cresce junto com ela.
 
 ---
 
 ## R$ 75,00 por mês. Coloca na balança.
 
-Um jantar fora custa isso. Uma revisão do carro ultrapassa fácil. Dois tanques de combustível em visitas que poderiam ter sido evitadas com melhor planejamento somam mais do que isso.
+Dois tanques de combustível gastos em visitas que poderiam ter sido evitadas com melhor planejamento já somam mais do que isso.
 
 Agora coloca do outro lado da balança:
 
