@@ -2826,14 +2826,16 @@ const r2 = StyleSheet.create({
     itHead: { flexDirection: 'row', backgroundColor: NAVY, borderRadius: 4, paddingVertical: 5, paddingHorizontal: 6, marginBottom: 2 },
     itHeadTxt: { color: '#FFFFFF', fontSize: 6.5, fontWeight: 'bold', textTransform: 'uppercase' },
     itRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4, paddingHorizontal: 6, borderBottomWidth: 0.5, borderBottomColor: '#E2E8F0' },
+    // Larguras somam 100%. Numéricos dimensionados pro pior caso 99.999,00 (9 chars),
+    // empurrados à direita com folga; código tem prioridade (nunca quebra) — descrição cede.
     cSeq: { width: '5%', fontSize: 7, color: INK, fontWeight: 'medium' },
-    cCod: { width: '8%', fontSize: 8, color: INK, fontWeight: 'medium' },
-    cDesc: { width: '32%', paddingRight: 4 },
-    cQtd: { width: '7%', alignItems: 'center' },
-    cUni: { width: '10%', textAlign: 'right', paddingRight: 12, color: INK, fontWeight: 'medium' },
-    cImp: { width: '6.5%', textAlign: 'center', color: INK, fontWeight: 'medium' },
-    cUniImp: { width: '12%', textAlign: 'right', color: INK, fontWeight: 'medium' },
-    cTot: { width: '13%', textAlign: 'right', color: INK, fontWeight: 'medium' },
+    cCod: { width: '11%', fontSize: 8, color: INK, fontWeight: 'medium' },
+    cDesc: { width: '29.5%', paddingRight: 6 },
+    cQtd: { width: '6%', alignItems: 'center' },
+    cUni: { width: '12%', textAlign: 'right', paddingRight: 8, color: INK, fontWeight: 'medium' },
+    cImp: { width: '6%', textAlign: 'center', color: INK, fontWeight: 'medium' },
+    cUniImp: { width: '12.5%', textAlign: 'right', paddingLeft: 8, paddingRight: 8, color: INK, fontWeight: 'medium' },
+    cTot: { width: '12%', textAlign: 'right', color: INK, fontWeight: 'medium' },
     descTxt: { fontSize: 8.5, color: INK, fontWeight: 'medium' },
     qtyCircle: { backgroundColor: '#DBEAFE', borderRadius: 4, minWidth: 22, height: 16, paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center' },
     qtyTxt: { color: INK, fontSize: 8, fontWeight: 'medium', textAlign: 'center', lineHeight: 1 },
@@ -2955,12 +2957,16 @@ const RemapReport2 = ({ order, items, repInfo, logo, industryLogo }) => {
                 const st = parseFloat(it.ite_st) || 0;
                 // Preço UNITÁRIO com impostos: líquido unit × (1+IPI%) × (1+ST%)
                 const unitComImp = (parseFloat(it.ite_puniliq || it.ite_puni) || 0) * (1 + ipi / 100) * (1 + st / 100);
+                // Código inteiro; fonte encolhe só quando for longo demais pra caber na coluna (1 linha).
+                const cod = String(it.ite_produto || '');
+                const codFont = cod.length > 16 ? 5.5 : cod.length > 12 ? 6.8 : 8;
                 return (
                     <View key={idx} style={r2.itRow} wrap={false}>
                         <Text style={r2.cSeq}>{String(it.ite_seq || idx + 1).padStart(3, '0')}</Text>
-                        <Text style={r2.cCod}>{remapTrunc(it.ite_produto, 10)}</Text>
+                        {/* Código tem PRIORIDADE: sai inteiro, nunca quebra. Se for muito longo, a fonte encolhe pra caber numa linha. */}
+                        <Text style={[r2.cCod, codFont < 8 ? { fontSize: codFont } : null]}>{cod}</Text>
                         <View style={r2.cDesc}>
-                            <Text style={r2.descTxt}>{remapTrunc(it.ite_nomeprod, 40)}</Text>
+                            <Text style={r2.descTxt}>{remapTrunc(it.ite_nomeprod, 32)}</Text>
                         </View>
                         <View style={r2.cQtd}><View style={r2.qtyCircle}><Text style={r2.qtyTxt}>{remapInt(it.ite_quant)}</Text></View></View>
                         <Text style={r2.cUni}>{remapNum(it.ite_puniliq || it.ite_puni)}</Text>
