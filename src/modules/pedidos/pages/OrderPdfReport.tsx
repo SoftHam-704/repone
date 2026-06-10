@@ -56,6 +56,24 @@ const getItemDiscountString = (it) => {
 
 const num = (v) => parseFloat(v) || 0;
 
+// Cascata de desconto COMPACTA, como o REP digita no pedido: "10+10+10+3+2%"
+// (sem o ",00" redundante; mantém decimais reais tipo 3,5). NÃO é o desconto acoplado.
+const fmtPctShort = (v) => {
+    const n = parseFloat(v) || 0;
+    if (Number.isInteger(n)) return String(n);
+    return n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '').replace('.', ',');
+};
+const compactCascade = (it) => {
+    if (!it) return '';
+    const parts = [];
+    for (let i = 1; i <= 15; i++) {
+        const v = parseFloat(it[`ite_des${i}`]);
+        if (num(v) > 0) parts.push(fmtPctShort(v));
+    }
+    if (parseFloat(it.ite_descadic) > 0) parts.push(fmtPctShort(it.ite_descadic));
+    return parts.length ? parts.join('+') + '%' : '';
+};
+
 // Complemento do item: conversão (ite_embuch) ou código original — mas o original SÓ entra
 // quando difere do código do produto (senão repetiria o código na coluna de complemento).
 const getComplemento = (it) => {
@@ -2851,6 +2869,13 @@ const r2 = StyleSheet.create({
     legal: { fontSize: 6.5, color: INK, fontWeight: 'medium', marginTop: 14, lineHeight: 1.4 },
     sigLine: { marginTop: 36, borderTopWidth: 0.5, borderTopColor: '#94A3B8', width: 220, alignSelf: 'flex-end' },
     sigTxt: { fontSize: 7, color: INK, fontWeight: 'medium', textAlign: 'right' },
+    // Agrupamento por desconto (cascata) — cabeçalho do grupo + subtotal, padrão dos outros formatos.
+    grpHead: { flexDirection: 'row', backgroundColor: '#EFF4FE', borderLeftWidth: 2, borderLeftColor: BLUE, paddingVertical: 3, paddingHorizontal: 6, marginTop: 5, marginBottom: 2 },
+    grpHeadTxt: { fontSize: 7, color: INK, fontWeight: 'medium', textTransform: 'uppercase', letterSpacing: 0.5 },
+    grpHeadVal: { fontSize: 8, color: BLUE, fontWeight: 'bold' },
+    grpSub: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', paddingVertical: 3, paddingHorizontal: 6, borderTopWidth: 0.5, borderTopColor: '#CBD5E1', marginBottom: 2, gap: 10 },
+    grpSubLbl: { fontSize: 7, color: '#475569', fontWeight: 'medium', textTransform: 'uppercase', letterSpacing: 0.5 },
+    grpSubVal: { fontSize: 9, color: INK, fontWeight: 'bold' },
 });
 
 const F2 = ({ label, value, w }) => (
@@ -2866,9 +2891,14 @@ const RemapReport2 = ({ order, items, repInfo, logo, industryLogo }) => {
     // c/impostos CORRETO: soma valor-com-ipi-e-st por item (= s/impostos quando não há imposto).
     const totComImp = (items?.reduce((s, it) => s + (parseFloat(it.ite_valcomst) || parseFloat(it.ite_totliquido) || 0), 0)) || totLiq;
     const totPecas = items?.reduce((s, it) => s + (parseFloat(it.ite_quant) || 0), 0) || 0;
-    // Desconto EFETIVO do pedido (bruto → líquido), mesmo cálculo do card "Dados do Pedido".
-    const descEfetivoPct = totBruto > 0 ? ((totBruto - totLiq) / totBruto) * 100 : 0;
-    const descEfetivoLabel = `${descEfetivoPct.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+    // Agrupa por desconto (cascata digitada), padrão dos outros formatos.
+    const grouped = groupItemsByDiscount(items, 'N');
+    const discKeys = Object.keys(grouped);
+    // Card "Desconto" do topo: a cascata como o REP DIGITOU (não o % acoplado).
+    // Se houver mais de uma cascata no pedido, manda olhar os grupos.
+    const descontoCardLabel = discKeys.length <= 1
+        ? (compactCascade((Object.values(grouped)[0] || [])[0]) || 'Sem desconto')
+        : 'Vários — ver grupos';
     const frete = order.ped_tipofrete === 'C' ? 'CIF' : order.ped_tipofrete === 'F' ? 'FOB' : (order.ped_tipofrete || '—');
     const ender = [order.cli_endereco, order.cli_numero].filter(Boolean).join(', ');
     const cidadeUf = [order.cli_cidade, order.cli_uf].filter(Boolean).join(' / ');
@@ -2901,7 +2931,7 @@ const RemapReport2 = ({ order, items, repInfo, logo, industryLogo }) => {
                 <View style={[r2.card, r2.cardAccent]}><Text style={r2.cardLabel}>Data do Pedido</Text><Text style={r2.cardValue}>{formatDate(order.ped_data)}</Text></View>
                 <View style={r2.card}><Text style={r2.cardLabel}>Código Cliente</Text><Text style={r2.cardValue}>{order.ped_cliente}</Text></View>
                 <View style={r2.card}><Text style={r2.cardLabel}>Prazo (dias)</Text><Text style={r2.cardValue}>{order.ped_condpag || '—'}</Text></View>
-                <View style={r2.card}><Text style={r2.cardLabel}>Desconto</Text><Text style={r2.cardValue}>{descEfetivoLabel}</Text></View>
+                <View style={r2.card}><Text style={r2.cardLabel}>Desconto</Text><Text style={[r2.cardValue, descontoCardLabel.length > 13 ? { fontSize: 7 } : null]}>{descontoCardLabel}</Text></View>
                 <View style={r2.card}><Text style={r2.cardLabel}>Ordem de Compra</Text><Text style={r2.cardValue}>{order.ped_oc || '—'}</Text></View>
             </View>
 
@@ -2952,31 +2982,53 @@ const RemapReport2 = ({ order, items, repInfo, logo, industryLogo }) => {
                 <Text style={[r2.cUniImp, r2.itHeadTxt]}>Pr. c/Imp.</Text>
                 <Text style={[r2.cTot, r2.itHeadTxt]}>Total</Text>
             </View>
-            {items?.map((it, idx) => {
-                const ipi = parseFloat(it.ite_ipi) || 0;
-                const st = parseFloat(it.ite_st) || 0;
-                // Preço UNITÁRIO com impostos: líquido unit × (1+IPI%) × (1+ST%)
-                const unitComImp = (parseFloat(it.ite_puniliq || it.ite_puni) || 0) * (1 + ipi / 100) * (1 + st / 100);
-                // Código inteiro; fonte encolhe só quando for longo demais pra caber na coluna (1 linha).
-                const cod = String(it.ite_produto || '');
-                const codFont = cod.length > 16 ? 5.5 : cod.length > 12 ? 6.8 : 8;
-                return (
-                    <View key={idx} style={r2.itRow} wrap={false}>
-                        <Text style={r2.cSeq}>{String(it.ite_seq || idx + 1).padStart(3, '0')}</Text>
-                        {/* Código tem PRIORIDADE: sai inteiro, nunca quebra. Se for muito longo, a fonte encolhe pra caber numa linha. */}
-                        <Text style={[r2.cCod, codFont < 8 ? { fontSize: codFont } : null]}>{cod}</Text>
-                        <View style={r2.cDesc}>
-                            <Text style={r2.descTxt}>{remapTrunc(it.ite_nomeprod, 32)}</Text>
+            {(() => {
+                let gSeq = 0;
+                return Object.entries(grouped).flatMap(([_key, groupItems], gi) => {
+                    const cascata = compactCascade(groupItems[0]);
+                    const grpLiq = groupItems.reduce((a, it) => a + (parseFloat(it.ite_totliquido) || 0), 0);
+                    // Cabeçalho do grupo: a cascata como o REP DIGITOU (não o % acoplado).
+                    const header = (
+                        <View key={`gh-${gi}`} style={r2.grpHead} wrap={false} minPresenceAhead={30}>
+                            <Text style={r2.grpHeadTxt}>Desconto: <Text style={r2.grpHeadVal}>{cascata || 'sem desconto (preço de tabela)'}</Text></Text>
                         </View>
-                        <View style={r2.cQtd}><View style={r2.qtyCircle}><Text style={r2.qtyTxt}>{remapInt(it.ite_quant)}</Text></View></View>
-                        <Text style={r2.cUni}>{remapNum(it.ite_puniliq || it.ite_puni)}</Text>
-                        <Text style={r2.cImp}>{ipi > 0 ? remapNum(ipi) : '–'}</Text>
-                        <Text style={r2.cImp}>{st > 0 ? remapNum(st) : '–'}</Text>
-                        <Text style={r2.cUniImp}>{remapNum(unitComImp)}</Text>
-                        <Text style={r2.cTot}>{remapNum(it.ite_totliquido)}</Text>
-                    </View>
-                );
-            })}
+                    );
+                    const rows = groupItems.map((it, idx) => {
+                        gSeq++;
+                        const ipi = parseFloat(it.ite_ipi) || 0;
+                        const st = parseFloat(it.ite_st) || 0;
+                        // Preço UNITÁRIO com impostos: líquido unit × (1+IPI%) × (1+ST%)
+                        const unitComImp = (parseFloat(it.ite_puniliq || it.ite_puni) || 0) * (1 + ipi / 100) * (1 + st / 100);
+                        // Código inteiro; fonte encolhe só quando for longo demais pra caber na coluna (1 linha).
+                        const cod = String(it.ite_produto || '');
+                        const codFont = cod.length > 16 ? 5.5 : cod.length > 12 ? 6.8 : 8;
+                        return (
+                            <View key={`r-${gi}-${idx}`} style={r2.itRow} wrap={false}>
+                                <Text style={r2.cSeq}>{String(it.ite_seq || gSeq).padStart(3, '0')}</Text>
+                                {/* Código tem PRIORIDADE: sai inteiro, nunca quebra. Se for muito longo, a fonte encolhe pra caber numa linha. */}
+                                <Text style={[r2.cCod, codFont < 8 ? { fontSize: codFont } : null]}>{cod}</Text>
+                                <View style={r2.cDesc}>
+                                    <Text style={r2.descTxt}>{remapTrunc(it.ite_nomeprod, 32)}</Text>
+                                </View>
+                                <View style={r2.cQtd}><View style={r2.qtyCircle}><Text style={r2.qtyTxt}>{remapInt(it.ite_quant)}</Text></View></View>
+                                <Text style={r2.cUni}>{remapNum(it.ite_puniliq || it.ite_puni)}</Text>
+                                <Text style={r2.cImp}>{ipi > 0 ? remapNum(ipi) : '–'}</Text>
+                                <Text style={r2.cImp}>{st > 0 ? remapNum(st) : '–'}</Text>
+                                <Text style={r2.cUniImp}>{remapNum(unitComImp)}</Text>
+                                <Text style={r2.cTot}>{remapNum(it.ite_totliquido)}</Text>
+                            </View>
+                        );
+                    });
+                    // Subtotal do grupo (total líquido do grupo).
+                    const subtotal = (
+                        <View key={`st-${gi}`} style={r2.grpSub} wrap={false}>
+                            <Text style={r2.grpSubLbl}>Subtotal{cascata ? ` · ${cascata}` : ''}</Text>
+                            <Text style={r2.grpSubVal}>R$ {remapNum(grpLiq)}</Text>
+                        </View>
+                    );
+                    return [header, ...rows, subtotal];
+                });
+            })()}
 
             {/* Totais */}
             <View style={r2.sumRow} wrap={false}>
