@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { useGridSort, useSortedRows, useColumnWidths, sortArrow, type ColW } from '../utils/useGridSort';
+import { useGridSort, useSortedRows, sortArrow } from '../utils/useGridSort';
 import { motion } from 'framer-motion';
-import { AlertTriangle, RefreshCw, CheckCircle, Trash2, RotateCcw } from 'lucide-react';
+import { AlertTriangle, RefreshCw, CheckCircle, Trash2 } from 'lucide-react';
 import { G } from '@/shared/components/layout/CadastroShell';
 import { api } from '@/shared/lib/api';
 import { toast } from 'sonner';
@@ -342,30 +342,28 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
   const [showAdd,        setShowAdd]        = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
 
-  // ─── Ordenação (clique no cabeçalho) + redimensionamento (arrasta a borda) ───
-  type CCol = ColW & { label: string; align: 'left' | 'right' | 'center'; sortable?: boolean; noResize?: boolean; acc?: (it: ItemRow) => any };
+  // ─── Ordenação por clique no cabeçalho (larguras originais das colunas) ───
+  type CCol = { key: string; label: string; align: 'left' | 'right' | 'center'; width?: number; sortable?: boolean; acc?: (it: ItemRow) => any };
   const cOrigIdx = useMemo(() => new Map(orderItems.map((it, idx) => [it.tempId, idx])), [orderItems]);
   const descPctOf = (it: ItemRow) => (Number(it.ite_puni) > 0 ? (1 - Number(it.ite_puniliq) / Number(it.ite_puni)) * 100 : 0);
-  // Larguras default espelham o grid "Resumo dos Itens" do principal (PedidoModal/ItemsTable):
-  // SEQ 44 · CÓDIGO 88 · COMPLEM 76 · DESCRIÇÃO 200 (flexível) · QUANT 60 · valores ~96 · %s 46 · IPI 50.
   const CONF_COLS = useMemo<CCol[]>(() => [
-    { key: 'seq',     label: '#',           align: 'center', width: 44,  minWidth: 36, acc: (it) => cOrigIdx.get(it.tempId) ?? 0 },
-    { key: 'codigo',  label: 'Código',      align: 'left',   width: 88,  minWidth: 64, acc: (it) => it.ite_produto },
-    { key: 'compl',   label: 'Complemento', align: 'left',   width: 76,  minWidth: 60, acc: (it) => it.ite_embuch || '' },
-    { key: 'descr',   label: 'Descrição',   align: 'left',   width: 200, minWidth: 120, noResize: true, acc: (it) => it.ite_nomeprod || '' },
-    { key: 'qtd',     label: 'Qtd',         align: 'right',  width: 60,  minWidth: 52, acc: (it) => Number(it.ite_quant) },
-    { key: 'bruto',   label: 'Bruto',       align: 'right',  width: 96,  minWidth: 60, acc: (it) => Number(it.ite_puni) },
-    { key: 'descpct', label: 'Desc%',       align: 'right',  width: 64,  minWidth: 50, acc: descPctOf },
-    { key: 'liq',     label: 'Líquido',     align: 'right',  width: 96,  minWidth: 60, acc: (it) => Number(it.ite_puniliq) },
-    { key: 'totliq',  label: 'Total Líq.',  align: 'right',  width: 96,  minWidth: 64, acc: (it) => Number(it.ite_totliquido) },
-    { key: 'cimp',    label: 'c/ Imp.',     align: 'right',  width: 96,  minWidth: 64, acc: (it) => Number(it.ite_valcomst) },
+    { key: 'seq',     label: '#',           align: 'center', width: 40,  acc: (it) => cOrigIdx.get(it.tempId) ?? 0 },
+    { key: 'codigo',  label: 'Código',      align: 'left',   width: 100, acc: (it) => it.ite_produto },
+    { key: 'compl',   label: 'Complemento', align: 'left',   width: 120, acc: (it) => it.ite_embuch || '' },
+    { key: 'descr',   label: 'Descrição',   align: 'left',   width: 420, acc: (it) => it.ite_nomeprod || '' },
+    { key: 'qtd',     label: 'Qtd',         align: 'right',  width: 72,  acc: (it) => Number(it.ite_quant) },
+    { key: 'bruto',   label: 'Bruto',       align: 'right',  width: 84,  acc: (it) => Number(it.ite_puni) },
+    { key: 'descpct', label: 'Desc%',       align: 'right',  width: 60,  acc: descPctOf },
+    { key: 'liq',     label: 'Líquido',     align: 'right',  width: 84,  acc: (it) => Number(it.ite_puniliq) },
+    { key: 'totliq',  label: 'Total Líq.',  align: 'right',  width: 90,  acc: (it) => Number(it.ite_totliquido) },
+    { key: 'cimp',    label: 'c/ Imp.',     align: 'right',  width: 90,  acc: (it) => Number(it.ite_valcomst) },
     ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(nn => ({
-      key: `des${nn}`, label: `${nn}º%`, align: 'center' as const, width: 46, minWidth: 38,
+      key: `des${nn}`, label: `${nn}º%`, align: 'center' as const, width: 38,
       acc: (it: ItemRow) => Number((it as any)[`ite_des${nn}`]) || 0,
     })),
-    { key: 'add', label: 'ADD%', align: 'center', width: 46, minWidth: 38, acc: (it) => Number(it.ite_des10) || 0 },
-    { key: 'ipi', label: 'IPI%', align: 'center', width: 50, minWidth: 40, acc: (it) => Number(it.ite_ipi) || 0 },
-    { key: 'st',  label: 'ST%',  align: 'center', width: 46, minWidth: 38, acc: (it) => Number(it.ite_st) || 0 },
+    { key: 'add', label: 'ADD%', align: 'center', width: 38, acc: (it) => Number(it.ite_des10) || 0 },
+    { key: 'ipi', label: 'IPI%', align: 'center', width: 38, acc: (it) => Number(it.ite_ipi) || 0 },
+    { key: 'st',  label: 'ST%',  align: 'center', width: 38, acc: (it) => Number(it.ite_st) || 0 },
   ], [cOrigIdx]);
   const confAccessors = useMemo(
     () => Object.fromEntries(CONF_COLS.filter(c => c.acc).map(c => [c.key, c.acc!])),
@@ -373,7 +371,6 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
   );
   const { sort: confSort, cycle: confCycle } = useGridSort();
   const sortedConfItems = useSortedRows(orderItems, confSort, confAccessors);
-  const { widths: confWidths, startResize: confResize, reset: confReset } = useColumnWidths('repone:grid:pedido-conferencia:v3', CONF_COLS);
   const autoApplied = useRef(false);
 
   // Load client discounts + group descs on mount (needed for Desc. Grupo)
@@ -970,13 +967,11 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
     padding: '7px 6px', textAlign: align, fontSize: 9, fontWeight: 900,
     color: G.textMuted, textTransform: 'uppercase', letterSpacing: 0.5,
     background: G.cardHi, borderBottom: `2px solid ${G.border}`,
-    borderRight: `1px solid ${G.border}`,
     whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 2, minWidth: w,
   });
 
   const tdBase = (align: 'left' | 'right' | 'center' = 'left', extra: React.CSSProperties = {}): React.CSSProperties => ({
     padding: '2px 4px', textAlign: align, borderBottom: `1px solid ${G.border}40`,
-    borderRight: `1px solid ${G.border}55`,
     verticalAlign: 'middle', ...extra,
   });
 
@@ -1055,21 +1050,6 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
           </button>
         )}
 
-        <button
-          onClick={confReset}
-          title="Restaurar a largura padrão das colunas"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 14px', borderRadius: 8, border: `1px solid ${G.border}`,
-            background: G.cardHi, color: G.textSec, fontSize: 12, fontWeight: 800,
-            cursor: 'pointer', letterSpacing: 0.3,
-          }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = G.mustard; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = G.border; }}
-        >
-          <RotateCcw size={13} /> Restaurar larguras
-        </button>
-
         <div style={{ flex: 1 }} />
 
         {/* Summary totals */}
@@ -1093,27 +1073,15 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
 
       {/* ── Grid ── */}
       <div ref={gridRef} style={{ flex: 1, overflowX: 'auto', overflowY: 'auto' }}>
-        {/* width:100% + tableLayout:fixed: cada coluna usa a largura do colgroup (ignora a
-            largura intrínseca dos <input> — sem inchar). A Descrição (sem largura) absorve a
-            sobra e preenche a tela, igual ao grid do principal. Rola só se faltar espaço. */}
-        <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%', tableLayout: 'fixed' }}>
-          <colgroup>
-            {CONF_COLS.map(c => (
-              <col key={c.key} style={{ width: c.key === 'descr' ? undefined : (confWidths[c.key] ? `${confWidths[c.key]}px` : undefined) }} />
-            ))}
-          </colgroup>
+        <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%', minWidth: 900 }}>
           <thead>
             <tr>
               {CONF_COLS.map(c => {
                 const canSort = c.sortable !== false;
                 return (
                   <th key={c.key} onClick={canSort ? () => confCycle(c.key) : undefined}
-                    style={{ ...thStyle(c.align), cursor: canSort ? 'pointer' : 'default', userSelect: 'none', overflow: 'hidden' }}>
+                    style={{ ...thStyle(c.align, c.width), cursor: canSort ? 'pointer' : 'default', userSelect: 'none' }}>
                     {c.label}{canSort && <span style={{ opacity: confSort?.key === c.key ? 0.9 : 0.3 }}>{sortArrow(confSort, c.key)}</span>}
-                    {!c.noResize && (
-                      <span onMouseDown={(e) => confResize(c.key, e)} title="Arraste para ajustar a largura"
-                        style={{ position: 'absolute', top: 0, right: 0, height: '100%', width: 6, cursor: 'col-resize', zIndex: 3 }} />
-                    )}
                   </th>
                 );
               })}
