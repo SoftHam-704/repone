@@ -57,6 +57,32 @@ async function createTenant(schemaName: string): Promise<void> {
       'utf-8'
     );
     await client.query(financeiroSchema);
+
+    // 4c. SEMEAR o modelo de referência do financeiro (plano de contas + centro de
+    //     custo) que vive no schema public. Antes o tenant nascia VAZIO e o REP
+    //     ficava sem plano de contas (não há fallback runtime). Como o schema é
+    //     novo, a sequence do id é LOCAL — copiamos preservando ids/hierarquia
+    //     (id_pai) e ressincronizamos a sequence local. Tudo na mesma transação.
+    console.log(`📋 Semeando plano de contas + centro de custo (modelo public)...`);
+    await client.query(`
+      INSERT INTO fin_plano_contas (id, codigo, descricao, tipo, nivel, id_pai, ativo)
+      SELECT id, codigo, descricao, tipo, nivel, id_pai, ativo
+      FROM public.fin_plano_contas ORDER BY id
+    `);
+    await client.query(
+      `SELECT setval(pg_get_serial_sequence('${schemaName}.fin_plano_contas','id'),
+              COALESCE((SELECT MAX(id) FROM fin_plano_contas), 1), true)`
+    );
+    await client.query(`
+      INSERT INTO fin_centro_custo (id, codigo, descricao, ativo)
+      SELECT id, codigo, descricao, ativo
+      FROM public.fin_centro_custo ORDER BY id
+    `);
+    await client.query(
+      `SELECT setval(pg_get_serial_sequence('${schemaName}.fin_centro_custo','id'),
+              COALESCE((SELECT MAX(id) FROM fin_centro_custo), 1), true)`
+    );
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS despesas (
         desp_id          SERIAL PRIMARY KEY,
