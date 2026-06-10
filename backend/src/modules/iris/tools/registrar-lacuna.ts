@@ -16,6 +16,8 @@ export async function registrarLacuna(_db: any, input: any, user: any) {
   const motivo = motivosOk.includes(input.motivo) ? input.motivo : 'outro';
   const detalhe = input.detalhe ? String(input.detalhe).trim().slice(0, 2000) : null;
   const tenant = (user && user.schema) ? String(user.schema) : null;
+  // QUEM pediu — pra equipe SoftHam saber o REP/usuário por trás do recado.
+  const usuario = (user && (user.name || user.username)) ? String(user.name || user.username).slice(0, 200) : null;
 
   try {
     // evita floodar com a mesma pergunta do mesmo tenant no mesmo dia
@@ -28,10 +30,18 @@ export async function registrarLacuna(_db: any, input: any, user: any) {
       [tenant, pergunta]
     );
     if (dup.rowCount === 0) {
-      await masterPool.query(
-        `INSERT INTO public.iris_lacunas (tenant, pergunta, motivo, detalhe) VALUES ($1, $2, $3, $4)`,
-        [tenant, pergunta, motivo, detalhe]
-      );
+      try {
+        await masterPool.query(
+          `INSERT INTO public.iris_lacunas (tenant, usuario, pergunta, motivo, detalhe) VALUES ($1, $2, $3, $4, $5)`,
+          [tenant, usuario, pergunta, motivo, detalhe]
+        );
+      } catch {
+        // fallback: coluna `usuario` ainda não criada no master — grava sem ela
+        await masterPool.query(
+          `INSERT INTO public.iris_lacunas (tenant, pergunta, motivo, detalhe) VALUES ($1, $2, $3, $4)`,
+          [tenant, pergunta, motivo, detalhe]
+        );
+      }
     }
     return { registrado: true, mensagem: 'Anotei essa lacuna pra equipe SoftHam avaliar.' };
   } catch (e: any) {
