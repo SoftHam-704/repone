@@ -7,8 +7,9 @@
 | Tool | Responde | Parâmetros-chave |
 |---|---|---|
 | **`consultar_vendas_periodo`** | Faturamento e quantidade num período | `data_inicio`, `data_fim`, `agrupar_por` (industria / cliente / vendedor / mes / uf / nenhum), `industria_id` opcional |
-| **`consultar_itens_periodo`** | O que foi vendido a nível de **produto/SKU** | `data_inicio`, `data_fim`, `agrupar_por` (mes / produto / cliente / industria / nenhum) |
+| **`consultar_itens_periodo`** | O que foi vendido a nível de **produto/SKU**; **quais clientes compraram** um item | `data_inicio`, `data_fim`, `agrupar_por` (mes / produto / cliente / industria / nenhum), `codigo` opcional (filtra por SKU) |
 | **`clientes_sem_compra`** | Quem **sumiu** / churn / inativos / recência | `dias_minimo`, `limite` |
+| **`clientes_por_cidade`** | **Clientes numa cidade/UF** (carteira por praça) | `cidade`, `uf` opcional, `limite` |
 | **`meta_atual`** | Meta × realizado da indústria | `mes_ano` |
 | **`curva_abc`** | **Curva ABC** (Pareto A/B/C) de clientes ou produtos | `data_inicio`, `data_fim`, `dimensao` (cliente/produto), `industria_id` opcional |
 | **`ranking_clientes`** | **Top N clientes** por valor ou quantidade | `data_inicio`, `data_fim`, `por` (valor/quantidade), `limite`, `industria_id` opcional |
@@ -28,6 +29,8 @@
 - "Comparar 2025 com 2026?" / "Como está esse ano vs ano passado?" → **`comparar_anos`**.
 - "Quanto a loja Y pagou no item Z da última vez?" → **`ultimo_preco_cliente`** (cliente + código do produto).
 - "Cadastra um cliente novo" / "cadastra essa indústria" → **`cadastrar_cadastro`** (peça o CNPJ primeiro; ver `oficio-07`).
+- "Quais clientes de Sete Lagoas?" / "minha carteira em Contagem" → **`clientes_por_cidade`**.
+- "Quais clientes compraram o item AL-1010 (na IMA)?" → **`consultar_itens_periodo`** com `codigo`="AL-1010" + `agrupar_por`="cliente" (+ `industria` se citada).
 
 ## Quando NÃO há tool (ou a rotina não existe) → REGISTRE a lacuna
 

@@ -9,6 +9,7 @@ import { ultimoPrecoCliente } from './ultimo-preco-cliente';
 import { registrarLacuna } from './registrar-lacuna';
 import { cadastrarItensTabela } from './cadastrar-itens-tabela';
 import { cadastrarCadastro } from './cadastrar-cadastro';
+import { clientesPorCidade } from './clientes-por-cidade';
 
 export type ToolHandler = (db: any, input: any, user: any) => Promise<any>;
 
@@ -25,6 +26,7 @@ export const TOOLS_REGISTRY: Record<string, ToolHandler> = {
   registrar_lacuna:         registrarLacuna,
   cadastrar_itens_tabela:   cadastrarItensTabela,
   cadastrar_cadastro:       cadastrarCadastro,
+  clientes_por_cidade:      clientesPorCidade,
 };
 
 // Definições JSON Schema enviadas ao modelo (Anthropic SDK tools).
@@ -48,15 +50,16 @@ export const TOOLS = [
   {
     name: 'consultar_itens_periodo',
     description:
-      'Consulta a QUANTIDADE de peças vendidas (e o valor) num período, agrupada por mês, produto, cliente ou indústria. Use para "quantas peças vendi", "evolução de itens mês a mês", "o que mais vendeu da indústria X", "itens/peças comprados pelo cliente Y". Considera só pedidos válidos (P/F). Retorna números crus.',
+      'Consulta a QUANTIDADE de peças vendidas (e o valor) num período, agrupada por mês, produto, cliente ou indústria. Use para "quantas peças vendi", "evolução de itens mês a mês", "o que mais vendeu da indústria X", "itens/peças comprados pelo cliente Y". Para "QUAIS CLIENTES COMPRARAM o item X" use codigo=<código> + agrupar_por="cliente". Considera só pedidos válidos (P/F). Retorna números crus.',
     input_schema: {
       type: 'object',
       properties: {
         data_inicio: { type: 'string', description: 'Data inicial no formato YYYY-MM-DD' },
         data_fim:    { type: 'string', description: 'Data final no formato YYYY-MM-DD' },
-        agrupar_por: { type: 'string', enum: ['mes', 'produto', 'cliente', 'industria', 'nenhum'], description: 'Como agrupar. "mes" para evolução; "produto" para ranking de SKU; "nenhum" só o total.' },
+        agrupar_por: { type: 'string', enum: ['mes', 'produto', 'cliente', 'industria', 'nenhum'], description: 'Como agrupar. "mes" para evolução; "produto" para ranking de SKU; "cliente" para ver QUEM comprou; "nenhum" só o total.' },
         cliente:     { type: 'string', description: 'Opcional: nome (ou parte) do cliente para filtrar. Ex: "WS Automotive".' },
         industria:   { type: 'string', description: 'Opcional: nome (ou parte) da indústria para filtrar.' },
+        codigo:      { type: 'string', description: 'Opcional: código do produto (SKU) para filtrar. Compara ignorando máscara/caixa (AL-1010 = AL1010). Use com agrupar_por="cliente" para "quais clientes compraram o item X".' },
       },
       required: ['data_inicio', 'data_fim', 'agrupar_por'],
     },
@@ -199,6 +202,20 @@ export const TOOLS = [
         confirmar:     { type: 'boolean', description: 'false (default) = prévia sem gravar; true = grava (só após o REP confirmar a prévia).' },
       },
       required: ['tipo', 'cnpj'],
+    },
+  },
+  {
+    name: 'clientes_por_cidade',
+    description:
+      'Lista os clientes da carteira em uma CIDADE (ou UF). Use para "quais são nossos clientes de Sete Lagoas", "clientes em Contagem/MG", "minha carteira no interior de SP". Retorna nome reduzido, cidade/UF e telefone. Só clientes ativos, no escopo do REP.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        cidade: { type: 'string', description: 'Nome (ou parte) da cidade. Ex: "Sete Lagoas".' },
+        uf:     { type: 'string', description: 'Opcional: sigla do estado (ex: "MG") — útil pra desambiguar cidades homônimas, ou listar a carteira inteira de um estado.' },
+        limite: { type: 'integer', description: 'Máximo de clientes a retornar (default 200, máx 500).' },
+      },
+      required: ['cidade'],
     },
   },
 ];
