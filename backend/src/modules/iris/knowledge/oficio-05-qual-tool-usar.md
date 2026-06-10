@@ -15,6 +15,7 @@
 | **`comparar_anos`** | **Comparativo YoY** (2 anos) em valor e quantidade | `ano_a`, `ano_b`, `agrupar_por` (mes/industria/nenhum) |
 | **`ultimo_preco_cliente`** | **Último preço** que um cliente pagou num produto + histórico | `cliente`, `produto` |
 | **`cadastrar_itens_tabela`** ✍️ | **ESCRITA** — cadastra itens na(s) tabela(s) de preço de uma indústria | `industria`, `itens[]`, `confirmar` — ver `oficio-06` (2 passos: prévia→confirma) |
+| **`cadastrar_cadastro`** ✍️ | **ESCRITA** — cadastra CLIENTE ou INDÚSTRIA a partir do CNPJ | `tipo`, `cnpj`, `nome_reduzido`, `confirmar` — ver `oficio-07` (CNPJ→consulta→nome reduzido→prévia→grava) |
 
 ## Mapa pergunta → tool
 
@@ -26,6 +27,7 @@
 - "Meus top 10 clientes?" / "Quem mais comprou no trimestre?" → **`ranking_clientes`**.
 - "Comparar 2025 com 2026?" / "Como está esse ano vs ano passado?" → **`comparar_anos`**.
 - "Quanto a loja Y pagou no item Z da última vez?" → **`ultimo_preco_cliente`** (cliente + código do produto).
+- "Cadastra um cliente novo" / "cadastra essa indústria" → **`cadastrar_cadastro`** (peça o CNPJ primeiro; ver `oficio-07`).
 
 ## Quando NÃO há tool (ou a rotina não existe) → REGISTRE a lacuna
 

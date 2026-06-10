@@ -8,6 +8,7 @@ import { compararAnos } from './comparar-anos';
 import { ultimoPrecoCliente } from './ultimo-preco-cliente';
 import { registrarLacuna } from './registrar-lacuna';
 import { cadastrarItensTabela } from './cadastrar-itens-tabela';
+import { cadastrarCadastro } from './cadastrar-cadastro';
 
 export type ToolHandler = (db: any, input: any, user: any) => Promise<any>;
 
@@ -23,6 +24,7 @@ export const TOOLS_REGISTRY: Record<string, ToolHandler> = {
   ultimo_preco_cliente:     ultimoPrecoCliente,
   registrar_lacuna:         registrarLacuna,
   cadastrar_itens_tabela:   cadastrarItensTabela,
+  cadastrar_cadastro:       cadastrarCadastro,
 };
 
 // Definições JSON Schema enviadas ao modelo (Anthropic SDK tools).
@@ -182,6 +184,21 @@ export const TOOLS = [
         confirmar: { type: 'boolean', description: 'false (default) = prévia sem gravar; true = grava (só após o REP confirmar a prévia).' },
       },
       required: ['industria', 'itens'],
+    },
+  },
+  {
+    name: 'cadastrar_cadastro',
+    description:
+      'ESCRITA — Cadastra um CLIENTE ou uma INDÚSTRIA a partir do CNPJ. Fluxo OBRIGATÓRIO em etapas: (1) precisa saber o TIPO (cliente ou industria) — se o REP não disse, pergunte; (2) precisa do CNPJ — se não tem, peça; a tool consulta a Receita e traz os dados; (3) precisa do NOME REDUZIDO — a tool devolve os dados achados e você MOSTRA ao REP e pede o nome reduzido; (4) com tipo+cnpj+nome_reduzido, chame com confirmar=false pra ver a PRÉVIA, mostre e peça "confirma?"; (5) só após confirmar, chame com confirmar=true pra gravar. NÃO duplica (dedup por CNPJ). Só CNPJ + nome reduzido são obrigatórios; o resto vem da Receita.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        tipo:          { type: 'string', enum: ['cliente', 'industria'], description: 'O que cadastrar: "cliente" (tabela clientes) ou "industria" (fornecedores/representada). Se o REP não disse, pergunte antes.' },
+        cnpj:          { type: 'string', description: 'CNPJ (com ou sem máscara). Obrigatório — a tool consulta a Receita pra preencher os dados.' },
+        nome_reduzido: { type: 'string', description: 'Nome reduzido (apelido) do cliente/indústria. Obrigatório pra gravar — peça ao REP depois de mostrar os dados achados no CNPJ.' },
+        confirmar:     { type: 'boolean', description: 'false (default) = prévia sem gravar; true = grava (só após o REP confirmar a prévia).' },
+      },
+      required: ['tipo', 'cnpj'],
     },
   },
 ];
