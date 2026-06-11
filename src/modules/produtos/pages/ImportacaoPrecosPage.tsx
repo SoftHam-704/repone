@@ -8,22 +8,64 @@ import {
 } from 'lucide-react';
 import { api } from '@/shared/lib/api';
 import { toast } from 'sonner';
+import { useIaEnabled } from '@/shared/stores/useAuthStore';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Industry   { value: string | number; label: string; }
 interface ExistingTable { nome_tabela: string; total_produtos: number; }
 interface ErroDetalhe   { codigo: string; descricao: string; erro: string; }
+interface Duplicata {
+  codigo_normalizado: string;
+  total_ocorrencias: number;
+  ocorrencias: Array<{ idx: number; codigo: string; descricao: string | null }>;
+  mantido_idx: number;
+}
 
 type TextareaKey =
   | 'codigo' | 'complemento' | 'nome' | 'linha' | 'precobruto' | 'precopromo' | 'precoespecial'
   | 'grupo'  | 'aplicacao'   | 'embalagem' | 'peso' | 'prepeso' | 'itab_grupodesconto' | 'ipi' | 'st'
-  | 'codigooriginal' | 'codbarras' | 'descontoadd' | 'ncm' | 'curva' | 'categoria' | 'conversao' | 'ciclo';
+  | 'codigooriginal' | 'codbarras' | 'descontoadd' | 'ncm' | 'curva' | 'categoria' | 'conversao' | 'ciclo' | 'origem';
 
 type TextareasState = Record<TextareaKey, string>;
 
 interface ImportResult {
   success?: boolean; message?: string;
-  resumo?: { total: number; inseridos: number; atualizados: number; erros: number; detalhesErros: ErroDetalhe[]; };
+  blocked?: boolean;  // true quando o sistema bloqueia o import por duplicatas detectadas
+  resumo?: {
+    total: number; inseridos: number; atualizados: number; erros: number;
+    detalhesErros: ErroDetalhe[];
+    duplicatas?: Duplicata[];
+  };
+}
+
+// Detecta duplicatas no array de produtos antes de mandar pro backend.
+// MESMA normalização que o backend (upper + remove tudo que não é A-Z0-9).
+// Se há duplicatas, o frontend não chama a API — força o rep corrigir na fonte.
+function normalizeCodeFront(c: string): string {
+  return String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+function detectDuplicatas(
+  produtos: Array<{ idx: number; codigo: string; descricao?: string | null }>
+): Duplicata[] {
+  const mapa = new Map<string, Array<{ idx: number; codigo: string; descricao: string | null }>>();
+  for (const p of produtos) {
+    const nc = normalizeCodeFront(p.codigo);
+    if (!nc) continue;
+    const arr = mapa.get(nc) ?? [];
+    arr.push({ idx: p.idx, codigo: p.codigo, descricao: p.descricao ?? null });
+    mapa.set(nc, arr);
+  }
+  const out: Duplicata[] = [];
+  for (const [nc, arr] of mapa.entries()) {
+    if (arr.length <= 1) continue;
+    out.push({
+      codigo_normalizado: nc,
+      total_ocorrencias:  arr.length,
+      ocorrencias:        arr,
+      mantido_idx:        arr[arr.length - 1].idx,  // por consistência com o backend
+    });
+  }
+  return out;
 }
 
 // ─── V1 Colors ───────────────────────────────────────────────────────────────
@@ -76,40 +118,41 @@ const TABS = [
   { id: 1, label: 'Detalhes do Produto',       Icon: FileText, color: C.blue,
     fields: ['grupo','aplicacao','embalagem','peso','prepeso','itab_grupodesconto','ipi','st'] as TextareaKey[] },
   { id: 2, label: 'Códigos e Classificações',  Icon: Barcode, color: C.purple,
-    fields: ['codigooriginal','codbarras','descontoadd','ncm','curva','categoria','conversao','ciclo'] as TextareaKey[] },
+    fields: ['codigooriginal','codbarras','descontoadd','ncm','curva','categoria','conversao','ciclo','origem'] as TextareaKey[] },
 ];
 
-const FIELD_LABELS: Record<TextareaKey, { label: string; required: boolean; fullWidth?: boolean; wide?: boolean }> = {
+const FIELD_LABELS: Record<TextareaKey, { label: string; required: boolean; fullWidth?: boolean; wide?: boolean; hint?: string }> = {
   codigo:             { label: 'Código',             required: true  },
   complemento:        { label: 'Complemento',         required: false },
   nome:               { label: 'Nome do Produto',     required: true, fullWidth: true },
   linha:              { label: 'Marca / Linha',       required: false },
-  precobruto:         { label: 'Preço Bruto',         required: true  },
-  precopromo:         { label: 'Preço Promoção',      required: false },
-  precoespecial:      { label: 'Preço Especial',      required: false },
-  grupo:              { label: 'Grupo de Produtos',   required: false },
+  precobruto:         { label: 'Preço Bruto',         required: true,  hint: 'Use ponto como decimal (45.90). Sem R$.' },
+  precopromo:         { label: 'Preço Promoção',      required: false, hint: 'Preço de campanha. Vazio se não houver.' },
+  precoespecial:      { label: 'Preço Especial',      required: false, hint: 'Preço para canal distribuidor.' },
+  grupo:              { label: 'Grupo de Produtos',   required: false, hint: 'Informe o CÓDIGO do grupo (não a descrição). Veja os códigos em Cadastros → Grupos.' },
   aplicacao:          { label: 'Aplicação',           required: false, wide: true },
-  embalagem:          { label: 'Embalagem',           required: false },
-  peso:               { label: 'Peso',                required: false },
-  prepeso:            { label: 'Preço por Peso/Qtd', required: false },
-  ipi:                { label: '% IPI',               required: false },
-  st:                 { label: '% ST',                required: false },
+  embalagem:          { label: 'Embalagem',           required: false, hint: 'Múltiplo de venda (1 = unitário, 12 = caixa com 12).' },
+  peso:               { label: 'Peso (kg)',           required: false, hint: 'Peso unitário do produto, em kg. Ex: 0,350. Combina com o "Preço por Kg".' },
+  prepeso:            { label: 'Preço por Kg (R$)',   required: false, hint: 'R$ por quilo. Quando informado, o preço passa a ser Preço/Kg × Peso, ignorando os preços de tabela.' },
+  ipi:                { label: '% IPI',               required: false, hint: 'Apenas o número. 4 = 4%.' },
+  st:                 { label: '% ST',                required: false, hint: 'Apenas o número. 12 = 12%.' },
   codigooriginal:     { label: 'Código Original',     required: false },
   codbarras:          { label: 'Código de Barras',    required: false },
   descontoadd:        { label: 'Desconto Adicional',  required: false },
-  ncm:                { label: 'NCM',                 required: false },
+  ncm:                { label: 'NCM',                 required: false, hint: 'Apenas dígitos. Ex: 8483.10.00' },
   curva:              { label: 'Curva ABC',            required: false },
   categoria:          { label: 'Categoria',           required: false },
   conversao:          { label: 'Conversão',           required: false },
   itab_grupodesconto: { label: 'Grupo de Desconto',   required: false },
-  ciclo:              { label: 'Ciclo (C=Corrente / L=Lançamento)', required: false },
+  ciclo:              { label: 'Ciclo de Vida',       required: false, hint: 'C = Corrente (padrão) · L = Lançamento.' },
+  origem:             { label: 'Origem',              required: false, hint: 'Use 0 = Nacional · 1 = Importada. Também aceita N / I / Nacional / Importada.' },
 };
 
 const EMPTY: TextareasState = {
   codigo:'', complemento:'', nome:'', linha:'', precobruto:'', precopromo:'', precoespecial:'',
   grupo:'', aplicacao:'', embalagem:'', peso:'', ipi:'', st:'', prepeso:'',
   codigooriginal:'', codbarras:'', descontoadd:'', ncm:'', curva:'',
-  categoria:'', conversao:'', itab_grupodesconto:'', ciclo:'',
+  categoria:'', conversao:'', itab_grupodesconto:'', ciclo:'', origem:'',
 };
 
 // ─── Inline style helpers ─────────────────────────────────────────────────────
@@ -189,6 +232,7 @@ function ClassicImport({ initialIndustria }: { initialIndustria?: Industry }) {
       for (let i = 0; i < sp.codigo.length; i++) {
         const code = sp.codigo[i]; if (!code?.trim()) continue;
         produtos.push({
+          idx: i + 1,  // linha do "Excel" — vira coluna IDX nas duplicatas
           codigo: code, complemento: get('complemento',i), descricao: get('nome',i), linha: get('linha',i),
           precobruto:    hasField('precobruto')    ? parseValue(get('precobruto',i))    : null,
           precopromo:    hasField('precopromo')    ? parseValue(get('precopromo',i))    : null,
@@ -204,12 +248,32 @@ function ClassicImport({ initialIndustria }: { initialIndustria?: Industry }) {
           ncm: get('ncm',i), curva: get('curva',i), categoria: get('categoria',i), conversao: get('conversao',i),
           grupodesconto: hasField('itab_grupodesconto') ? get('itab_grupodesconto',i) : null,
           ciclo: (['C','c','L','l'].includes(get('ciclo',i))) ? get('ciclo',i).toUpperCase() : 'C',
+          origem: get('origem',i) || null,
         });
       }
+      // Pré-validação: detectar duplicatas LOCALMENTE antes de mandar pro backend.
+      // Se houver, bloqueia a importação e devolve a lista pro rep corrigir na fonte.
+      const dupsPre = detectDuplicatas(produtos);
+      if (dupsPre.length > 0) {
+        setResult({
+          success: false,
+          blocked: true,
+          message: 'Importação bloqueada: há códigos duplicados na planilha. Corrija-os e tente novamente.',
+          resumo: {
+            total: produtos.length, inseridos: 0, atualizados: 0, erros: 0,
+            detalhesErros: [], duplicatas: dupsPre,
+          },
+        });
+        setImporting(false);
+        return;
+      }
+
       const lotes: typeof produtos[] = [];
       for (let i = 0; i < produtos.length; i += 1000) lotes.push(produtos.slice(i, i + 1000));
       setProgress({ current:0, total:lotes.length, percentage:0 });
-      let ins = 0, upd = 0, errs = 0; const details: ErroDetalhe[] = [];
+      let ins = 0, upd = 0, errs = 0;
+      const details: ErroDetalhe[] = [];
+      const dupsAgg: Duplicata[]  = [];
       for (let i = 0; i < lotes.length; i++) {
         const pct = Math.round(((i+1)/lotes.length)*100);
         setProgress({ current:i+1, total:lotes.length, percentage:pct });
@@ -222,9 +286,10 @@ function ClassicImport({ initialIndustria }: { initialIndustria?: Industry }) {
           upd  += r.data.resumo?.produtosAtualizados || 0;
           errs += r.data.resumo?.erros               || 0;
           if (r.data.resumo?.detalhesErros?.length) details.push(...r.data.resumo.detalhesErros);
+          if (r.data.resumo?.duplicatas?.length)     dupsAgg.push(...r.data.resumo.duplicatas);
         } else throw new Error(r.data.message || 'Erro no lote');
       }
-      setResult({ success:true, resumo:{ total:produtos.length, inseridos:ins, atualizados:upd, erros:errs, detalhesErros:details } });
+      setResult({ success:true, resumo:{ total:produtos.length, inseridos:ins, atualizados:upd, erros:errs, detalhesErros:details, duplicatas:dupsAgg } });
     } catch (e: any) {
       setResult({ success:false, message:`Erro: ${e.message}` });
     } finally { setImporting(false); }
@@ -272,6 +337,11 @@ function ClassicImport({ initialIndustria }: { initialIndustria?: Industry }) {
             </span>
           </div>
         </div>
+        {cfg.hint && (
+          <div style={{ background:V.bgCard, padding:'5px 11px', borderBottom:`1px solid ${V.border}`, fontSize:10, color:V.textDim, fontStyle:'italic', lineHeight:1.3 }}>
+            {cfg.hint}
+          </div>
+        )}
         <textarea
           value={textareas[field]}
           onChange={e => setTextareas(p => ({ ...p, [field]:e.target.value }))}
@@ -489,31 +559,38 @@ function ClassicImport({ initialIndustria }: { initialIndustria?: Industry }) {
 
 // ─── Result Box ───────────────────────────────────────────────────────────────
 function ResultBox({ result }: { result: ImportResult }) {
-  const ok = result.success !== false;
+  const blocked = result.blocked === true;
+  const ok      = !blocked && result.success !== false;
+  const bg      = blocked ? C.amber50 : ok ? C.emeraldBg : C.red50;
+  const border  = blocked ? C.amber200 : ok ? C.emeraldBorder : C.red200;
+  const iconColor = blocked ? C.amber600 : ok ? C.emerald : C.red500;
+  const txtColor  = blocked ? C.amber800 : ok ? C.emeraldDark : '#7f1d1d';
   return (
     <motion.div initial={{ opacity:0, scale:0.96 }} animate={{ opacity:1, scale:1 }}
-      style={{ padding:24, background: ok ? C.emeraldBg : C.red50, border:`2px solid ${ok ? C.emeraldBorder : C.red200}`, borderRadius:16 }}>
+      style={{ padding:24, background:bg, border:`2px solid ${border}`, borderRadius:16 }}>
       <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
-        {ok ? <CheckCircle2 size={24} color={C.emerald} /> : <AlertCircle size={24} color={C.red500} />}
-        <span style={{ fontSize:16, fontWeight:900, color: ok ? C.emeraldDark : '#7f1d1d' }}>
+        {ok ? <CheckCircle2 size={24} color={iconColor} /> : <AlertCircle size={24} color={iconColor} />}
+        <span style={{ fontSize:16, fontWeight:900, color:txtColor }}>
           {result.message || 'Importação concluída!'}
         </span>
       </div>
       {result.resumo && (
         <>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:16 }}>
-            {[
-              { label:'Total',       value:result.resumo.total,               border:C.slate200, color:C.slate800 },
-              { label:'Inseridos',   value:result.resumo.produtosNovos,       border:C.emeraldBorder, color:C.emeraldDark },
-              { label:'Atualizados', value:result.resumo.produtosAtualizados, border:'#bfdbfe', color:C.blue },
-              ...(result.resumo.erros > 0 ? [{ label:'Erros', value:result.resumo.erros, border:C.red200, color:C.red500 }] : []),
-            ].map(s => (
-              <div key={s.label} style={{ background:C.white, border:`2px solid ${s.border}`, borderRadius:12, padding:'14px 16px' }}>
-                <p style={{ margin:0, fontSize:10, fontWeight:700, color:C.slate500, textTransform:'uppercase', letterSpacing:'0.1em' }}>{s.label}</p>
-                <p style={{ margin:'4px 0 0', fontSize:28, fontWeight:900, color:s.color }}>{s.value}</p>
-              </div>
-            ))}
-          </div>
+          {!blocked && (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:16 }}>
+              {[
+                { label:'Total',       value:result.resumo.total,               border:C.slate200, color:C.slate800 },
+                { label:'Inseridos',   value:result.resumo.inseridos,   border:C.emeraldBorder, color:C.emeraldDark },
+                { label:'Atualizados', value:result.resumo.atualizados, border:'#bfdbfe', color:C.blue },
+                ...(result.resumo.erros > 0 ? [{ label:'Erros', value:result.resumo.erros, border:C.red200, color:C.red500 }] : []),
+              ].map(s => (
+                <div key={s.label} style={{ background:C.white, border:`2px solid ${s.border}`, borderRadius:12, padding:'14px 16px' }}>
+                  <p style={{ margin:0, fontSize:10, fontWeight:700, color:C.slate500, textTransform:'uppercase', letterSpacing:'0.1em' }}>{s.label}</p>
+                  <p style={{ margin:'4px 0 0', fontSize:28, fontWeight:900, color:s.color }}>{s.value}</p>
+                </div>
+              ))}
+            </div>
+          )}
           {result.resumo.detalhesErros?.length > 0 && (
             <div style={{ background:C.white, border:`2px solid ${C.red200}`, borderRadius:12, overflow:'hidden' }}>
               <div style={{ background:C.red50, padding:'8px 16px', borderBottom:`1px solid ${C.red200}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -526,7 +603,7 @@ function ResultBox({ result }: { result: ImportResult }) {
                   Copiar Erros
                 </button>
               </div>
-              <div style={{ maxHeight:200, overflowY:'auto' }}>
+              <div style={{ maxHeight:420, overflowY:'auto' }}>
                 <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
                   <thead style={{ background:C.slate50, position:'sticky', top:0 }}>
                     <tr>{['Cód','Descrição','Erro'].map(h => (
@@ -541,6 +618,77 @@ function ResultBox({ result }: { result: ImportResult }) {
                         <td style={{ padding:'8px 12px', color:C.red500, fontStyle:'italic' }}>{e.erro}</td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {result.resumo.duplicatas && result.resumo.duplicatas.length > 0 && (
+            <div style={{ background:C.white, border:`2px solid ${C.amber200}`, borderRadius:12, overflow:'hidden', marginTop:12 }}>
+              <div style={{ background:C.amber50, padding:'10px 16px', borderBottom:`1px solid ${C.amber200}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div>
+                  <span style={{ fontSize:10, fontWeight:900, color:C.amber800, textTransform:'uppercase', letterSpacing:'0.12em' }}>
+                    {blocked
+                      ? `Importação bloqueada · ${result.resumo.duplicatas.length} código(s) duplicado(s)`
+                      : `Itens Duplicados Encontrados (${result.resumo.duplicatas.length})`}
+                  </span>
+                  <div style={{ fontSize:10, color:C.amber600, marginTop:2 }}>
+                    {blocked
+                      ? 'Edite a planilha para deixar todos os códigos únicos e tente importar novamente. Nada foi gravado no sistema.'
+                      : 'Quando o sistema encontrou códigos repetidos, manteve a ÚLTIMA linha do Excel. Confira na fonte para corrigir.'}
+                  </div>
+                </div>
+                <button onClick={() => {
+                  const lines: string[] = ['Linha\tCódigo\tDescrição\tStatus\tCódigo normalizado'];
+                  for (const d of result.resumo!.duplicatas!) {
+                    for (const o of d.ocorrencias) {
+                      const status = o.idx === d.mantido_idx ? 'MANTIDO' : 'DESCARTADO';
+                      lines.push(`${o.idx}\t${o.codigo}\t${o.descricao || ''}\t${status}\t${d.codigo_normalizado}`);
+                    }
+                  }
+                  navigator.clipboard.writeText(lines.join('\n'));
+                  toast.success('Lista de duplicatas copiada!');
+                }} style={{ fontSize:10, fontWeight:700, color:C.amber800, background:'none', border:`1px solid ${C.amber200}`, cursor:'pointer', padding:'4px 10px', borderRadius:6 }}>
+                  Copiar Lista
+                </button>
+              </div>
+              <div style={{ maxHeight:520, overflowY:'auto' }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
+                  <thead style={{ background:C.slate50, position:'sticky', top:0 }}>
+                    <tr>{['Linha','Código','Descrição','Status','Normalizado'].map(h => (
+                      <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontWeight:700, color:C.slate500, borderBottom:`1px solid ${C.slate100}`, textTransform:'uppercase', fontSize:10 }}>{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody>
+                    {result.resumo.duplicatas.flatMap((d, gi) =>
+                      d.ocorrencias.map((o, oi) => {
+                        // Em modo bloqueado, NENHUMA linha é "mantida" — nada foi gravado.
+                        const mantido = !blocked && o.idx === d.mantido_idx;
+                        return (
+                          <tr key={`${gi}-${oi}`} style={{
+                            borderBottom:`1px solid ${C.slate50}`,
+                            background: mantido ? '#ECFDF5' : C.white,
+                          }}>
+                            <td style={{ padding:'7px 12px', fontFamily:'monospace', color:C.slate600 }}>{o.idx}</td>
+                            <td style={{ padding:'7px 12px', fontFamily:'monospace', fontWeight:800, color:C.slate800 }}>{o.codigo}</td>
+                            <td style={{ padding:'7px 12px', color:C.slate600, maxWidth:240, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={o.descricao || ''}>
+                              {o.descricao || '—'}
+                            </td>
+                            <td style={{ padding:'7px 12px', fontSize:10, fontWeight:800 }}>
+                              {blocked ? (
+                                <span style={{ background:C.amber50, color:C.amber800, padding:'2px 7px', borderRadius:5, border:`1px solid ${C.amber200}` }}>CONFLITO</span>
+                              ) : mantido ? (
+                                <span style={{ background:C.emeraldBg, color:C.emeraldDark, padding:'2px 7px', borderRadius:5, border:`1px solid ${C.emeraldBorder}` }}>MANTIDO</span>
+                              ) : (
+                                <span style={{ background:C.slate100, color:C.slate600, padding:'2px 7px', borderRadius:5, textDecoration:'line-through' }}>DESCARTADO</span>
+                              )}
+                            </td>
+                            <td style={{ padding:'7px 12px', fontFamily:'monospace', fontSize:10, color:C.slate400 }}>{d.codigo_normalizado}</td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -567,9 +715,11 @@ const MAGIC_MAIN = [
   { key:'peso',          label:'Peso (kg)',           required:false },
   { key:'conversao',     label:'Conversão',          required:false },
   { key:'aplicacao',     label:'Aplicação',          required:false },
-  { key:'grupo',         label:'Grupo de Produto',   required:false },
-  { key:'codbarras',     label:'Código de Barras',   required:false },
-  { key:'ciclo',         label:'Ciclo (C/L)',         required:false },
+  { key:'grupo',         label:'Grupo de Produto',   required:false, hint:'Use o CÓDIGO do grupo (não a descrição). Códigos em Cadastros → Grupos.' },
+  { key:'codbarras',      label:'Código de Barras',   required:false },
+  { key:'codigooriginal', label:'Código Original',    required:false },
+  { key:'ciclo',          label:'Ciclo (C/L)',         required:false },
+  { key:'origem',         label:'Origem (0=Nac / 1=Imp)', required:false },
 ];
 
 // Flags de segmento — colapsáveis
@@ -588,9 +738,11 @@ const MAGIC_FIELDS = [...MAGIC_MAIN, ...MAGIC_FLAGS];
 // Aliases: colunas com nomes alternativos frequentes (ex: GRP → grupo, NOME → descricao)
 const MAGIC_ALIASES: Record<string,string[]> = {
   descricao:        ['nome','produto','nomeproduto','descproduto'],
+  codigooriginal:   ['codoriginal','codigoref','referencia','codref','originalcode','ref'],
   grupo:            ['grp','grupoprod','grupodeprodutos'],
   embalagem:        ['emb','qtdemb','cxpcs'],
   conversao:        ['conv'],
+  origem:           ['nacionalidade','nacionalimportado','nacionalimp','nacimp','procedencia','origemproduto','origemfiscal','cst','nacional','importado'],
   linhaleve:        ['leve'],
   linhapesada:      ['pesada','pesad'],
   linhaagricola:    ['agricola','agric'],
@@ -683,7 +835,8 @@ function MagicImport({ initialIndustria }: { initialIndustria?: Industry }) {
       if (idx === undefined || idx === '') return '';
       return String(row[parseInt(idx)] ?? '').trim();
     };
-    const produtos = rawData.map(row => ({
+    const produtos = rawData.map((row, i) => ({
+      idx:             i + 2,  // +2 porque XLSX: linha 1 é header, linha 2 é o primeiro dado
       codigo:          get(row,'codigo'),
       descricao:       get(row,'descricao'),
       linha:           get(row,'linha'),
@@ -698,7 +851,9 @@ function MagicImport({ initialIndustria }: { initialIndustria?: Industry }) {
       aplicacao:       get(row,'aplicacao'),
       grupo:           get(row,'grupo'),
       codbarras:       get(row,'codbarras'),
+      codigooriginal:  get(row,'codigooriginal'),
       ciclo:           get(row,'ciclo'),
+      origem:          get(row,'origem'),
       linhaleve:       get(row,'linhaleve')        || null,
       linhapesada:     get(row,'linhapesada')      || null,
       linhaagricola:   get(row,'linhaagricola')    || null,
@@ -707,6 +862,23 @@ function MagicImport({ initialIndustria }: { initialIndustria?: Industry }) {
       offroad:         get(row,'offroad')          || null,
       linhaamarela:    get(row,'linhaamarela')     || null,
     })).filter(p => p.codigo);
+
+    // Pré-validação: detectar duplicatas antes de mandar pro backend.
+    const dupsPre = detectDuplicatas(produtos);
+    if (dupsPre.length > 0) {
+      setResult({
+        success: false,
+        blocked: true,
+        message: 'Importação bloqueada: há códigos duplicados na planilha. Corrija-os e tente novamente.',
+        resumo: {
+          total: produtos.length, inseridos: 0, atualizados: 0, erros: 0,
+          detalhesErros: [], duplicatas: dupsPre,
+        },
+      });
+      setStep('done');
+      return;
+    }
+
     setStep('importing');
     try {
       const r = await api.post('/price-tables/import', {
@@ -723,15 +895,15 @@ function MagicImport({ initialIndustria }: { initialIndustria?: Industry }) {
     // Aba 1: Gabarito Magic Import
     const magicHdr = [
       'codigo','descricao','linha','precobruto','precopromo','precoespecial',
-      'ipi','st','embalagem','peso','conversao','aplicacao','grupo','codbarras','ciclo',
+      'ipi','st','embalagem','peso','conversao','aplicacao','grupo','codbarras','ciclo','origem',
       'linhaleve','linhapesada','linhaagricola','linhautilitarios','motocicletas','offroad','linhaamarela',
     ];
     const magicEx = [
-      ['ABC-1234','FILTRO DE OLEO MOTOR 1.0','LINHA LEVE',45.90,41.50,39.00,4.0,12.0,12,0.35,'1 CX = 12 UN','VECTRA 2.0 2000-2010',1,'','C','S','N','N','N','N','N','N'],
-      ['XYZ-5678','VELA DE IGNICAO IRIDIUM','IGNIÇÃO',28.50,'','',0.0,0.0,4,0.08,'','GOL G4 1.0',2,'','C','S','N','N','N','N','N','N'],
-      ['DEF-9999','AMORTECEDOR DIANTEIRO ESQ','SUSPENSÃO',189.90,175.00,'',0.0,12.0,1,3.20,'','ONIX 2013+',3,'','C','N','S','N','N','N','N','N'],
-      ['GHI-0011','CORREIA DENTADA KIT C/TENSOR','DISTRIBUIÇÃO',95.00,88.00,80.00,4.0,0.0,1,0.42,'1 KIT','CIVIC 1.7 2001-2006',4,'','L','S','N','N','N','N','N','N'],
-      ['JKL-2233','PASTILHA FREIO DIANTEIRA','FREIOS',52.00,47.50,'',0.0,12.0,1,0.55,'1 JG','HB20 2012+',5,'','C','S','N','N','N','N','N','N'],
+      ['ABC-1234','FILTRO DE OLEO MOTOR 1.0','LINHA LEVE',45.90,41.50,39.00,4.0,12.0,12,0.35,'1 CX = 12 UN','VECTRA 2.0 2000-2010',1,'','C','0','S','N','N','N','N','N','N'],
+      ['XYZ-5678','VELA DE IGNICAO IRIDIUM','IGNIÇÃO',28.50,'','',0.0,0.0,4,0.08,'','GOL G4 1.0',2,'','C','0','S','N','N','N','N','N','N'],
+      ['DEF-9999','AMORTECEDOR DIANTEIRO ESQ','SUSPENSÃO',189.90,175.00,'',0.0,12.0,1,3.20,'','ONIX 2013+',3,'','C','1','N','S','N','N','N','N','N'],
+      ['GHI-0011','CORREIA DENTADA KIT C/TENSOR','DISTRIBUIÇÃO',95.00,88.00,80.00,4.0,0.0,1,0.42,'1 KIT','CIVIC 1.7 2001-2006',4,'','L','0','S','N','N','N','N','N','N'],
+      ['JKL-2233','PASTILHA FREIO DIANTEIRA','FREIOS',52.00,47.50,'',0.0,12.0,1,0.55,'1 JG','HB20 2012+',5,'','C','1','S','N','N','N','N','N','N'],
     ];
 
     // Aba 2: Legenda
@@ -752,6 +924,7 @@ function MagicImport({ initialIndustria }: { initialIndustria?: Industry }) {
       ['grupo','Grupo de Produto','não','Texto/Número','FILTROS / CORREIAS — impacta BI de mix'],
       ['codbarras','Código de Barras','não','Texto','7891234567890'],
       ['ciclo','Ciclo','não','C ou L','C = Corrente (padrão) / L = Lançamento'],
+      ['origem','Origem fiscal','não','0 ou 1','0 = Nacional / 1 = Importada (aceita também N, I, Nacional, Importada)'],
       ['','','','',''],
       ['SEGMENTOS (S = sim, N = não)','','','',''],
       ['linhaleve','Linha Leve','não','S ou N','S = produto pertence à linha leve'],
@@ -766,6 +939,7 @@ function MagicImport({ initialIndustria }: { initialIndustria?: Industry }) {
       ['descricao','nome, produto, nomeproduto','','',''],
       ['grupo','grp, grupoprod','','',''],
       ['embalagem','emb, qtdemb','','',''],
+      ['origem','nacional, importado, procedencia, cst, nacionalidade','','',''],
       ['linhaleve','leve','','',''],
       ['linhapesada','pesada, pesad','','',''],
       ['linhaagricola','agricola, agric','','',''],
@@ -877,6 +1051,9 @@ function MagicImport({ initialIndustria }: { initialIndustria?: Industry }) {
                 <option value="">— não mapear —</option>
                 {headers.map((h,i) => <option key={i} value={String(i)}>Col {i+1}: {h||'(sem nome)'}</option>)}
               </select>
+              {(f as any).hint && (
+                <p style={{ fontSize:9.5, color:C.slate400, fontStyle:'italic', marginTop:3, lineHeight:1.3 }}>{(f as any).hint}</p>
+              )}
             </div>
           ))}
         </div>
@@ -1104,17 +1281,21 @@ function TabelaHelpModal({ onClose }: { onClose: () => void }) {
 // ─── Página Principal ─────────────────────────────────────────────────────────
 export default function ImportacaoPrecosPage({ initialIndustria, onClose }: { initialIndustria?: Industry; onClose?: () => void } = {}) {
   const [searchParams] = useSearchParams();
-  const [tab, setTab] = useState<'classic'|'magic'>(searchParams.get('tab') === 'magic' ? 'magic' : 'classic');
+  const iaEnabled = useIaEnabled();
+  const initialTab: 'classic' | 'magic' = (iaEnabled && searchParams.get('tab') === 'magic') ? 'magic' : 'classic';
+  const [tab, setTab] = useState<'classic'|'magic'>(initialTab);
   const [showHelp, setShowHelp] = useState(false);
+  // Quando IA está desligada, esconde a tab Magic Import (detecção automática via IA)
+  const tabs = ([
+    { key:'classic', label:'📋  Importar Tabela',  desc:'Colar colunas do Excel' },
+    ...(iaEnabled ? [{ key:'magic', label:'✨  Magic Import', desc:'Upload Excel com detecção automática' }] : []),
+  ] as const);
   return (
     <div style={{ height:'100%', display:'flex', flexDirection:'column', background: tab==='classic' ? '#E8E1D4' : 'linear-gradient(135deg,#f1f5f9 0%,#ffffff 50%,#ecfdf5 100%)' }}>
       {showHelp && <TabelaHelpModal onClose={() => setShowHelp(false)} />}
       {/* Tab switcher */}
       <div style={{ flexShrink:0, display:'flex', alignItems:'center', background:'#1E2D3D', boxShadow:'0 2px 8px -2px rgba(0,0,0,0.3)', padding:'0 20px' }}>
-        {([
-          { key:'classic', label:'📋  Importar Tabela',  desc:'Colar colunas do Excel' },
-          { key:'magic',   label:'✨  Magic Import',     desc:'Upload Excel com detecção automática' },
-        ] as const).map(t => (
+        {tabs.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             style={{ padding:'12px 20px', border:'none', background:'transparent', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'flex-start', gap:2, borderBottom:`3px solid ${tab===t.key ? '#B8962E' : 'transparent'}`, transition:'border-color .2s' }}>
             <span style={{ fontSize:13, fontWeight:tab===t.key ? 800:600, color:tab===t.key ? 'white' : '#94A3B8' }}>{t.label}</span>
@@ -1134,7 +1315,14 @@ export default function ImportacaoPrecosPage({ initialIndustria, onClose }: { in
           )}
         </div>
       </div>
-      {tab==='classic' ? <ClassicImport initialIndustria={initialIndustria} /> : (
+      {tab==='classic' ? (
+        // Container com scroll vertical: sem isso, o painel de duplicatas/erros
+        // que aparece DEPOIS da importação fica cortado pelo overflow:hidden
+        // do modal pai e o usuário não consegue ler a mensagem.
+        <div style={{ flex:1, overflowY:'auto', minHeight:0 }}>
+          <ClassicImport initialIndustria={initialIndustria} />
+        </div>
+      ) : (
         <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}><MagicImport initialIndustria={initialIndustria} /></div>
       )}
     </div>
