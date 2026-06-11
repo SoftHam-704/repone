@@ -58,7 +58,7 @@ SET search_path TO ro_consult, public;
 -- =============================================================================
 -- BLOCO 0 (READ-ONLY) : panorama do conjunto e dependencias
 -- =============================================================================
-\echo '== 0a. Todos os pedidos do range MA916324..MA916336 (com contagem de itens) =='
+-- == 0a. Todos os pedidos do range MA916324..MA916336 (com contagem de itens) ==
 SELECT
   TRIM(p.ped_pedido)                                   AS ped_pedido,
   p.ped_cliente,
@@ -74,7 +74,7 @@ FROM pedidos p
 WHERE TRIM(p.ped_pedido) BETWEEN 'MA916324' AND 'MA916336'
 ORDER BY TRIM(p.ped_pedido);
 
-\echo '== 0b. Tudo que casa OC 13963 (sanity: confirmar que nao ha nada fora do range) =='
+-- == 0b. Tudo que casa OC 13963 (sanity: confirmar que nao ha nada fora do range) ==
 SELECT TRIM(p.ped_pedido) AS ped_pedido, p.ped_cliente, p.ped_situacao,
        p.ped_totbruto, p.ped_totliq, TRIM(COALESCE(p.ped_oc,'')) AS ped_oc, p.ped_data,
        (SELECT COUNT(*) FROM itens_ped i WHERE TRIM(i.ite_pedido)=TRIM(p.ped_pedido)) AS n_itens
@@ -82,7 +82,7 @@ FROM pedidos p
 WHERE TRIM(COALESCE(p.ped_oc,'')) = '13963'
 ORDER BY TRIM(p.ped_pedido);
 
-\echo '== 0c. FKs apontando para ro_consult.pedidos (se vazio, nao ha cascade) =='
+-- == 0c. FKs apontando para ro_consult.pedidos (se vazio, nao ha cascade) ==
 SELECT conrelid::regclass AS tabela_filha, conname, pg_get_constraintdef(oid) AS def
 FROM pg_constraint
 WHERE contype='f' AND confrelid = 'ro_consult.pedidos'::regclass;
@@ -95,7 +95,7 @@ WHERE contype='f' AND confrelid = 'ro_consult.pedidos'::regclass;
 --     - tot bruto e liq = 0
 --     - ZERO itens em itens_ped
 -- =============================================================================
-\echo '== 1. PREVIEW dos pedidos que serao APAGADOS =='
+-- == 1. PREVIEW dos pedidos que serao APAGADOS ==
 SELECT
   TRIM(p.ped_pedido) AS ped_pedido, p.ped_cliente, p.ped_situacao,
   p.ped_totbruto, p.ped_totliq, TRIM(COALESCE(p.ped_oc,'')) AS ped_oc, p.ped_data
@@ -206,7 +206,7 @@ $del$;
 -- =============================================================================
 -- BLOCO 3 (READ-ONLY) : foto pos-delete do range (deve sobrar SO MA916336)
 -- =============================================================================
-\echo '== 3. POS-DELETE: o que sobrou no range (esperado: so MA916336) =='
+-- == 3. POS-DELETE: o que sobrou no range (esperado: so MA916336) ==
 SELECT TRIM(ped_pedido) AS ped_pedido, ped_situacao, ped_totbruto, ped_totliq,
        (SELECT COUNT(*) FROM itens_ped i WHERE TRIM(i.ite_pedido)=TRIM(p.ped_pedido)) AS n_itens
 FROM pedidos p
