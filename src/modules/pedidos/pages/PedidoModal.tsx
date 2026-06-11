@@ -1660,6 +1660,10 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
   const [formData, setFormData]           = useState<Partial<OrderFull>>({});
   const [loading, setLoading]             = useState(false);
   const [isSaving, setIsSaving]           = useState(false);
+  // Single-flight da CRIAÇÃO de pedido novo: trava SÍNCRONA (ref, não state) que
+  // impede 2 criações concorrentes — chamadas em sequência esperam a MESMA promise
+  // em vez de criar pedidos duplicados (race do pedidoSalvo, que é state assíncrono).
+  const createInFlightRef = useRef<Promise<boolean> | null>(null);
   const [saveError, setSaveError]         = useState<string | null>(null);
   const [userParams, setUserParams]       = useState<{ usaDecimais: boolean; qtdDecimais: number; itemDuplicado: boolean; qtdEnter: number; fmtPesquisa: string; mostraCodigoOri: boolean } | null>(null);
   const [allowDuplicateOverride, setAllowDuplicateOverride] = useState<boolean | null>(null);
@@ -1960,7 +1964,7 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
 
   if (!isOpen) return null;
 
-  const handleSave = async (closeAfter: boolean): Promise<boolean> => {
+  const doSave = async (closeAfter: boolean): Promise<boolean> => {
     if (!fullOrder) return false;
     setSaveError(null);
     setIsSaving(true);
@@ -2030,6 +2034,20 @@ export default function PedidoModal({ isOpen, mode, order, onClose, onSaved, onU
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // Wrapper público com SINGLE-FLIGHT na criação: se já há uma criação de pedido novo
+  // em andamento, chamadas concorrentes esperam a MESMA promise em vez de criar outro
+  // pedido (corrige os 13 cabeçalhos duplicados). Edição (PUT) passa direto.
+  const handleSave = (closeAfter: boolean): Promise<boolean> => {
+    if (mode === 'new' && !pedidoSalvo) {
+      if (createInFlightRef.current) return createInFlightRef.current;
+      const p = doSave(closeAfter);
+      createInFlightRef.current = p;
+      p.finally(() => { createInFlightRef.current = null; });
+      return p;
+    }
+    return doSave(closeAfter);
   };
 
   const renderContent = () => {
