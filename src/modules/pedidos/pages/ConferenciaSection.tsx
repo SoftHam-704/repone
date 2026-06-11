@@ -40,6 +40,12 @@ interface CatalogItem {
   preco_bruto?: number;
   preco_promo?: number;
   preco_especial?: number;
+  /** itab_prepeso — preço por kg (Modo A: base = preco_peso × pro_peso). */
+  preco_peso?: number;
+  /** cad_prod.pro_peso — peso do produto em kg. */
+  pro_peso?: number;
+  /** itab_descontoadd — desconto adicional da tabela (Modo B: entra no ite_des10). */
+  desconto_add?: number;
   ipi?: number;
   st?: number;
   grupo_desconto?: number;
@@ -493,6 +499,8 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
         let updated = { ...it };
         if (p) {
           updated.ite_nomeprod = p.pro_nome || it.ite_nomeprod;
+          // Modo B: refresca o desconto adicional da tabela (itab_descontoadd → ite_des10/ADD%).
+          updated.ite_des10 = n(p.desconto_add) ?? updated.ite_des10;
           if (hasSuframa) { updated.ite_ipi = 0; updated.ite_st = 0; }
 
           // Re-classifica item mal-marcado como promo: se a tabela tem promo
@@ -651,6 +659,11 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
       const nome = p.pro_nome || it.ite_nomeprod;
 
       const descAdd = n(p.desconto_add) ?? it.ite_des10;
+      // Modo A: preço por peso (itab_prepeso × pro_peso). Quando informado na tabela,
+      // vira a base — sobrescreve especial/bruto (mas não promo) e NÃO soma embalagem.
+      const precoPeso = n(p.preco_peso);
+      const pesoProd  = n(p.pro_peso);
+      const peso = precoPeso > 0 && pesoProd > 0 ? Math.round(precoPeso * pesoProd * 100) / 100 : 0;
 
       if (promo > 0) {
         count++;
@@ -660,6 +673,19 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
           ite_ipi: ipi, ite_st: st, ite_des10: descAdd,
           ite_des1: 0, ite_des2: 0, ite_des3: 0, ite_des4: 0, ite_des5: 0,
           ite_des6: 0, ite_des7: 0, ite_des8: 0, ite_des9: 0,
+        });
+      }
+      if (peso > 0) {
+        count++;
+        return calcItem({
+          ...it,
+          ite_puni: peso, ite_promocao: 'N', ite_nomeprod: nome,
+          ite_ipi: ipi, ite_st: st, ite_des10: descAdd,
+          ite_des1: order.ped_pri || 0, ite_des2: order.ped_seg || 0,
+          ite_des3: order.ped_ter || 0, ite_des4: order.ped_qua || 0,
+          ite_des5: order.ped_qui || 0, ite_des6: order.ped_sex || 0,
+          ite_des7: order.ped_set || 0, ite_des8: order.ped_oit || 0,
+          ite_des9: order.ped_nov || 0,
         });
       }
       if (especial > 0) {
