@@ -111,13 +111,16 @@ function calculateItem(
   d1: number, d2: number, d3: number, d4: number, d5: number,
   d6: number, d7: number, d8: number, d9: number, d10: number,
   ipi: number, st: number,
+  casas = 2,
 ) {
   let liq = puni;
   [d1, d2, d3, d4, d5, d6, d7, d8, d9].forEach(d => { liq = liq * (1 - d / 100); });
   liq = liq * (1 - d10 / 100);
-  const puniliq    = liq;
+  // Líquido unitário arredondado na casa configurada (par_qtddecimais); total = líquido × qtd.
+  const pot = Math.pow(10, Math.max(0, Math.min(4, casas)));
+  const puniliq    = Math.round(liq * pot) / pot;
   const totbruto   = Math.round((puni * quant) * 100) / 100;
-  const totliquido = Math.round((liq * quant) * 100) / 100;
+  const totliquido = Math.round((puniliq * quant) * 100) / 100;
   const valcomipi  = Math.round((totliquido * (1 + ipi / 100)) * 100) / 100;
   const valcomst   = Math.round((valcomipi  * (1 + st  / 100)) * 100) / 100;
   return { puniliq, totbruto, totliquido, valcomipi, valcomst };
@@ -322,7 +325,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
       f.puni, quant,
       f.des1, f.des2, f.des3, f.des4, f.des5,
       f.des6, f.des7, f.des8, f.des9, f.des10,
-      f.ipi, f.st,
+      f.ipi, f.st, qtdDecimais,
     );
     return { ...f, ...calc, quant: f.quant };
   }, []);
@@ -404,7 +407,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
         discs.des1, discs.des2, discs.des3, discs.des4, discs.des5,
         discs.des6, discs.des7, discs.des8, discs.des9,
         product.desconto_add || 0,
-        item.ite_ipi, item.ite_st,
+        item.ite_ipi, item.ite_st, qtdDecimais,
       );
       updated++;
       return {
@@ -567,7 +570,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
       f.puni, quant,
       f.des1, f.des2, f.des3, f.des4, f.des5,
       f.des6, f.des7, f.des8, f.des9, f.des10,
-      f.ipi, f.st,
+      f.ipi, f.st, qtdDecimais,
     );
 
     const newItem: ItemRow = {
@@ -644,7 +647,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
       item.ite_des4, item.ite_des5, item.ite_des6,
       item.ite_des7, item.ite_des8, item.ite_des9, item.ite_des10,
       hasSuframa ? 0 : item.ite_ipi,
-      hasSuframa ? 0 : item.ite_st,
+      hasSuframa ? 0 : item.ite_st, qtdDecimais,
     );
     setOrderItems(prev =>
       prev.map(it => it.tempId === item.tempId ? { ...it, ite_quant: totalQuant, ...calc } : it)
@@ -749,7 +752,7 @@ export function ItemsSection({ order, mode, priceTableItems, userParams, orderIt
       form.puni, currentQuant,
       form.des1, form.des2, form.des3, form.des4, form.des5,
       form.des6, form.des7, form.des8, form.des9, form.des10,
-      form.ipi, form.st,
+      form.ipi, form.st, qtdDecimais,
     );
 
     return (

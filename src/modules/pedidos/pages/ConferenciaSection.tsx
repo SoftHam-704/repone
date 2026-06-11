@@ -84,7 +84,7 @@ const fmtPct = (v: any) =>
 
 const n = (v: any) => parseFloat(v) || 0;
 
-function calcItem(it: ItemRow): ItemRow {
+function calcLinha(it: ItemRow, casas = 2): ItemRow {
   let liq = n(it.ite_puni);
   [it.ite_des1, it.ite_des2, it.ite_des3, it.ite_des4, it.ite_des5,
    it.ite_des6, it.ite_des7, it.ite_des8, it.ite_des9].forEach(d => {
@@ -92,9 +92,13 @@ function calcItem(it: ItemRow): ItemRow {
   });
   liq = liq * (1 - n(it.ite_des10) / 100);
 
-  const puniliq    = liq;
+  // Arredonda o LÍQUIDO UNITÁRIO na casa decimal configurada (par_qtddecimais),
+  // pra ficar na mesma precisão do bruto. O total é unitário(arredondado) × qtd —
+  // assim "unitário exibido × qtd = total", sem o vazamento de casas (1,674 vs 1,67).
+  const pot = Math.pow(10, Math.max(0, Math.min(4, casas)));
+  const puniliq    = Math.round(liq * pot) / pot;
   const totbruto   = Math.round((n(it.ite_puni) * n(it.ite_quant)) * 100) / 100;
-  const totliquido = Math.round((liq * n(it.ite_quant)) * 100) / 100;
+  const totliquido = Math.round((puniliq * n(it.ite_quant)) * 100) / 100;
   const valcomipi  = Math.round((totliquido * (1 + n(it.ite_ipi) / 100)) * 100) / 100;
   const valcomst   = Math.round((valcomipi  * (1 + n(it.ite_st)  / 100)) * 100) / 100;
 
@@ -339,6 +343,9 @@ function AddDialog({ onConfirm, onClose }: { onConfirm: (add: number, esp: numbe
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ConferenciaSection({ order, orderItems, setOrderItems, priceTableItems, isView, userParams, hasSuframa = false, autoApplyGroupDisc, onGroupDiscApplied, onTotaisUpdated }: Props) {
+  // Casas decimais do preço (par_qtddecimais) — todo recálculo arredonda o líquido nelas.
+  const casasPreco = userParams?.qtdDecimais ?? 2;
+  const calcItem = useCallback((it: ItemRow) => calcLinha(it, casasPreco), [casasPreco]);
   const [syncing,        setSyncing]        = useState(false);
   const [clientDiscs,    setClientDiscs]    = useState<any[]>([]);
   const [groupDescs,     setGroupDescs]     = useState<any[]>([]);
