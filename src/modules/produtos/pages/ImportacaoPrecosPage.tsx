@@ -81,6 +81,16 @@ const C = {
 };
 
 // ─── Smart Split ──────────────────────────────────────────────────────────────
+// Conta as aspas no fim da string (após aparar espaços à direita).
+// A PARIDADE decide o fechamento: o Excel escapa aspas internas dobrando-as
+// ("" = par), então a aspa de FECHAMENTO de célula é sempre a que sobra ímpar.
+const trailingQuotes = (s: string): number => {
+  const t = s.replace(/\s+$/, '');
+  let q = 0;
+  for (let i = t.length - 1; i >= 0 && t[i] === '"'; i--) q++;
+  return q;
+};
+
 const smartSplit = (text: string): { lines: string[]; adjustedCount: number } => {
   if (!text) return { lines: [], adjustedCount: 0 };
   const rawLines = text.split(/\r?\n/);
@@ -88,15 +98,19 @@ const smartSplit = (text: string): { lines: string[]; adjustedCount: number } =>
   let currentCell = '', inQuotedCell = false, adjustedCount = 0;
   for (const line of rawLines) {
     if (!inQuotedCell) {
-      if (line.trim().startsWith('"')) {
-        if (line.trim().endsWith('"') && line.trim().length > 1 && !line.trim().endsWith('""'))
-          rows.push(line.trim());
+      const t = line.trim();
+      if (t.startsWith('"')) {
+        // Fecha na MESMA linha se o restante (sem a aspa de abertura) terminar
+        // com nº ÍMPAR de aspas — senão, abre célula multi-linha.
+        const rest = t.slice(1);
+        if (rest.length > 0 && trailingQuotes(rest) % 2 === 1) rows.push(t);
         else { inQuotedCell = true; currentCell = line; }
-      } else rows.push(line.trim());
+      } else rows.push(t);
     } else {
       adjustedCount++;
       currentCell += '\n' + line;
-      if (line.trim().endsWith('"') && !line.trim().endsWith('""')) {
+      // Fecha quando a linha termina com nº ÍMPAR de aspas (escapes "" são pares).
+      if (trailingQuotes(line) % 2 === 1) {
         inQuotedCell = false; rows.push(currentCell.trim()); currentCell = '';
       }
     }
