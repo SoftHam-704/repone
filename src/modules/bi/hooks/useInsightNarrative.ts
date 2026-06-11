@@ -23,8 +23,11 @@ export function useInsightNarrative(
   const [type,    setType]    = useState<NarrativeType>('info');
   const [loading, setLoading] = useState(false);
 
-  // readyKey muda quando: (a) trigger muda OU (b) data passa de null → não-null
-  const readyKey = `${trigger}|${data !== null ? 'ready' : 'empty'}`;
+  // readyKey muda quando o trigger OU o CONTEÚDO dos dados muda. Refletir o conteúdo
+  // (não só null→não-null) é essencial: ao trocar o filtro, o `trigger` muda na hora
+  // mas o `data` só chega depois da busca async — sem isso a narrativa congela no
+  // período anterior até dar refresh. A busca obsoleta é descartada pelo cleanup.
+  const readyKey = `${trigger}|${data ? JSON.stringify(data) : 'empty'}`;
 
   useEffect(() => {
     if (!data) {
