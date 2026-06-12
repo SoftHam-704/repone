@@ -100,7 +100,8 @@ async function requestBinary(method: string, path: string): Promise<{ data: Buff
 
 // ── Empresa / config ───────────────────────────────────────────────
 export function uploadCertificado(cnpj: string, pfxBase64: string, senha: string) {
-  return request('PUT', `/empresas/${cnpj}/certificado`, { certificado: pfxBase64, senha });
+  // DTO EmpresaPedidoCadastroCertificado = { certificado, password } (não "senha")
+  return request('PUT', `/empresas/${cnpj}/certificado`, { certificado: pfxBase64, password: senha });
 }
 export function configurarNfseEmpresa(cnpj: string, dados: unknown) {
   return request('PUT', `/empresas/${cnpj}/nfse`, dados);
