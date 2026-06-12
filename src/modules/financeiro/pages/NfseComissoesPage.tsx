@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, X, Trash2, Pencil, FileSpreadsheet, Percent, FileText } from 'lucide-react'
+import { Plus, X, Trash2, Pencil, FileSpreadsheet, Percent, FileText, FileUp } from 'lucide-react'
 import { api } from '@/shared/lib/api'
 import SearchCombobox from '@/shared/components/ui/SearchCombobox'
 import { exportNfseToExcel } from '../utils/exportNfseToExcel'
@@ -44,6 +44,7 @@ interface Nfse {
   vr_bruto: number; irrf: number; pis: number; cofins: number; csll: number
   irpj: number; iss: number; fgts_gps: number; liquido_nf: number; liq_rec: number
   data_pgto: string | null; transf: boolean; obs: string | null
+  status?: string; codigo_verificacao?: string | null; protocolo?: string | null; erro_msg?: string | null
 }
 interface Totais {
   qtd: number; vr_bruto: number; impostos: number; liquido_nf: number; liq_rec: number
@@ -66,6 +67,14 @@ function calcPreview(vrBruto: number, a: Aliquotas) {
 const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
 const todayISO = () => new Date().toISOString().split('T')[0]
 
+async function baixarArquivo(path: string, abrir = false) {
+  const r = await api.get(path, { responseType: 'blob' })
+  const url = URL.createObjectURL(r.data)
+  if (abrir) window.open(url, '_blank')
+  else { const a = document.createElement('a'); a.href = url; a.download = path.split('/').pop() || 'arquivo'; a.click() }
+  setTimeout(() => URL.revokeObjectURL(url), 10000)
+}
+
 export default function NfseComissoesPage() {
   const [competencia, setCompetencia] = useState(thisMonth())
   const [list, setList] = useState<Nfse[]>([])
@@ -75,6 +84,7 @@ export default function NfseComissoesPage() {
   const [loading, setLoading] = useState(false)
   const [modal, setModal] = useState<Nfse | 'new' | null>(null)
   const [aliqModal, setAliqModal] = useState(false)
+  const [emitir, setEmitir] = useState<Nfse | null>(null)
 
   const reps = useMemo(() => representadas.map(r => ({ id: r.for_codigo, nome: (r.for_nomered || r.for_nome || '').trim() })), [representadas])
 
@@ -165,6 +175,10 @@ export default function NfseComissoesPage() {
                   <td style={{ padding: '7px 8px', textAlign: 'center' }}>{n.transf ? '✓' : '—'}</td>
                   <td style={{ padding: '7px 8px', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: G.muted }}>{n.obs || ''}</td>
                   <td style={{ padding: '7px 8px', whiteSpace: 'nowrap' }}>
+                    <StatusBadge status={n.status} />
+                    {(!n.status || n.status === 'CONTROLE' || n.status === 'ERRO') && (
+                      <button title={n.status === 'ERRO' ? 'Reemitir' : 'Emitir NFS-e'} onClick={() => setEmitir(n)} style={{ ...iconBtn, color: G.green }}><FileUp size={14} /></button>
+                    )}
                     <button title="Editar" onClick={() => setModal(n)} style={iconBtn}><Pencil size={14} /></button>
                     <button title="Excluir" onClick={() => del(n.id)} style={{ ...iconBtn, color: G.red }}><Trash2 size={14} /></button>
                   </td>
@@ -195,6 +209,9 @@ export default function NfseComissoesPage() {
           onSaved={() => { setModal(null); reload() }}
         />
       )}
+      {emitir && (
+        <EmitirModal nfse={emitir} onClose={() => setEmitir(null)} onDone={() => { setEmitir(null); reload() }} />
+      )}
       {aliqModal && (
         <AliquotasModal aliq={aliq} onClose={() => setAliqModal(false)}
           onSaved={(a) => { setAliq(a); setAliqModal(false); reload() }} />
@@ -213,6 +230,18 @@ function KpiCard({ label, value, color, accent }: { label: string; value: string
       <div style={{ fontSize: 21, fontWeight: 700, color: accent ? G.mustard : color, marginTop: 4 }}>{value}</div>
     </div>
   )
+}
+
+function StatusBadge({ status }: { status?: string }) {
+  if (!status || status === 'CONTROLE') return null
+  const map: Record<string, { t: string; bg: string; c: string }> = {
+    EMITIDA:   { t: 'Emitida',   bg: '#E8F5E9', c: '#2E7D32' },
+    ERRO:      { t: 'Erro',      bg: '#FDECEA', c: '#C62828' },
+    PENDENTE:  { t: 'Processando', bg: '#FFF7ED', c: '#9A3412' },
+    CANCELADA: { t: 'Cancelada', bg: '#ECEFF1', c: '#546E7A' },
+  }
+  const s = map[status] || { t: status, bg: '#ECEFF1', c: '#546E7A' }
+  return <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 10, background: s.bg, color: s.c, marginRight: 6 }}>{s.t}</span>
 }
 
 // ── Modal de lançamento ────────────────────────────────────────────────────
@@ -321,6 +350,81 @@ function Prev({ l, v, strong }: { l: string; v: number; strong?: boolean }) {
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
       <span style={{ color: G.muted }}>{l}</span>
       <span style={{ fontWeight: strong ? 700 : 500, color: G.text, fontVariantNumeric: 'tabular-nums' }}>{fmtNum(v)}</span>
+    </div>
+  )
+}
+
+function EmitirModal({ nfse, onClose, onDone }: { nfse: Nfse; onClose: () => void; onDone: () => void }) {
+  const [prev, setPrev] = useState<any>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [emitindo, setEmitindo] = useState(false)
+  const [result, setResult] = useState<any>(null)
+
+  useEffect(() => {
+    api.get(`/nfse/${nfse.id}/previa`)
+      .then(r => setPrev(r.data.data))
+      .catch(e => setErro(e?.response?.data?.message || 'Erro ao montar a prévia.'))
+      .finally(() => setLoading(false))
+  }, [nfse.id])
+
+  const emitir = async () => {
+    setEmitindo(true); setErro(null)
+    try {
+      const r = await api.post(`/nfse/${nfse.id}/emitir`)
+      if (r.data.success) setResult(r.data)
+      else setErro(r.data.motivo || r.data.message || 'A prefeitura recusou a nota.')
+    } catch (e: any) { setErro(e?.response?.data?.message || 'Erro ao emitir.') }
+    finally { setEmitindo(false) }
+  }
+
+  return (
+    <Overlay onClose={onClose} width={560}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: G.navy }}>Emitir NFS-e</div>
+        <button onClick={onClose} style={iconBtn}><X size={18} /></button>
+      </div>
+
+      {loading ? <div style={{ color: G.muted, padding: 20 }}>Montando prévia…</div>
+       : result ? (
+        <div>
+          <div style={{ padding: 12, borderRadius: 8, background: '#E8F5E9', color: '#2E7D32', fontWeight: 700, marginBottom: 12 }}>
+            ✓ NFS-e {result.numero ? `nº ${result.numero}` : ''} autorizada!
+          </div>
+          {result.codigo_verificacao && <Prev2 l="Cód. verificação" v={result.codigo_verificacao} />}
+          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+            <button onClick={() => baixarArquivo(`/nfse/${nfse.id}/pdf`, true)} style={btnPrimary(G.navy)}>📄 Abrir PDF</button>
+            {result.link_url && <a href={result.link_url} target="_blank" rel="noreferrer" style={{ ...btnPrimary(G.mustard), textDecoration: 'none' }}>🔗 Consulta pública</a>}
+            <button onClick={onDone} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>Fechar</button>
+          </div>
+        </div>
+       ) : prev ? (
+        <div>
+          {prev.ambiente === 'PRODUCAO'
+            ? <div style={{ padding: 10, borderRadius: 8, background: '#FDECEA', color: '#C62828', fontWeight: 700, fontSize: 12, marginBottom: 12 }}>⚠ PRODUÇÃO — esta nota tem valor fiscal.</div>
+            : <div style={{ padding: 10, borderRadius: 8, background: '#FFF7ED', color: '#9A3412', fontWeight: 700, fontSize: 12, marginBottom: 12 }}>Ambiente de HOMOLOGAÇÃO (teste, sem valor fiscal).</div>}
+          <Prev2 l="Prestador" v={`${prev.prestador.nome} · ${prev.prestador.cnpj} · IM ${prev.prestador.im}`} />
+          <Prev2 l="Tomador" v={`${prev.tomador.nome} · ${prev.tomador.cnpj}`} />
+          <Prev2 l="Serviço" v={`${prev.servico.item_lc116} — ${prev.servico.descricao}`} />
+          <Prev2 l="Códigos" v={`cTribNac ${prev.servico.ctribnac} · NBS ${prev.servico.cnbs}`} />
+          <Prev2 l="Valor" v={fmtBRL(prev.valor)} strong />
+          <Prev2 l="ISS" v={prev.iss_simples ? 'recolhido via DAS (Simples)' : `${prev.iss_pct}%`} />
+          {erro && <div style={{ padding: 10, borderRadius: 8, background: '#FDECEA', color: '#C62828', fontSize: 12, margin: '12px 0', whiteSpace: 'pre-wrap' }}>{erro}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+            <button onClick={onClose} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>Cancelar</button>
+            <button onClick={emitir} disabled={emitindo} style={btnPrimary(G.green)}>{emitindo ? 'Emitindo…' : 'Confirmar e emitir'}</button>
+          </div>
+        </div>
+       ) : <div style={{ padding: 12, borderRadius: 8, background: '#FDECEA', color: '#C62828', fontSize: 13 }}>{erro}</div>}
+    </Overlay>
+  )
+}
+
+function Prev2({ l, v, strong }: { l: string; v: string; strong?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderBottom: `1px solid ${G.border}`, fontSize: 13 }}>
+      <span style={{ color: G.muted, flexShrink: 0 }}>{l}</span>
+      <span style={{ fontWeight: strong ? 800 : 600, color: G.navy, textAlign: 'right' }}>{v}</span>
     </div>
   )
 }
