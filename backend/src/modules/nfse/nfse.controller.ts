@@ -265,6 +265,7 @@ function validarEmissao(lanc: any, emp: any): string[] {
   if (!emp.emp_im) faltando.push('Inscrição Municipal (Configurações → Dados Fiscais)');
   if (!emp.emp_ctribnac) faltando.push('Código de tributação nacional (Configurações)');
   if (!emp.emp_cnbs) faltando.push('Código NBS (Configurações)');
+  if (!emp.emp_ibge) faltando.push('Código IBGE do município (Configurações)');
   if (!lanc.for_cnpj) faltando.push('CNPJ da representada (tomador)');
   if (!(Number(lanc.vr_bruto) > 0)) faltando.push('Valor (VR Bruto) maior que zero');
   return faltando;
@@ -334,14 +335,14 @@ export async function emitirNfseHandler(req: Request, res: Response): Promise<vo
     const acbrId = emit?.id ?? emit?.data?.id;
     let status = String(emit?.status ?? '').toLowerCase();
     let info: any = emit;
-    for (let i = 0; acbrId && !['autorizada','autorizado','concluido','negada','rejeitado','erro','cancelada'].includes(status) && i < 10; i++) {
+    for (let i = 0; acbrId && !['autorizada','autorizado','concluido','negada','rejeitado','erro','cancelada','cancelado'].includes(status) && i < 10; i++) {
       await new Promise(r => setTimeout(r, 3000));
       info = await acbr.consultar(acbrId);
       status = String(info?.status ?? '').toLowerCase();
     }
 
     const ok = ['autorizada','autorizado','concluido'].includes(status);
-    const terminal = ['negada','rejeitado','erro','cancelada'].includes(status);
+    const terminal = ['negada','rejeitado','erro','cancelada','cancelado'].includes(status);
     const novoStatus = ok ? 'EMITIDA' : terminal ? 'ERRO' : 'PENDENTE';
     const motivo = ok ? null : (extrairMotivoAcbr(info) ?? motivoMensagens(info) ?? `status ACBr: ${status || 'desconhecido'}`);
     const numero = info?.numero ?? null;
