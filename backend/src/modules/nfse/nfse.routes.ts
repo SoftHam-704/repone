@@ -6,6 +6,7 @@ import {
   getAliquotasHandler, updateAliquotasHandler,
   listRepresentadasHandler,
   listNfseHandler, createNfseHandler, updateNfseHandler, deleteNfseHandler,
+  emitirNfseHandler,
 } from './nfse.controller';
 
 const router = Router();
@@ -25,5 +26,8 @@ router.get   ('/',     listNfseHandler);
 router.post  ('/',     createNfseHandler);
 router.put   ('/:id',  updateNfseHandler);
 router.delete('/:id',  deleteNfseHandler);
+
+// emissão real (ACBr) — homologação nesta fase
+router.post('/:id/emitir', emitirNfseHandler);
 
 export default router;
