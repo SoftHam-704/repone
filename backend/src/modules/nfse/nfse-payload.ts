@@ -13,6 +13,7 @@ export interface LancamentoNfse {
   iss: number;                  // valor R$ do ISS (snapshot)
   representada_nome: string;
   for_cnpj: string;             // CNPJ da indústria (tomador)
+  descricao?: string;           // discriminação do serviço (override do texto padrão)
 }
 export interface AliquotasNfse {
   regime: string;               // 'PRESUMIDO' | 'SIMPLES' | ...
@@ -39,7 +40,7 @@ export interface BuiltPayload { tipo: 'rps' | 'dps'; payload: unknown }
 const onlyDigits = (s: string) => String(s ?? '').replace(/\D/g, '');
 const compToDate = (c: string) => `${c}-01`;                 // 'YYYY-MM' → 'YYYY-MM-01'
 const discriminacao = (l: LancamentoNfse) =>
-  `Comissão sobre representação comercial — competência ${l.competencia}`;
+  l.descricao ?? `Comissão sobre representação comercial — competência ${l.competencia}`;
 
 export function buildNfsePayload(args: BuildArgs): BuiltPayload {
   const { lancamento: l, aliquotas: a, prestador: p, provedor, ambiente } = args;

@@ -8,12 +8,19 @@ import {
   listNfseHandler, createNfseHandler, updateNfseHandler, deleteNfseHandler,
   emitirNfseHandler, previaNfseHandler,
   pdfNfseHandler, xmlNfseHandler, cancelarNfseHandler,
+  listServicosHandler, createServicoHandler, updateServicoHandler, deleteServicoHandler,
 } from './nfse.controller';
 
 const router = Router();
 
-// Controle de NFS-e / Comissões do escritório = dado sensível → MASTER apenas.
-router.use(authMiddleware, tenantMiddleware, requireLevel(LEVEL.MASTER));
+// Controle de NFS-e / Comissões do escritório — Gerência e acima.
+router.use(authMiddleware, tenantMiddleware, requireLevel(LEVEL.GERENCIA));
+
+// serviços (cadastro — registrado ANTES de /:id para evitar conflito)
+router.get   ('/servicos',     listServicosHandler);
+router.post  ('/servicos',     createServicoHandler);
+router.put   ('/servicos/:id', updateServicoHandler);
+router.delete('/servicos/:id', deleteServicoHandler);
 
 // matriz de alíquotas
 router.get('/aliquotas', getAliquotasHandler);

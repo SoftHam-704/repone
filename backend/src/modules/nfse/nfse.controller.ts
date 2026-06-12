@@ -250,8 +250,13 @@ function motivoMensagens(info: any): string | null {
 // Carrega o que a emissão/prévia precisam: lançamento (com CNPJ do tomador) + empresa_status.
 async function carregarParaEmissao(db: any, id: number) {
   const lanc = (await db.query(`
-    SELECT n.*, f.for_cgc AS for_cnpj, COALESCE(NULLIF(TRIM(f.for_nomered),''), f.for_nome, n.representada_nome) AS tomador_nome
-    FROM fin_nfse n LEFT JOIN fornecedores f ON f.for_codigo = n.for_codigo
+    SELECT n.*, f.for_cgc AS for_cnpj, f.for_email AS tomador_email,
+           COALESCE(NULLIF(TRIM(f.for_nomered),''), f.for_nome, n.representada_nome) AS tomador_nome,
+           s.descricao AS serv_descricao, s.item_lc116 AS serv_item, s.ctribnac AS serv_ctribnac,
+           s.cnbs AS serv_cnbs, s.ctribmun AS serv_ctribmun, s.iss_pct AS serv_iss
+    FROM fin_nfse n
+    LEFT JOIN fornecedores f ON f.for_codigo = n.for_codigo
+    LEFT JOIN fin_nfse_servicos s ON s.id = n.servico_id
     WHERE n.id = $1
   `, [id])).rows[0];
   const emp = (await db.query(`SELECT * FROM empresa_status WHERE emp_id = 1`)).rows[0] || {};
@@ -272,16 +277,21 @@ function validarEmissao(lanc: any, emp: any): string[] {
 }
 
 function montarPayload(lanc: any, emp: any) {
+  const usaServ = !!lanc.serv_ctribnac;
+  const aliquotas = usaServ
+    ? { regime: emp.emp_regime || 'PRESUMIDO', iss_pct: Number(lanc.serv_iss) || 0,
+        inscricao_municipal: emp.emp_im || '', codigo_servico_padrao: lanc.serv_ctribnac,
+        ctrib_mun: lanc.serv_ctribmun || undefined, cnbs: lanc.serv_cnbs || undefined }
+    : empresaToAliquotas(emp);
+  const desc = lanc.serv_descricao
+    ? `${lanc.serv_descricao} — competência ${lanc.competencia}`
+    : `Comissão sobre representação comercial — competência ${lanc.competencia}`;
   return buildNfsePayload({
-    lancamento: {
-      id: lanc.id, competencia: lanc.competencia, vr_bruto: Number(lanc.vr_bruto),
-      iss: Number(lanc.iss), representada_nome: lanc.tomador_nome || lanc.representada_nome || '',
-      for_cnpj: String(lanc.for_cnpj),
-    },
-    aliquotas: empresaToAliquotas(emp),
+    lancamento: { id: lanc.id, competencia: lanc.competencia, vr_bruto: Number(lanc.vr_bruto), iss: Number(lanc.iss),
+      representada_nome: lanc.tomador_nome || lanc.representada_nome || '', for_cnpj: String(lanc.for_cnpj), descricao: desc },
+    aliquotas,
     prestador: { cnpj: String(emp.emp_cnpj), razao: emp.emp_nome || '', ibge: String(emp.emp_ibge || '') },
-    provedor: 'nacional',
-    ambiente: emp.emp_nfse_ambiente === 'PRODUCAO' ? 'producao' : 'homologacao',
+    provedor: 'nacional', ambiente: emp.emp_nfse_ambiente === 'PRODUCAO' ? 'producao' : 'homologacao',
   });
 }
 
@@ -296,9 +306,11 @@ export async function previaNfseHandler(req: Request, res: Response): Promise<vo
     const isSimples = (emp.emp_regime || '').toUpperCase().includes('SIMPLES');
     res.json({ success: true, data: {
       prestador: { nome: emp.emp_nome, cnpj: emp.emp_cnpj, im: emp.emp_im },
-      tomador: { nome: lanc.tomador_nome || lanc.representada_nome, cnpj: lanc.for_cnpj },
-      servico: { item_lc116: emp.emp_item_lc116, ctribnac: emp.emp_ctribnac, cnbs: emp.emp_cnbs,
-                 descricao: `Comissão sobre representação comercial — competência ${lanc.competencia}` },
+      tomador: { nome: lanc.tomador_nome || lanc.representada_nome, cnpj: lanc.for_cnpj, email: lanc.tomador_email },
+      servico: { item_lc116: lanc.serv_item || emp.emp_item_lc116, ctribnac: lanc.serv_ctribnac || emp.emp_ctribnac,
+                 cnbs: lanc.serv_cnbs || emp.emp_cnbs, descricao: lanc.serv_descricao
+                   ? `${lanc.serv_descricao} — competência ${lanc.competencia}`
+                   : `Comissão sobre representação comercial — competência ${lanc.competencia}` },
       valor: Number(lanc.vr_bruto), iss_pct: isSimples ? null : Number(emp.emp_iss_pct) || 0, iss_simples: isSimples,
       competencia: lanc.competencia,
       ambiente: emp.emp_nfse_ambiente === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO',
@@ -393,6 +405,49 @@ export async function xmlNfseHandler(req: Request, res: Response): Promise<void>
     res.setHeader('Content-Disposition', `attachment; filename="nfse-${req.params.id}.xml"`);
     res.send(xml.data);
   } catch (e: any) { res.status(500).json({ success: false, message: e?.message ?? 'Erro ao baixar XML' }); }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SERVIÇOS NFS-e (tabela fin_nfse_servicos)
+// ════════════════════════════════════════════════════════════════════
+
+export async function listServicosHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const r = await db.query(`SELECT * FROM fin_nfse_servicos ORDER BY ativo DESC, descricao`);
+    res.json({ success: true, data: r.rows });
+  } catch (e) { err(res, e, 'listServicos'); }
+}
+
+export async function createServicoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!; const b = req.body || {};
+    if (!String(b.descricao || '').trim()) { res.status(400).json({ success: false, message: 'Descrição é obrigatória.' }); return; }
+    const r = await db.query(`
+      INSERT INTO fin_nfse_servicos (descricao, item_lc116, ctribnac, cnbs, ctribmun, iss_pct, ativo)
+      VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7,true)) RETURNING *
+    `, [b.descricao.trim(), b.item_lc116 || null, b.ctribnac || null, b.cnbs || null, b.ctribmun || null,
+        b.iss_pct === '' || b.iss_pct == null ? 0 : Number(b.iss_pct), b.ativo]);
+    res.json({ success: true, data: r.rows[0] });
+  } catch (e) { err(res, e, 'createServico'); }
+}
+
+export async function updateServicoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!; const b = req.body || {};
+    const r = await db.query(`
+      UPDATE fin_nfse_servicos SET descricao=$1, item_lc116=$2, ctribnac=$3, cnbs=$4, ctribmun=$5, iss_pct=$6, ativo=COALESCE($7,ativo)
+      WHERE id=$8 RETURNING *
+    `, [b.descricao, b.item_lc116 || null, b.ctribnac || null, b.cnbs || null, b.ctribmun || null,
+        b.iss_pct === '' || b.iss_pct == null ? 0 : Number(b.iss_pct), b.ativo, Number(req.params.id)]);
+    if (!r.rowCount) { res.status(404).json({ success: false, message: 'Serviço não encontrado.' }); return; }
+    res.json({ success: true, data: r.rows[0] });
+  } catch (e) { err(res, e, 'updateServico'); }
+}
+
+export async function deleteServicoHandler(req: Request, res: Response): Promise<void> {
+  try { await req.db!.query(`DELETE FROM fin_nfse_servicos WHERE id=$1`, [Number(req.params.id)]); res.json({ success: true }); }
+  catch (e) { err(res, e, 'deleteServico'); }
 }
 
 // POST /:id/cancelar  { motivo }
