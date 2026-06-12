@@ -18,7 +18,9 @@ export interface AliquotasNfse {
   regime: string;               // 'PRESUMIDO' | 'SIMPLES' | ...
   iss_pct: number;
   inscricao_municipal: string;
-  codigo_servico_padrao: string;
+  codigo_servico_padrao: string;  // cTribNac (nacional, ex.: 100900 = LC116 10.09)
+  ctrib_mun?: string;             // cTribMun (código do município, ex.: 100901 = BH 10.09.01)
+  cnbs?: string;                  // código NBS — exigido pelo schema do DPS Nacional
 }
 export interface Prestador { cnpj: string; razao: string; ibge: string }
 
@@ -59,7 +61,7 @@ export function buildNfsePayload(args: BuildArgs): BuiltPayload {
           toma:  { CNPJ: onlyDigits(l.for_cnpj), xNome: l.representada_nome },
           serv: {
             locPrest: { cLocPrestacao: p.ibge },
-            cServ: { cTribNac: a.codigo_servico_padrao, xDescServ: discriminacao(l) },
+            cServ: { cTribNac: a.codigo_servico_padrao, cTribMun: a.ctrib_mun, cNBS: a.cnbs, xDescServ: discriminacao(l) },
           },
           valores: {
             vServPrest: { vServ: l.vr_bruto },
@@ -70,6 +72,7 @@ export function buildNfsePayload(args: BuildArgs): BuiltPayload {
                 cLocIncid: p.ibge,
                 tpRetISSQN: 1,         // 1 = ISSQN não retido
               },
+              totTrib: { indTotTrib: 0 }, // 0 = não informar o total aproximado de tributos
             },
           },
         },
