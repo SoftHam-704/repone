@@ -8,14 +8,15 @@ const lancamento = {
 const aliquotas = { regime: 'PRESUMIDO', iss_pct: 2.5, inscricao_municipal: '123456', codigo_servico_padrao: '10.09' };
 const prestador = { cnpj: '28427986000108', razao: 'HM BORCATO REPRESENTACAO COMERCIAL LTDA', ibge: '3106200' };
 
-// Provedor municipal (RPS/ABRASF)
+// Provedor municipal (RPS/ABRASF) — estrutura real (item_lista_servico + valores{})
 const rps = buildNfsePayload({ lancamento, aliquotas, prestador, provedor: 'municipal', ambiente: 'homologacao' });
+const rp = rps.payload as any;
 assert.equal(rps.tipo, 'rps', 'municipal → rps');
-assert.equal((rps.payload as any).ambiente, 'homologacao');
-assert.equal((rps.payload as any).rps.servicos[0].valor_servico, 1000, 'valor do serviço = vr_bruto');
-assert.equal((rps.payload as any).rps.servicos[0].codigo_servico, '10.09');
-assert.equal((rps.payload as any).rps.prestador.inscricao_municipal, '123456');
-assert.equal((rps.payload as any).rps.tomador.cnpj, '11111111000111');
+assert.equal(rp.ambiente, 'homologacao');
+assert.equal(rp.rps.servicos[0].valores.valor_servicos, 1000, 'valor em valores.valor_servicos');
+assert.equal(rp.rps.servicos[0].item_lista_servico, '10.09', 'LC116 em item_lista_servico');
+assert.equal(rp.rps.prestador.cpf_cnpj, '28427986000108', 'prestador só cpf_cnpj');
+assert.equal(rp.rps.tomador.cpf_cnpj, '11111111000111');
 
 // Provedor nacional (DPS) — estrutura Padrão Nacional aninhada
 const dps = buildNfsePayload({ lancamento, aliquotas, prestador, provedor: 'nacional', ambiente: 'homologacao' });

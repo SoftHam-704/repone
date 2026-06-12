@@ -21,6 +21,9 @@ export interface AliquotasNfse {
   codigo_servico_padrao: string;  // cTribNac (nacional, ex.: 100900 = LC116 10.09)
   ctrib_mun?: string;             // cTribMun (código do município, ex.: 100901 = BH 10.09.01)
   cnbs?: string;                  // código NBS — exigido pelo schema do DPS Nacional
+  // caminho RPS/ABRASF (municipal, ex.: ISSDSF Campo Grande):
+  item_lista_servico?: string;          // LC116 (ex.: 1.07)
+  codigo_tributacao_municipio?: string; // atividade do cadastro econômico (ex.: 620910000)
 }
 export interface Prestador { cnpj: string; razao: string; ibge: string }
 
@@ -40,7 +43,6 @@ const discriminacao = (l: LancamentoNfse) =>
 
 export function buildNfsePayload(args: BuildArgs): BuiltPayload {
   const { lancamento: l, aliquotas: a, prestador: p, provedor, ambiente } = args;
-  const naturezaTributacao = a.regime?.toUpperCase().includes('SIMPLES') ? 1 : 0;
 
   if (provedor === 'nacional') {
     // Padrão Nacional (DPS). Estrutura real do swagger ACBr v3.1.4:
@@ -80,7 +82,10 @@ export function buildNfsePayload(args: BuildArgs): BuiltPayload {
     };
   }
 
-  // municipal (RPS/ABRASF)
+  // municipal (RPS/ABRASF) — ex.: ISSDSF (Campo Grande/MS). Estrutura real do
+  // swagger: prestador só { cpf_cnpj } (IM vem da config da empresa no ACBr);
+  // serviço usa item_lista_servico (LC116) + codigo_tributacao_municipio + valores{}.
+  const valIss = Math.round(l.vr_bruto * a.iss_pct) / 100;
   return {
     tipo: 'rps',
     payload: {
@@ -89,15 +94,20 @@ export function buildNfsePayload(args: BuildArgs): BuiltPayload {
         referencia: String(l.id),
         data_emissao: new Date().toISOString().slice(0, 10),
         competencia: compToDate(l.competencia),
-        natureza_tributacao: naturezaTributacao,
-        prestador: { cnpj: onlyDigits(p.cnpj), inscricao_municipal: a.inscricao_municipal, razao_social: p.razao },
-        tomador:   { cnpj: onlyDigits(l.for_cnpj), razao_social: l.representada_nome },
+        natureza_tributacao: 1,  // 1 = tributação no município (ABRASF)
+        prestador: { cpf_cnpj: onlyDigits(p.cnpj) },
+        tomador: { cpf_cnpj: onlyDigits(l.for_cnpj), nome_razao_social: l.representada_nome },
         servicos: [{
-          codigo_servico: a.codigo_servico_padrao,
+          item_lista_servico: a.item_lista_servico ?? a.codigo_servico_padrao,
+          codigo_tributacao_municipio: a.codigo_tributacao_municipio,
           discriminacao: discriminacao(l),
-          valor_servico: l.vr_bruto,
-          aliquota_iss: a.iss_pct,
-          valor_iss: l.iss,
+          iss_retido: false,
+          valores: {
+            valor_unitario: l.vr_bruto,
+            valor_servicos: l.vr_bruto,
+            aliquota_iss: a.iss_pct,
+            valor_iss: valIss,
+          },
         }],
       },
     },
