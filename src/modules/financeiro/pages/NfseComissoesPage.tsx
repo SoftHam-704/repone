@@ -234,6 +234,7 @@ function NfseModal({ data, competencia, aliq, reps, onClose, onSaved }: {
 
   const save = async () => {
     if (!forCodigo) { alert('Selecione a representada.'); return }
+    if (vrBruto <= 0) { alert('Informe o valor bruto (VR Bruto) da comissão.'); return }
     if (!emissao) { alert('Informe a data de emissão.'); return }
     setSaving(true)
     try {
@@ -269,10 +270,21 @@ function NfseModal({ data, competencia, aliq, reps, onClose, onSaved }: {
             <SearchCombobox options={reps} value={forCodigo} onChange={setForCodigo} placeholder="Selecionar representada…" required />
           </div>
         </div>
-        <label style={lbl}>VR Bruto (comissão)
-          <input value={maskBRLFromDigits(brutoDigits)} onChange={e => setBrutoDigits(e.target.value.replace(/\D/g, ''))}
-            style={{ ...inputStyle, textAlign: 'right', fontWeight: 700 }} placeholder="0,00" inputMode="numeric" />
-        </label>
+        <div>
+          <span style={lbl}>VR Bruto (comissão)</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+            <input value={maskBRLFromDigits(brutoDigits)} onChange={e => setBrutoDigits(e.target.value.replace(/\D/g, ''))}
+              style={{ ...inputStyle, marginTop: 0, textAlign: 'right', fontWeight: 700, flex: 1 }} placeholder="0,00" inputMode="numeric" />
+            <button
+              type="button"
+              disabled
+              title="Em breve: calcula o valor a partir do faturamento da representada × % de comissão"
+              style={{ flexShrink: 0, padding: '9px 11px', borderRadius: 8, border: `1px solid ${G.border}`, background: '#F1F5F9', color: G.muted, fontWeight: 700, fontSize: 11, cursor: 'not-allowed', whiteSpace: 'nowrap', lineHeight: 1.2 }}
+            >
+              🔎 Buscar valor a receber <span style={{ fontSize: 10, opacity: 0.75 }}>(em breve)</span>
+            </button>
+          </div>
+        </div>
         <label style={lbl}>Data de Pagamento
           <input type="date" value={dataPgto} onChange={e => setDataPgto(e.target.value)} style={inputStyle} />
         </label>
