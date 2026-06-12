@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import * as acbr from '../../shared/utils/acbr-nfse.service';
 import { buildNfsePayload } from './nfse-payload';
 import { empresaToAliquotas, empresaToConfigNfse, cnpjDigits } from './nfse-empresa-config';
+import { enviarEmail } from '../email/email.controller';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 function err(res: Response, e: any, ctx = '') {
@@ -466,5 +467,43 @@ export async function cancelarNfseHandler(req: Request, res: Response): Promise<
   } catch (e: any) {
     console.error('❌ [NFSE cancelar]:', e?.message);
     res.status(500).json({ success: false, message: e?.message ?? 'Erro ao cancelar', acbr_body: e?.rawJson ?? e?.body ?? null });
+  }
+}
+
+// POST /:id/email  { para, assunto?, mensagem? }
+export async function emailNfseHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const id = Number(req.params.id);
+    const para = String(req.body?.para || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(para)) {
+      res.status(400).json({ success: false, message: 'E-mail do destinatário inválido.' }); return;
+    }
+    const r = (await db.query(`SELECT protocolo, numero FROM fin_nfse WHERE id=$1`, [id])).rows[0];
+    if (!r?.protocolo) { res.status(404).json({ success: false, message: 'NFS-e não emitida.' }); return; }
+
+    const [pdf, xml] = await Promise.all([
+      acbr.baixarPdf(String(r.protocolo)),
+      acbr.baixarXml(String(r.protocolo)),
+    ]);
+
+    const assunto = String(req.body?.assunto || '').trim() || `NFS-e nº ${r.numero ?? ''}`;
+    const corpo   = String(req.body?.mensagem || '').trim() || `Segue em anexo a NFS-e nº ${r.numero ?? ''} (DANFSE em PDF e XML).`;
+
+    await enviarEmail({
+      db,
+      to: para,
+      subject: assunto,
+      text: corpo,
+      attachments: [
+        { filename: `nfse-${id}.pdf`, content: pdf.data, contentType: 'application/pdf' },
+        { filename: `nfse-${id}.xml`, content: xml.data, contentType: 'application/xml' },
+      ],
+    });
+
+    res.json({ success: true });
+  } catch (e: any) {
+    console.error('❌ [NFSE email]:', e?.message);
+    res.status(500).json({ success: false, message: e?.message ?? 'Erro ao enviar e-mail' });
   }
 }

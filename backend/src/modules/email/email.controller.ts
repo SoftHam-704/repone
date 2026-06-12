@@ -30,6 +30,54 @@ function createTransporter(config: {
   } as any);
 }
 
+// ─── Função reutilizável de envio de e-mail ────────────────────────────────
+// Carrega as configurações SMTP do usuário 1 (padrão do tenant) e envia.
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer | string;   // Buffer para binários, string base64 também aceito
+  contentType?: string;
+}
+export interface EnviarEmailOpts {
+  db: any;                    // client/pool do tenant (req.db)
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  attachments?: EmailAttachment[];
+  userId?: number;            // usa config SMTP do usuário; cai em userId=1 se omitido
+}
+export async function enviarEmail(opts: EnviarEmailOpts): Promise<void> {
+  const { db, to, subject, text, html, attachments = [], userId } = opts;
+  const paramsResult = await db.query('SELECT * FROM parametros WHERE par_usuario = $1', [userId ?? 1]);
+  if (!paramsResult.rows.length) throw new Error('Configurações de e-mail não encontradas (tabela parametros).');
+  const config = paramsResult.rows[0];
+
+  let companyName = 'SalesMasters';
+  try {
+    const r = await db.query('SELECT emp_nome FROM empresa_status WHERE emp_id = 1');
+    if (r.rows.length && r.rows[0].emp_nome) companyName = r.rows[0].emp_nome.trim();
+  } catch { /* empresa opcional */ }
+
+  const senderName = config.par_sisuser || companyName;
+  const transporter = createTransporter(config);
+
+  const mailOptions: any = {
+    from: `"${senderName}" <${config.par_email}>`,
+    to,
+    subject,
+    text,
+    ...(html ? { html } : {}),
+    attachments: attachments.map(att => ({
+      filename: att.filename,
+      content: Buffer.isBuffer(att.content) ? att.content : Buffer.from(att.content as string, 'base64'),
+      contentType: att.contentType || 'application/octet-stream',
+    })),
+  };
+
+  const info = await transporter.sendMail(mailOptions);
+  console.log('✅ [EMAIL] enviarEmail:', info.messageId, '→', to);
+}
+
 // ─── POST /api/email/send-order ──────────────────────────────────────────────
 export async function sendOrderEmailHandler(req: Request, res: Response): Promise<void> {
   console.log('📧 [EMAIL] Request to send order email received');

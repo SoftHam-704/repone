@@ -8,6 +8,7 @@ import {
   listNfseHandler, createNfseHandler, updateNfseHandler, deleteNfseHandler,
   emitirNfseHandler, previaNfseHandler,
   pdfNfseHandler, xmlNfseHandler, cancelarNfseHandler,
+  emailNfseHandler,
   listServicosHandler, createServicoHandler, updateServicoHandler, deleteServicoHandler,
 } from './nfse.controller';
 
@@ -39,9 +40,10 @@ router.delete('/:id',  deleteNfseHandler);
 router.post('/:id/emitir', emitirNfseHandler);
 router.get('/:id/previa', previaNfseHandler);
 
-// PDF, XML e cancelamento
+// PDF, XML, cancelamento e e-mail
 router.get ('/:id/pdf',      pdfNfseHandler);
 router.get ('/:id/xml',      xmlNfseHandler);
 router.post('/:id/cancelar', cancelarNfseHandler);
+router.post('/:id/email',    emailNfseHandler);
 
 export default router;
