@@ -41,18 +41,37 @@ export function buildNfsePayload(args: BuildArgs): BuiltPayload {
   const naturezaTributacao = a.regime?.toUpperCase().includes('SIMPLES') ? 1 : 0;
 
   if (provedor === 'nacional') {
+    // Padrão Nacional (DPS). Estrutura real do swagger ACBr v3.1.4:
+    //   prest só leva CNPJ + regTrib (IM/nome vêm da empresa cadastrada no ACBr);
+    //   serv.cServ é objeto { cTribNac, xDescServ }; valores tem vServPrest{vServ}
+    //   e trib.tribMun{ tribISSQN, pAliq, cLocIncid, tpRetISSQN }.
+    const tpAmb = ambiente === 'producao' ? 1 : 2;
     return {
       tipo: 'dps',
       payload: {
         provedor: 'nacional',
         ambiente,
         infDPS: {
+          tpAmb,
           dhEmi: new Date().toISOString(),
           dCompet: compToDate(l.competencia),
-          prest: { CNPJ: onlyDigits(p.cnpj), IM: a.inscricao_municipal, xNome: p.razao },
+          prest: { CNPJ: onlyDigits(p.cnpj), regTrib: { regEspTrib: 0 } },
           toma:  { CNPJ: onlyDigits(l.for_cnpj), xNome: l.representada_nome },
-          serv:  { cServico: a.codigo_servico_padrao, xDescServico: discriminacao(l) },
-          valores: { vServPrest: l.vr_bruto, aliqISS: a.iss_pct, vISS: l.iss },
+          serv: {
+            locPrest: { cLocPrestacao: p.ibge },
+            cServ: { cTribNac: a.codigo_servico_padrao, xDescServ: discriminacao(l) },
+          },
+          valores: {
+            vServPrest: { vServ: l.vr_bruto },
+            trib: {
+              tribMun: {
+                tribISSQN: 1,          // 1 = operação tributável
+                pAliq: a.iss_pct,
+                cLocIncid: p.ibge,
+                tpRetISSQN: 1,         // 1 = ISSQN não retido
+              },
+            },
+          },
         },
       },
     };

@@ -17,10 +17,17 @@ assert.equal((rps.payload as any).rps.servicos[0].codigo_servico, '10.09');
 assert.equal((rps.payload as any).rps.prestador.inscricao_municipal, '123456');
 assert.equal((rps.payload as any).rps.tomador.cnpj, '11111111000111');
 
-// Provedor nacional (DPS)
+// Provedor nacional (DPS) — estrutura Padrão Nacional aninhada
 const dps = buildNfsePayload({ lancamento, aliquotas, prestador, provedor: 'nacional', ambiente: 'homologacao' });
+const dp = dps.payload as any;
 assert.equal(dps.tipo, 'dps', 'nacional → dps');
-assert.equal((dps.payload as any).provedor, 'nacional');
-assert.equal((dps.payload as any).infDPS.serv.cServico, '10.09');
+assert.equal(dp.provedor, 'nacional');
+assert.equal(dp.infDPS.tpAmb, 2, 'homologacao → tpAmb 2');
+assert.equal(dp.infDPS.prest.CNPJ, '28427986000108');
+assert.equal(dp.infDPS.serv.cServ.cTribNac, '10.09', 'código nacional no cServ.cTribNac');
+assert.equal(dp.infDPS.serv.locPrest.cLocPrestacao, '3106200');
+assert.equal(dp.infDPS.valores.vServPrest.vServ, 1000, 'valor em valores.vServPrest.vServ');
+assert.equal(dp.infDPS.valores.trib.tribMun.tribISSQN, 1);
+assert.equal(dp.infDPS.valores.trib.tribMun.pAliq, 2.5);
 
 console.log('OK — builder de payload');
