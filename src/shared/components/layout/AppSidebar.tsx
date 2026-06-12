@@ -106,6 +106,7 @@ const GROUPS: NavGroup[] = [
       { label: 'Centro de Custo',  path: '/financeiro/centro-custo',           icon: Building2,       minLevel: 2 },
       { label: 'Clientes',         path: '/financeiro/fin-clientes',           icon: Users,           minLevel: 2 },
       { label: 'Fornecedores',     path: '/financeiro/fin-fornecedores',       icon: Building2,       minLevel: 2 },
+      { label: 'NFS-e',            path: '/financeiro/nfse-comissoes',         icon: FileText,        minLevel: 2 },
     ],
   },
   {
