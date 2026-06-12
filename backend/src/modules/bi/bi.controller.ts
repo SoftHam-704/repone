@@ -1827,15 +1827,23 @@ export async function gruposLojasHandler(req: Request, res: Response): Promise<v
     const allowedIndustries = await getAllowedIndustries(db, userId);
     const extraFilters = buildInlineFilters(meses, forInt, cliInt, allowedIndustries, venInt);
 
+    const metrica  = String(req.query.metrica || 'financeiro');
+    // Valor exibido segue a métrica escolhida (apenas este card). SKU é COUNT
+    // DISTINCT — não soma entre indústrias, por isso grp agrega direto do raw.
+    const valorExpr =
+      metrica === 'volume'
+        ? 'COALESCE(SUM(i.ite_quant), 0)::NUMERIC'
+        : metrica === 'skus'
+        ? "COUNT(DISTINCT NULLIF(TRIM(i.ite_produto), ''))::NUMERIC"
+        : 'COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)::NUMERIC';
+
     const r = await db.query(`
       WITH base AS (
         SELECT
           COALESCE(NULLIF(TRIM(c.cli_redeloja), ''), '(Sem Rede)') AS rede,
-          p.ped_industria,
           TRIM(f.for_nomered)                                        AS industria,
-          COALESCE(ROUND(SUM(i.ite_totliquido)::NUMERIC, 2), 0)::NUMERIC               AS total,
-          COUNT(DISTINCT p.ped_pedido)::INTEGER                      AS pedidos,
-          COUNT(DISTINCT p.ped_cliente)::INTEGER                     AS clientes
+          ${valorExpr}                                               AS total,
+          COUNT(DISTINCT p.ped_pedido)::INTEGER                      AS pedidos
         FROM pedidos p
         LEFT JOIN itens_ped  i ON i.ite_pedido = p.ped_pedido
         LEFT JOIN clientes   c ON c.cli_codigo  = p.ped_cliente
@@ -1844,15 +1852,21 @@ export async function gruposLojasHandler(req: Request, res: Response): Promise<v
           AND EXTRACT(YEAR FROM p.ped_data) = ANY($1::int[])
           AND c.cli_tipopes = 'A'
           ${extraFilters}
-        GROUP BY rede, p.ped_industria, f.for_nomered
+        GROUP BY rede, f.for_nomered
       ),
       grp AS (
         SELECT
-          rede,
-          ROUND(SUM(total), 2)::NUMERIC     AS total,
-          SUM(pedidos)::INTEGER   AS pedidos,
-          MAX(clientes)::INTEGER  AS clientes
-        FROM base
+          COALESCE(NULLIF(TRIM(c.cli_redeloja), ''), '(Sem Rede)') AS rede,
+          ${valorExpr}                                             AS total,
+          COUNT(DISTINCT p.ped_pedido)::INTEGER                    AS pedidos,
+          COUNT(DISTINCT p.ped_cliente)::INTEGER                   AS clientes
+        FROM pedidos p
+        LEFT JOIN itens_ped  i ON i.ite_pedido = p.ped_pedido
+        LEFT JOIN clientes   c ON c.cli_codigo  = p.ped_cliente
+        WHERE p.ped_situacao IN ('P','F')
+          AND EXTRACT(YEAR FROM p.ped_data) = ANY($1::int[])
+          AND c.cli_tipopes = 'A'
+          ${extraFilters}
         GROUP BY rede
         ORDER BY total DESC
         LIMIT 30

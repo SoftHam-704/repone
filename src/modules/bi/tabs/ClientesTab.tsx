@@ -70,7 +70,7 @@ interface GrupoLoja {
   industrias: { industria: string; total: string; pedidos: number }[];
 }
 
-function GrupoRow({ grupo, maxTotal, rank }: { grupo: GrupoLoja; maxTotal: number; rank: number }) {
+function GrupoRow({ grupo, maxTotal, rank, fmtValor }: { grupo: GrupoLoja; maxTotal: number; rank: number; fmtValor: (v: number) => string }) {
   const [open, setOpen] = useState(false);
   const pct = maxTotal > 0 ? (parseFloat(grupo.total) / maxTotal) * 100 : 0;
   const barColor = rank === 0 ? BI.teal : rank === 1 ? BI.blue : rank === 2 ? BI.purple : CHART_COLORS[rank % CHART_COLORS.length];
@@ -101,7 +101,7 @@ function GrupoRow({ grupo, maxTotal, rank }: { grupo: GrupoLoja; maxTotal: numbe
           </div>
         </td>
         <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: BI.text, fontSize: 13, whiteSpace: 'nowrap' }}>
-          {fmtBRL(parseFloat(grupo.total))}
+          {fmtValor(parseFloat(grupo.total))}
         </td>
         <td style={{ padding: '8px 10px', textAlign: 'right', color: BI.textSec, fontFamily: 'monospace', fontSize: 13, fontWeight: 600 }}>
           {fmtN(grupo.pedidos)}
@@ -123,7 +123,7 @@ function GrupoRow({ grupo, maxTotal, rank }: { grupo: GrupoLoja; maxTotal: numbe
             </div>
           </td>
           <td style={{ padding: '5px 10px', textAlign: 'right', fontFamily: 'monospace', fontSize: 13, color: BI.teal, fontWeight: 700, whiteSpace: 'nowrap' }}>
-            {fmtBRL(parseFloat(ind.total))}
+            {fmtValor(parseFloat(ind.total))}
           </td>
           <td style={{ padding: '5px 10px', textAlign: 'right', fontFamily: 'monospace', fontSize: 12, color: BI.textMuted, fontWeight: 600 }}>
             {ind.pedidos}
@@ -138,6 +138,13 @@ function GrupoRow({ grupo, maxTotal, rank }: { grupo: GrupoLoja; maxTotal: numbe
 // ─── ClientesTab ──────────────────────────────────────────────────────────────
 const ClientesTab = () => {
   const { filters, visao } = useBIStore();
+
+  // Card "Análise por Grupo de Lojas" segue a métrica escolhida no topo (só ele).
+  const metricaGrupo = visao === 'volume'
+    ? { label: 'Volume (Qtd)', fmt: fmtN,   palavra: 'do volume' }
+    : visao === 'skus'
+    ? { label: 'SKUs',         fmt: fmtN,   palavra: 'dos SKUs' }
+    : { label: 'Faturamento',  fmt: fmtBRL, palavra: 'do faturamento' };
   const p = buildBIParams(filters);
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -174,10 +181,10 @@ const ClientesTab = () => {
 
   useEffect(() => {
     setLoadGrupos(true);
-    api.get(`/bi/grupos-lojas?${p}`)
+    api.get(`/bi/grupos-lojas?${p}&metrica=${visao}`)
       .then(r => r.data.success && setGruposLojas(r.data.data || []))
       .catch(console.error).finally(() => setLoadGrupos(false));
-  }, [p]);
+  }, [p, visao]);
 
   useEffect(() => {
     setLoadCiclo(true);
@@ -461,13 +468,13 @@ const ClientesTab = () => {
       ? (gruposLojas.slice(0, 3).reduce((s, g) => s + parseFloat(g.total), 0) / grand * 100).toFixed(0) : '0';
     const maxInd = [...gruposLojas].sort((a, b) => b.industrias.length - a.industrias.length)[0];
     const lines: string[] = [
-      `Maior grupo: ${top.rede} com ${fmtBRL(parseFloat(top.total))} (${pctTop}% do faturamento) em ${top.pedidos} pedidos.`,
-      `Top 3 grupos concentram ${top3Pct}% do faturamento total da carteira.`,
+      `Maior grupo: ${top.rede} com ${metricaGrupo.fmt(parseFloat(top.total))} (${pctTop}% ${metricaGrupo.palavra}) em ${top.pedidos} pedidos.`,
+      `Top 3 grupos concentram ${top3Pct}% ${metricaGrupo.palavra} total da carteira.`,
     ];
     if (maxInd)
       lines.push(`Grupo com maior mix de indústrias: ${maxInd.rede} (${maxInd.industrias.length} indústrias distintas).`);
     return lines;
-  }, [gruposLojas, loadGrupos]);
+  }, [gruposLojas, loadGrupos, visao]);
 
   const narrativaCiclo = useMemo((): string[] => {
     if (!cicloData || loadCiclo) return [];
@@ -774,7 +781,7 @@ const ClientesTab = () => {
       <CardWrap accent={`linear-gradient(90deg, ${BI.teal}, ${BI.blue})`}>
         <SLabel label="Análise por Grupo de Lojas" accent={BI.teal} />
         <p className="text-xs mb-3 -mt-1.5" style={{ color: BI.textMuted }}>
-          Faturamento por rede/grupo — clique para expandir e ver as indústrias compradas
+          {metricaGrupo.label} por rede/grupo — clique para expandir e ver as indústrias compradas
         </p>
         <InsightNarrative lines={narrativaGrupos} loading={loadGrupos} type="info" />
         {loadGrupos
@@ -786,10 +793,10 @@ const ClientesTab = () => {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${BI.border}` }}>
-                      {['#', '', 'Rede / Grupo', 'Faturamento', 'Pedidos', 'Clientes', 'Ind.'].map(h => (
+                      {['#', '', 'Rede / Grupo', metricaGrupo.label, 'Pedidos', 'Clientes', 'Ind.'].map(h => (
                         <th key={h} style={{
                           padding: '5px 10px',
-                          textAlign: ['Faturamento', 'Pedidos', 'Clientes', 'Ind.'].includes(h) ? 'right' : 'left',
+                          textAlign: [metricaGrupo.label, 'Pedidos', 'Clientes', 'Ind.'].includes(h) ? 'right' : 'left',
                           fontSize: 9, fontWeight: 900, color: BI.textMuted,
                           textTransform: 'uppercase', letterSpacing: '0.08em',
                           position: 'sticky', top: 0, background: BI.panel, zIndex: 1,
@@ -799,7 +806,7 @@ const ClientesTab = () => {
                   </thead>
                   <tbody>
                     {gruposLojas.map((grupo, i) => (
-                      <GrupoRow key={grupo.rede} grupo={grupo} maxTotal={maxGrupoTotal} rank={i} />
+                      <GrupoRow key={grupo.rede} grupo={grupo} maxTotal={maxGrupoTotal} rank={i} fmtValor={metricaGrupo.fmt} />
                     ))}
                   </tbody>
                 </table>
