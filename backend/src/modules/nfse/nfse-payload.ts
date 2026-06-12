@@ -43,6 +43,8 @@ const discriminacao = (l: LancamentoNfse) =>
 
 export function buildNfsePayload(args: BuildArgs): BuiltPayload {
   const { lancamento: l, aliquotas: a, prestador: p, provedor, ambiente } = args;
+  // Simples Nacional: ISS recolhido no DAS → NÃO se informa alíquota na DPS (E0625).
+  const isSimples = !!a.regime?.toUpperCase().includes('SIMPLES');
 
   if (provedor === 'nacional') {
     // Padrão Nacional (DPS). Estrutura real do swagger ACBr v3.1.4:
@@ -70,11 +72,13 @@ export function buildNfsePayload(args: BuildArgs): BuiltPayload {
             trib: {
               tribMun: {
                 tribISSQN: 1,          // 1 = operação tributável
-                pAliq: a.iss_pct,
                 cLocIncid: p.ibge,
                 tpRetISSQN: 1,         // 1 = ISSQN não retido
+                ...(isSimples ? {} : { pAliq: a.iss_pct }), // Simples não informa alíquota (DAS)
               },
-              totTrib: { indTotTrib: 0 }, // 0 = não informar o total aproximado de tributos
+              // totTrib é obrigatório. Simples (ME/EPP) usa pTotTribSN (% aprox. dos
+              // tributos do SN) — NÃO pode usar indTotTrib (E0712); demais usam indTotTrib.
+              totTrib: isSimples ? { pTotTribSN: a.iss_pct } : { indTotTrib: 0 },
             },
           },
         },

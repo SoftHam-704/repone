@@ -14,7 +14,7 @@ const IM = '00179657007';
   try {
     await acbr.configurarNfseEmpresa(SOFTHAM.cnpj, {
       ambiente: 'homologacao', incentivo_fiscal: false,
-      regTrib: { opSimpNac: 1, regEspTrib: 0 }, rps: { numero: 1, serie: '1', lote: 1 },
+      regTrib: { opSimpNac: 3, regApTribSN: 1, regEspTrib: 0 }, rps: { numero: 1, serie: '1', lote: 1 },
     });
     console.log('config NFS-e OK');
   } catch (e: any) { console.log('config aviso:', e.message); }
@@ -22,7 +22,7 @@ const IM = '00179657007';
   const { payload } = buildNfsePayload({
     lancamento: { id: 1, competencia: '2026-06', vr_bruto: 100, iss: Math.round(100 * ISS) / 100,
       representada_nome: 'HM BORCATO REPRESENTACAO COMERCIAL LTDA', for_cnpj: '28427986000108' },
-    aliquotas: { regime: 'PRESUMIDO', iss_pct: ISS, inscricao_municipal: IM,
+    aliquotas: { regime: 'SIMPLES', iss_pct: ISS, inscricao_municipal: IM,
       codigo_servico_padrao: CTRIB, cnbs: CNBS || undefined, ctrib_mun: CMUN || undefined },
     prestador: SOFTHAM, provedor: 'nacional', ambiente: 'homologacao',  // v2: tudo via /nfse/dps
   });
