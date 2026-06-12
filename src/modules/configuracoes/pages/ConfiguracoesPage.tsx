@@ -17,6 +17,19 @@ interface EmpresaData {
   emp_logotipo: string;
   emp_mapas_modo_vendedor: '1x1' | '1xN';
   emp_carteira_por_vendedor: boolean;
+  // Dados Fiscais — NFS-e
+  emp_im: string;
+  emp_regime: string;
+  emp_ibge: string;
+  emp_nfse_ambiente: string;
+  emp_nfse_proximo_numero: number | string;
+  emp_nfse_serie: string;
+  emp_ctribnac: string;
+  emp_cnbs: string;
+  emp_item_lc116: string;
+  emp_ctribmun: string;
+  emp_cnae: string;
+  emp_iss_pct: number | string;
 }
 
 const inp: React.CSSProperties = {
@@ -252,6 +265,79 @@ export default function ConfiguracoesPage() {
             </div>
           )}
         </Field>
+
+        {/* ─── Dados Fiscais — NFS-e ──────────────────────────────────────── */}
+        <div style={{ borderBottom: `2px solid ${G.text}`, paddingBottom: 8, margin: '36px 0 18px', fontSize: 12, fontWeight: 800, color: G.text, textTransform: 'uppercase', letterSpacing: 1 }}>
+          Dados Fiscais — NFS-e
+        </div>
+        <div style={{ marginBottom: 18, padding: '8px 12px', borderRadius: 8, background: '#EFF6FF', border: '1px solid #BFDBFE', fontSize: 11, color: '#1E40AF', lineHeight: 1.5 }}>
+          Necessário para emitir a NFS-e de comissão. Os códigos já vêm preenchidos para <strong>representação comercial</strong> — ajuste se o seu serviço for outro.
+        </div>
+
+        {/* Bloco A — Prestador */}
+        <Row>
+          <Field label="Inscrição Municipal">
+            <input style={inp} value={data.emp_im || ''} onChange={e => set('emp_im', e.target.value)} placeholder="Inscrição municipal" />
+          </Field>
+          <Field label="Regime Tributário">
+            <select style={{ ...inp, cursor: 'pointer' }} value={data.emp_regime || 'SIMPLES_MEEPP'} onChange={e => set('emp_regime', e.target.value)}>
+              <option value="SIMPLES_MEEPP">Simples Nacional — ME/EPP</option>
+              <option value="SIMPLES_MEI">Simples Nacional — MEI</option>
+              <option value="PRESUMIDO">Lucro Presumido</option>
+              <option value="REAL">Lucro Real</option>
+            </select>
+          </Field>
+        </Row>
+        <Row>
+          <Field label="Ambiente">
+            <select style={{ ...inp, cursor: 'pointer' }} value={data.emp_nfse_ambiente || 'HOMOLOGACAO'} onChange={e => set('emp_nfse_ambiente', e.target.value)}>
+              <option value="HOMOLOGACAO">Homologação (teste)</option>
+              <option value="PRODUCAO">Produção (valor fiscal)</option>
+            </select>
+          </Field>
+          <Field label="Código IBGE do Município">
+            <input style={inp} value={data.emp_ibge || ''} onChange={e => set('emp_ibge', e.target.value)} placeholder="ex.: 5002704 (auto pela cidade — em breve)" />
+          </Field>
+        </Row>
+
+        {/* Bloco B — Numeração */}
+        <Row>
+          <Field label="Próximo Número da NFS-e">
+            <input style={inp} type="number" value={String(data.emp_nfse_proximo_numero ?? '')} onChange={e => set('emp_nfse_proximo_numero', e.target.value)} placeholder="continua a sua sequência (ex.: 442)" />
+          </Field>
+          <Field label="Série">
+            <input style={{ ...inp, maxWidth: 100 }} value={data.emp_nfse_serie || ''} onChange={e => set('emp_nfse_serie', e.target.value)} placeholder="1" />
+          </Field>
+        </Row>
+
+        {/* Bloco C — Códigos do serviço */}
+        <Row>
+          <Field label="Item da Lista (LC 116)">
+            <input style={inp} value={data.emp_item_lc116 || ''} onChange={e => set('emp_item_lc116', e.target.value)} placeholder="ex.: 10.09.01" />
+          </Field>
+          <Field label="Cód. Tributação Nacional (cTribNac)">
+            <input style={inp} value={data.emp_ctribnac || ''} onChange={e => set('emp_ctribnac', e.target.value)} placeholder="ex.: 100901" />
+          </Field>
+        </Row>
+        <Row>
+          <Field label="Código NBS (cNBS)">
+            <input style={inp} value={data.emp_cnbs || ''} onChange={e => set('emp_cnbs', e.target.value)} placeholder="ex.: 102010000" />
+          </Field>
+          <Field label="Cód. Trib. Municipal — opcional">
+            <input style={inp} value={data.emp_ctribmun || ''} onChange={e => set('emp_ctribmun', e.target.value)} placeholder="3 dígitos" />
+          </Field>
+        </Row>
+        <Row>
+          <Field label="CNAE / Atividade Municipal — opcional">
+            <input style={inp} value={data.emp_cnae || ''} onChange={e => set('emp_cnae', e.target.value)} placeholder="ex.: 620910000" />
+          </Field>
+          <Field label="Alíquota ISS % (fora do Simples)">
+            <input style={inp} type="number" value={String(data.emp_iss_pct ?? '')} onChange={e => set('emp_iss_pct', e.target.value)} placeholder="0" />
+          </Field>
+        </Row>
+        <div style={{ marginBottom: 22, padding: '8px 12px', borderRadius: 8, background: '#FFF7ED', border: '1px solid #FED7AA', fontSize: 11, color: '#9A3412', lineHeight: 1.5 }}>
+          <strong>Certificado Digital A1:</strong> o upload do certificado (.pfx) e a resolução automática de IBGE/provedor entram na próxima etapa.
+        </div>
 
         {/* Feedback */}
         {msg && (
