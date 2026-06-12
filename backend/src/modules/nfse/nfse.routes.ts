@@ -7,6 +7,7 @@ import {
   listRepresentadasHandler,
   listNfseHandler, createNfseHandler, updateNfseHandler, deleteNfseHandler,
   emitirNfseHandler, previaNfseHandler,
+  pdfNfseHandler, xmlNfseHandler, cancelarNfseHandler,
 } from './nfse.controller';
 
 const router = Router();
@@ -30,5 +31,10 @@ router.delete('/:id',  deleteNfseHandler);
 // emissão real (ACBr) — homologação nesta fase
 router.post('/:id/emitir', emitirNfseHandler);
 router.get('/:id/previa', previaNfseHandler);
+
+// PDF, XML e cancelamento
+router.get ('/:id/pdf',      pdfNfseHandler);
+router.get ('/:id/xml',      xmlNfseHandler);
+router.post('/:id/cancelar', cancelarNfseHandler);
 
 export default router;

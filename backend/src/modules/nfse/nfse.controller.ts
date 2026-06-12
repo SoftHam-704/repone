@@ -367,3 +367,48 @@ export async function emitirNfseHandler(req: Request, res: Response): Promise<vo
     res.status(500).json({ success: false, message: msg, acbr_body: e?.rawJson ?? e?.body ?? null });
   }
 }
+
+// GET /:id/pdf — DANFSE
+export async function pdfNfseHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const r = (await db.query(`SELECT protocolo FROM fin_nfse WHERE id=$1`, [Number(req.params.id)])).rows[0];
+    if (!r?.protocolo) { res.status(404).json({ success: false, message: 'NFS-e ainda não emitida.' }); return; }
+    const pdf = await acbr.baixarPdf(String(r.protocolo));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="nfse-${req.params.id}.pdf"`);
+    res.send(pdf.data);
+  } catch (e: any) { res.status(500).json({ success: false, message: e?.message ?? 'Erro ao baixar PDF' }); }
+}
+
+// GET /:id/xml
+export async function xmlNfseHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const r = (await db.query(`SELECT protocolo FROM fin_nfse WHERE id=$1`, [Number(req.params.id)])).rows[0];
+    if (!r?.protocolo) { res.status(404).json({ success: false, message: 'NFS-e ainda não emitida.' }); return; }
+    const xml = await acbr.baixarXml(String(r.protocolo));
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="nfse-${req.params.id}.xml"`);
+    res.send(xml.data);
+  } catch (e: any) { res.status(500).json({ success: false, message: e?.message ?? 'Erro ao baixar XML' }); }
+}
+
+// POST /:id/cancelar  { motivo }
+export async function cancelarNfseHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const id = Number(req.params.id);
+    const motivo = String(req.body?.motivo || '').trim();
+    if (motivo.length < 15) { res.status(400).json({ success: false, message: 'Informe um motivo de cancelamento (mín. 15 caracteres).' }); return; }
+    const r = (await db.query(`SELECT protocolo, status FROM fin_nfse WHERE id=$1`, [id])).rows[0];
+    if (!r?.protocolo) { res.status(404).json({ success: false, message: 'NFS-e não emitida.' }); return; }
+    if (r.status === 'CANCELADA') { res.status(400).json({ success: false, message: 'NFS-e já cancelada.' }); return; }
+    const out: any = await acbr.cancelar(String(r.protocolo), motivo);
+    await db.query(`UPDATE fin_nfse SET status='CANCELADA', cancelada_em=now(), obs=COALESCE(obs,'')||' [CANCELADA: '||$2||']', updated_at=now() WHERE id=$1`, [id, motivo]);
+    res.json({ success: true, data: out });
+  } catch (e: any) {
+    console.error('❌ [NFSE cancelar]:', e?.message);
+    res.status(500).json({ success: false, message: e?.message ?? 'Erro ao cancelar', acbr_body: e?.rawJson ?? e?.body ?? null });
+  }
+}
