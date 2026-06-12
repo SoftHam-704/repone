@@ -86,6 +86,8 @@ export default function NfseComissoesPage() {
   const [aliqModal, setAliqModal] = useState(false)
   const [emitir, setEmitir] = useState<Nfse | null>(null)
   const [cancelar, setCancelar] = useState<Nfse | null>(null)
+  const [servicos, setServicos] = useState<any[]>([])
+  const [proxNum, setProxNum] = useState<string>('')
 
   const reps = useMemo(() => representadas.map(r => ({ id: r.for_codigo, nome: (r.for_nomered || r.for_nome || '').trim() })), [representadas])
 
@@ -102,6 +104,8 @@ export default function NfseComissoesPage() {
   useEffect(() => {
     api.get('/nfse/aliquotas').then(r => setAliq({ ...ALIQ_DEFAULT, ...(r.data.data || {}) })).catch(() => {})
     api.get('/nfse/representadas').then(r => setRepresentadas(r.data.data || [])).catch(() => {})
+    api.get('/nfse/servicos').then(r => setServicos((r.data.data || []).filter((s: any) => s.ativo))).catch(() => {})
+    api.get('/empresa').then(r => setProxNum(String(r.data?.data?.emp_nfse_proximo_numero ?? ''))).catch(() => {})
   }, [])
 
   const del = async (id: number) => {
@@ -214,6 +218,7 @@ export default function NfseComissoesPage() {
         <NfseModal
           data={modal === 'new' ? null : modal}
           competencia={competencia} aliq={aliq} reps={reps}
+          servicos={servicos} proximoNumero={proxNum}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); reload() }}
         />
@@ -257,11 +262,13 @@ function StatusBadge({ status }: { status?: string }) {
 }
 
 // ── Modal de lançamento ────────────────────────────────────────────────────
-function NfseModal({ data, competencia, aliq, reps, onClose, onSaved }: {
+function NfseModal({ data, competencia, aliq, reps, servicos, proximoNumero, onClose, onSaved }: {
   data: Nfse | null; competencia: string; aliq: Aliquotas
-  reps: { id: number; nome: string }[]; onClose: () => void; onSaved: () => void
+  reps: { id: number; nome: string }[]; servicos: any[]; proximoNumero: string
+  onClose: () => void; onSaved: () => void
 }) {
-  const [numero, setNumero] = useState(data?.numero || '')
+  const [numero, setNumero] = useState(data?.numero || (data ? '' : proximoNumero))
+  const [servicoId, setServicoId] = useState<string>(data ? String((data as any).servico_id || '') : (servicos[0] ? String(servicos[0].id) : ''))
   const [emissao, setEmissao] = useState(data?.emissao?.substring(0, 10) || todayISO())
   const [forCodigo, setForCodigo] = useState(data ? String(data.for_codigo) : '')
   const [brutoDigits, setBrutoDigits] = useState(data ? String(Math.round((data.vr_bruto || 0) * 100)) : '')
@@ -284,6 +291,7 @@ function NfseModal({ data, competencia, aliq, reps, onClose, onSaved }: {
         for_codigo: Number(forCodigo),
         representada_nome: reps.find(r => String(r.id) === forCodigo)?.nome || null,
         vr_bruto: vrBruto, data_pgto: dataPgto || null, transf, obs: obs.trim() || null,
+        servico_id: servicoId ? Number(servicoId) : null,
       }
       if (data) await api.put(`/nfse/${data.id}`, body)
       else await api.post('/nfse', body)
@@ -310,6 +318,13 @@ function NfseModal({ data, competencia, aliq, reps, onClose, onSaved }: {
           <div style={{ marginTop: 4 }}>
             <SearchCombobox options={reps} value={forCodigo} onChange={setForCodigo} placeholder="Selecionar representada…" required />
           </div>
+        </div>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <span style={lbl}>Serviço prestado</span>
+          <select value={servicoId} onChange={e => setServicoId(e.target.value)} style={{ ...inputStyle, marginTop: 4, cursor: 'pointer' }}>
+            {!servicos.length && <option value="">(cadastre um serviço)</option>}
+            {servicos.map(s => <option key={s.id} value={String(s.id)}>{s.descricao} — {s.item_lc116 || 's/ código'}</option>)}
+          </select>
         </div>
         <div>
           <span style={lbl}>VR Bruto (comissão)</span>

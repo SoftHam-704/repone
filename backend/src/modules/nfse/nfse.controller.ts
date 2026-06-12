@@ -156,8 +156,8 @@ export async function createNfseHandler(req: Request, res: Response): Promise<vo
       INSERT INTO fin_nfse
         (numero, emissao, competencia, for_codigo, representada_nome, vr_bruto,
          irrf, pis, cofins, csll, irpj, iss, fgts_gps, liquido_nf, liq_rec,
-         data_pgto, transf, obs, created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+         data_pgto, transf, obs, created_by, servico_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
       RETURNING *
     `, [
       b.numero || null, b.emissao, b.competencia, Number(b.for_codigo),
@@ -166,6 +166,7 @@ export async function createNfseHandler(req: Request, res: Response): Promise<vo
       imp.liquido_nf, imp.liq_rec,
       b.data_pgto || null, b.transf === true || b.transf === 'true', b.obs || null,
       (req as any).user?.id ?? null,
+      b.servico_id ?? null,
     ]);
     res.json({ success: true, data: numFields(r.rows[0]) });
   } catch (e) { err(res, e, 'createNfse'); }
@@ -186,8 +187,8 @@ export async function updateNfseHandler(req: Request, res: Response): Promise<vo
         numero = $1, emissao = $2, competencia = $3, for_codigo = $4, representada_nome = $5,
         vr_bruto = $6, irrf = $7, pis = $8, cofins = $9, csll = $10, irpj = $11, iss = $12,
         fgts_gps = $13, liquido_nf = $14, liq_rec = $15, data_pgto = $16, transf = $17, obs = $18,
-        updated_at = now()
-      WHERE id = $19
+        servico_id = $19, updated_at = now()
+      WHERE id = $20
       RETURNING *
     `, [
       b.numero || null, b.emissao, b.competencia, Number(b.for_codigo), b.representada_nome || null,
@@ -195,6 +196,7 @@ export async function updateNfseHandler(req: Request, res: Response): Promise<vo
       imp.irrf, imp.pis, imp.cofins, imp.csll, imp.irpj, imp.iss, imp.fgts_gps,
       imp.liquido_nf, imp.liq_rec,
       b.data_pgto || null, b.transf === true || b.transf === 'true', b.obs || null,
+      b.servico_id ?? null,
       Number(id),
     ]);
     if (r.rowCount === 0) { res.status(404).json({ success: false, message: 'Lançamento não encontrado.' }); return; }
