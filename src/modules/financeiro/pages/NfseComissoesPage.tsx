@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, X, Trash2, Pencil, FileSpreadsheet, Percent, FileText, FileUp } from 'lucide-react'
+import { Plus, X, Trash2, Pencil, FileSpreadsheet, Percent, FileText, FileUp, FileCode, Ban } from 'lucide-react'
 import { api } from '@/shared/lib/api'
 import SearchCombobox from '@/shared/components/ui/SearchCombobox'
 import { exportNfseToExcel } from '../utils/exportNfseToExcel'
@@ -85,6 +85,7 @@ export default function NfseComissoesPage() {
   const [modal, setModal] = useState<Nfse | 'new' | null>(null)
   const [aliqModal, setAliqModal] = useState(false)
   const [emitir, setEmitir] = useState<Nfse | null>(null)
+  const [cancelar, setCancelar] = useState<Nfse | null>(null)
 
   const reps = useMemo(() => representadas.map(r => ({ id: r.for_codigo, nome: (r.for_nomered || r.for_nome || '').trim() })), [representadas])
 
@@ -179,6 +180,14 @@ export default function NfseComissoesPage() {
                     {(!n.status || n.status === 'CONTROLE' || n.status === 'ERRO') && (
                       <button title={n.status === 'ERRO' ? 'Reemitir' : 'Emitir NFS-e'} onClick={() => setEmitir(n)} style={{ ...iconBtn, color: G.green }}><FileUp size={14} /></button>
                     )}
+                    {n.status === 'EMITIDA' && (<>
+                      <button title="PDF" onClick={() => baixarArquivo(`/nfse/${n.id}/pdf`, true)} style={{ ...iconBtn, color: G.navy }}><FileText size={14} /></button>
+                      <button title="XML" onClick={() => baixarArquivo(`/nfse/${n.id}/xml`)} style={{ ...iconBtn, color: G.navy }}><FileCode size={14} /></button>
+                      <button title="Cancelar NFS-e" onClick={() => setCancelar(n)} style={{ ...iconBtn, color: G.red }}><Ban size={14} /></button>
+                    </>)}
+                    {n.status === 'ERRO' && n.erro_msg && (
+                      <span title={n.erro_msg} style={{ color: G.red, fontSize: 11, cursor: 'help' }}>⚠</span>
+                    )}
                     <button title="Editar" onClick={() => setModal(n)} style={iconBtn}><Pencil size={14} /></button>
                     <button title="Excluir" onClick={() => del(n.id)} style={{ ...iconBtn, color: G.red }}><Trash2 size={14} /></button>
                   </td>
@@ -211,6 +220,9 @@ export default function NfseComissoesPage() {
       )}
       {emitir && (
         <EmitirModal nfse={emitir} onClose={() => setEmitir(null)} onDone={() => { setEmitir(null); reload() }} />
+      )}
+      {cancelar && (
+        <CancelarModal nfse={cancelar} onClose={() => setCancelar(null)} onDone={() => { setCancelar(null); reload() }} />
       )}
       {aliqModal && (
         <AliquotasModal aliq={aliq} onClose={() => setAliqModal(false)}
@@ -460,6 +472,44 @@ function AliquotasModal({ aliq, onClose, onSaved }: { aliq: Aliquotas; onClose: 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
         <button onClick={onClose} style={{ ...inputStyle, width: 'auto', cursor: 'pointer', marginTop: 0 }}>Cancelar</button>
         <button onClick={save} disabled={saving} style={btnPrimary(G.green)}>{saving ? 'Salvando…' : 'Salvar'}</button>
+      </div>
+    </Overlay>
+  )
+}
+
+function CancelarModal({ nfse, onClose, onDone }: { nfse: Nfse; onClose: () => void; onDone: () => void }) {
+  const [motivo, setMotivo] = useState('')
+  const [confirma, setConfirma] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  const go = async () => {
+    setBusy(true); setErro(null)
+    try {
+      const r = await api.post(`/nfse/${nfse.id}/cancelar`, { motivo })
+      if (r.data.success) onDone()
+      else setErro(r.data.message || 'Falha ao cancelar.')
+    } catch (e: any) { setErro(e?.response?.data?.message || 'Erro ao cancelar.') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Overlay onClose={onClose} width={520}>
+      <div style={{ fontSize: 16, fontWeight: 800, color: G.red, marginBottom: 10 }}>Cancelar NFS-e nº {nfse.numero}</div>
+      <div style={{ padding: 10, borderRadius: 8, background: '#FDECEA', color: '#C62828', fontSize: 12, marginBottom: 12 }}>
+        O cancelamento gera um evento na prefeitura e <strong>é irreversível</strong>.
+      </div>
+      <label style={{ fontSize: 11, fontWeight: 700, color: G.muted, textTransform: 'uppercase' }}>Motivo do cancelamento (mín. 15 caracteres)</label>
+      <textarea value={motivo} onChange={e => setMotivo(e.target.value)} rows={3}
+        style={{ ...inputStyle, width: '100%', resize: 'vertical', marginTop: 4 }} placeholder="Ex.: emitida em duplicidade / valor incorreto / a pedido do cliente" />
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0', fontSize: 13, color: G.navy, cursor: 'pointer' }}>
+        <input type="checkbox" checked={confirma} onChange={e => setConfirma(e.target.checked)} />
+        Confirmo que quero cancelar esta nota na prefeitura.
+      </label>
+      {erro && <div style={{ padding: 10, borderRadius: 8, background: '#FDECEA', color: '#C62828', fontSize: 12, marginBottom: 12, whiteSpace: 'pre-wrap' }}>{erro}</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <button onClick={onClose} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>Voltar</button>
+        <button onClick={go} disabled={busy || !confirma || motivo.trim().length < 15} style={btnPrimary(G.red)}>{busy ? 'Cancelando…' : 'Cancelar a NFS-e'}</button>
       </div>
     </Overlay>
   )
