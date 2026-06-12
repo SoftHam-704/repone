@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>RepOne — Portal do Lojista · Apresentação 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  :root{
+    --red:#C0392B; --red-dark:#922216; --black:#15161A;
+    --navy:#28374A; --navy-deep:#1E2A3A; --areia:#E8E1D4; --areia-soft:#F4F0E8;
+    --mustard:#E7A92B; --paper:#FAF8F3; --gray:#6B7280; --green:#2E7D52; --line:#D9D2C6;
+  }
+  @page { size:1280px 720px; margin:0; }
+  html,body{ font-family:'Inter',system-ui,sans-serif; color:var(--navy); }
+  .slide{ width:1280px; height:720px; position:relative; overflow:hidden; page-break-after:always; background:var(--paper); }
+  .chrome-top{ position:absolute; top:0; left:0; right:0; height:8px;
+    background:linear-gradient(90deg,var(--red) 0%, var(--red) 34%, var(--black) 34%, var(--black) 100%); z-index:5; }
+  .footer{ position:absolute; bottom:0; left:0; right:0; height:44px; border-top:1px solid var(--line);
+    display:flex; align-items:center; justify-content:space-between; padding:0 48px;
+    font-size:13px; letter-spacing:1px; color:var(--gray); text-transform:uppercase; }
+  .footer .red{ color:var(--red); font-weight:800; }
+  .logo-card{ position:absolute; top:30px; right:48px; background:#fff; border-radius:10px; padding:8px 12px;
+    box-shadow:0 6px 18px rgba(0,0,0,0.10); z-index:6; }
+  .logo-card img{ height:34px; display:block; }
+  .pad{ padding:64px 64px 0; }
+  .kicker{ color:var(--red); font-weight:800; letter-spacing:3px; font-size:14px; text-transform:uppercase; margin-bottom:8px; }
+  .h-title{ font-size:50px; font-weight:900; color:var(--navy); line-height:1.03; letter-spacing:-1px; }
+  .h-title .red{ color:var(--red); }
+  .rule{ width:120px; height:5px; background:var(--red); border-radius:3px; margin:16px 0 14px; }
+  .sub{ font-size:21px; color:var(--gray); font-weight:500; }
+  ul.bul{ list-style:none; }
+  ul.bul li{ display:grid; grid-template-columns:36px 1fr; gap:14px; align-items:start; margin-bottom:20px; }
+  ul.bul li .ic{ width:32px; height:32px; border-radius:9px; background:var(--red); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-weight:900; font-size:16px; flex-shrink:0; }
+  ul.bul li b{ color:var(--navy); font-weight:800; font-size:20px; }
+  ul.bul li .d{ color:var(--gray); font-size:17px; }
+  .badge-new{ display:inline-block; background:var(--mustard); color:#1A1A1A; font-size:11px; font-weight:900;
+    border-radius:5px; padding:1px 7px; margin-left:6px; vertical-align:middle; letter-spacing:0.5px; }
+  .card{ background:#fff; border-radius:14px; padding:26px 22px; box-shadow:0 14px 34px rgba(40,55,74,0.10);
+    border-top:5px solid var(--red); position:relative; }
+  .card .ci{ width:54px; height:54px; border-radius:12px; background:var(--areia-soft); color:var(--navy);
+    display:flex; align-items:center; justify-content:center; font-size:26px; margin-bottom:14px; }
+  .card h3{ font-size:21px; font-weight:800; color:var(--navy); margin-bottom:6px; }
+  .card p{ font-size:16px; color:var(--gray); line-height:1.4; }
+  .card .top-label{ font-size:14px; color:var(--gray); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; }
+  .quote{ font-size:21px; font-weight:700; color:var(--navy); font-style:italic; }
+  .quote .red{ color:var(--red); }
+  /* mockups */
+  .mock{ background:#fff; border-radius:16px; box-shadow:0 22px 50px rgba(40,55,74,0.18); overflow:hidden; }
+  .mock .mhead{ background:var(--navy); color:#fff; padding:12px 18px; font-weight:800; font-size:15px; }
+  .mock table{ width:100%; border-collapse:collapse; }
+  .mock th{ text-align:left; font-size:13px; color:var(--gray); text-transform:uppercase; letter-spacing:0.5px; padding:12px 13px 8px; }
+  .mock td{ font-size:16px; color:var(--navy); padding:11px 13px; border-top:1px solid #EEE8DD; }
+  .mock td.r,.mock th.r{ text-align:right; }
+  .mock .mono{ font-family:'Courier New',monospace; font-weight:700; white-space:nowrap; }
+  .pill{ border:1.5px solid var(--navy); color:var(--navy); border-radius:8px; padding:8px 12px; font-size:14px; font-weight:700; }
+  .pill.solid{ background:var(--mustard); border-color:var(--mustard); color:#1A1A1A; }
+  /* phone */
+  .phone{ background:var(--navy-deep); border-radius:38px; padding:14px; box-shadow:0 30px 60px rgba(40,55,74,.30); }
+  .phone .screen{ background:var(--paper); border-radius:26px; height:100%; overflow:hidden; }
+  .prod{ background:#fff; border-radius:12px; padding:11px; margin-bottom:9px; display:flex; align-items:center;
+    justify-content:space-between; box-shadow:0 3px 10px rgba(0,0,0,.05); }
+  .prod .pn{ font-weight:700; color:var(--navy); font-size:14px; }
+  .prod .pp{ color:var(--gray); font-size:13px; }
+  .prod .add{ background:var(--mustard); width:26px; height:26px; border-radius:7px; text-align:center; line-height:26px; font-weight:900; }
+  /* journey steps */
+  .jstep{ background:#fff; border-radius:14px; padding:22px 18px; box-shadow:0 14px 34px rgba(40,55,74,.10); position:relative; text-align:center; }
+  .jnum{ font-size:42px; font-weight:900; color:var(--red); line-height:1; }
+  .jstep h4{ font-size:18px; font-weight:800; color:var(--navy); margin-top:10px; line-height:1.2; }
+  .jstep p{ font-size:14px; color:var(--gray); margin-top:6px; line-height:1.35; }
+  /* stat blocks */
+  .stat{ background:var(--navy); color:#fff; border-radius:16px; padding:26px 28px; box-shadow:0 18px 44px rgba(40,55,74,.22); }
+  .stat .num{ font-size:64px; font-weight:900; line-height:1; color:var(--mustard); }
+  .stat h4{ font-size:22px; font-weight:800; margin-top:8px; }
+  .stat p{ font-size:15px; color:#C9CFD8; margin-top:8px; line-height:1.4; }
+  /* ROI columns */
+  .roicol{ border-radius:16px; padding:24px 24px; }
+  .roicol h3{ font-size:22px; font-weight:900; margin-bottom:16px; }
+  .roicol .line{ display:flex; align-items:flex-start; gap:10px; font-size:16.5px; font-weight:600; margin-bottom:13px; line-height:1.3; }
+  .roicol .tag{ font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:1px; margin-top:6px; }
+</style>
+</head>
+<body>
+
+<!-- ============ SLIDE 1 — CAPA ============ -->
+<section class="slide">
+  <div class="chrome-top"></div>
+  <div style="position:absolute; left:0; top:300px; width:10px; height:180px; background:var(--red); border-radius:0 6px 6px 0;"></div>
+  <div class="logo-card" style="top:36px;"><img src="softham-logo-white.png"></div>
+  <div style="padding:90px 64px 0; position:relative; max-width:760px;">
+    <div style="font-size:96px; font-weight:900; color:var(--navy); letter-spacing:-4px; line-height:.9;">RepOne</div>
+    <div style="font-size:40px; font-weight:800; color:var(--red); line-height:1; margin-top:2px;">Portal do Lojista</div>
+    <div style="font-size:26px; font-weight:800; color:var(--navy); line-height:1.2; margin-top:22px; max-width:600px;">O jeito mais inteligente de receber pedidos <span style="color:var(--red);">sem perder tempo no WhatsApp.</span></div>
+    <ul class="bul" style="margin-top:26px; max-width:560px;">
+      <li><span class="ic">▸</span><span><b>Seu cliente monta o próprio pedido</b></span></li>
+      <li><span class="ic">▸</span><span><b>Você aprova, acompanha e vende mais</b></span></li>
+      <li><span class="ic">▸</span><span><b>Tudo integrado ao ecossistema RepOne</b></span></li>
+      <li><span class="ic">▸</span><span><b>Um portal exclusivo com a sua marca</b></span></li>
+    </ul>
+  </div>
+  <!-- phone mockup -->
+  <div style="position:absolute; right:110px; top:120px; width:290px; height:500px;" class="phone">
+    <div class="screen">
+      <div style="background:var(--mustard); padding:16px 18px; font-weight:800; color:#1A1A1A;">Portal RepOne</div>
+      <div style="padding:14px 16px;">
+        <div style="font-weight:800; color:var(--navy); font-size:17px;">Auto Peças Trevo</div>
+        <div style="display:inline-block; background:#DCF0E2; color:var(--green); font-size:12px; font-weight:700; border-radius:6px; padding:3px 8px; margin:8px 0 12px;">✓ Último pedido: há 18 dias</div>
+        <div class="prod"><div><div class="pn">Pastilha Freio Diant.</div><div class="pp">R$ 28,30</div></div><div class="add">+</div></div>
+        <div class="prod"><div><div class="pn">Filtro Óleo 1.6</div><div class="pp">R$ 18,80</div></div><div class="add">+</div></div>
+        <div class="prod"><div><div class="pn">Correia Dentada</div><div class="pp">R$ 13,00</div></div><div class="add">+</div></div>
+      </div>
+      <div style="background:var(--mustard); margin:6px 12px; border-radius:12px; padding:12px; text-align:center;"><div style="font-size:13px; color:#1A1A1A; font-weight:600;">Meu Pedido · 3 itens · R$ 289,30</div><div style="font-weight:900; color:#1A1A1A; font-size:16px; margin-top:2px;">→ Finalizar</div></div>
+    </div>
+  </div>
+  <div style="position:absolute; left:64px; bottom:74px; right:430px; background:var(--navy); color:#fff; border-radius:12px; padding:16px 22px;">
+    <span style="font-size:17px; font-weight:600; line-height:1.4;">“É como ter um <b style="color:var(--mustard);">vendedor digital trabalhando 24 horas por dia</b> para você — sem custo de CLT.”</span>
+  </div>
+  <div class="footer"><span>Portal do Lojista · SoftHam</span><span class="red">01 / 11</span></div>
+</section>
+
+<!-- ============ SLIDE 2 — O PROBLEMA ============ -->
+<section class="slide">
+  <div class="chrome-top"></div>
+  <div class="pad">
+    <h2 class="h-title">O representante virou <span class="red">digitador de pedido —</span><br>quando deveria estar vendendo.</h2>
+    <div class="rule"></div>
+    <div class="sub" style="margin-bottom:34px;">Pedidos por WhatsApp. Catálogos riscados. Retrabalho sem fim.</div>
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:22px;">
+      <div class="card"><div class="top-label">WhatsApp</div><div class="ci">🎙</div><h3>Pedido por áudio</h3><p>Chega por áudio no WhatsApp e você transcreve item por item</p></div>
+      <div class="card"><div class="top-label">Catálogo</div><div class="ci">✎</div><h3>Catálogo riscado</h3><p>Foto de catálogo rabiscado à caneta, sem preço atualizado</p></div>
+      <div class="card"><div class="top-label">Cadastro</div><div class="ci">⚠</div><h3>Dados incompletos</h3><p>Informações do cliente faltando — e o retrabalho de buscar</p></div>
+      <div class="card"><div class="top-label">Fora de hora</div><div class="ci">☎</div><h3>Ligações a qualquer hora</h3><p>O lojista te aciona fora do horário e a digitação não para</p></div>
+    </div>
+  </div>
+  <div class="footer"><span>Portal do Lojista · SoftHam</span><span class="red">02 / 11</span></div>
+</section>
+
+<!-- ============ SLIDE 3 — A SOLUÇÃO ============ -->
+<section class="slide">
+  <div class="chrome-top"></div>
+  <div class="pad" style="padding-bottom:0;">
+    <div class="kicker">A solução</div>
+    <h2 class="h-title">O lojista monta o pedido.<br><span class="red">Você ganha produtividade.</span></h2>
+    <div class="rule"></div>
+    <div class="sub" style="margin-bottom:26px;">Menos digitação. Mais vendas. Mais profissionalismo.</div>
+  </div>
+  <div style="display:grid; grid-template-columns:1fr 1.05fr; gap:40px; padding:0 64px;">
+    <ul class="bul">
+      <li><span class="ic">▤</span><span><b>Catálogo online atualizado</b><br><span class="d">Produtos sempre corretos, sem versões desatualizadas</span></span></li>
+      <li><span class="ic">🛒</span><span><b>Carrinho intuitivo</b><br><span class="d">O lojista seleciona, ajusta e finaliza sem precisar ligar</span></span></li>
+      <li><span class="ic">➤</span><span><b>Envio direto ao RepOne</b><br><span class="d">Pedido chega limpo, organizado e pronto para aprovar</span></span></li>
+      <li><span class="ic">⇄</span><span><b>Integração completa</b><br><span class="d">Tudo conectado ao ecossistema RepOne nativamente</span></span></li>
+    </ul>
+    <div class="mock">
+      <div class="mhead">Catálogo · Auto Peças Trevo</div>
+      <table>
+        <tr><th>Código</th><th>Produto</th><th class="r">Preço</th><th class="r"></th></tr>
+        <tr><td class="mono">PA-9821</td><td>Pastilha freio dianteira</td><td class="r">R$ 28,30</td><td class="r" style="color:var(--mustard); font-weight:900;">+ add</td></tr>
+        <tr><td class="mono">FL-4410</td><td>Filtro de óleo 1.6</td><td class="r">R$ 18,80</td><td class="r" style="color:var(--mustard); font-weight:900;">+ add</td></tr>
+        <tr><td class="mono">CO-3370</td><td>Correia dentada</td><td class="r">R$ 13,00</td><td class="r" style="color:var(--mustard); font-weight:900;">+ add</td></tr>
+        <tr><td class="mono">AM-1207</td><td>Amortecedor traseiro</td><td class="r">R$ 96,40</td><td class="r" style="color:var(--mustard); font-weight:900;">+ add</td></tr>
+        <tr><td colspan="4" style="text-align:right; font-weight:800; background:var(--areia-soft);">Carrinho: 3 itens · R$ 289,30 → Enviar ao representante</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="footer"><span>Portal do Lojista · SoftHam</span><span class="red">03 / 11</span></div>
+</section>
+
+<!-- ============ SLIDE 4 — JORNADA ============ -->
+<section class="slide">
+  <div class="chrome-top"></div>
+  <div class="pad">
+    <h2 class="h-title">Tão simples quanto <span class="red">comprar online.</span></h2>
+    <div class="rule"></div>
+    <div class="sub" style="margin-bottom:40px;">Simples para o lojista. Poderoso para o representante.</div>
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:20px; position:relative;">
+      <div style="position:absolute; left:8%; right:8%; top:34px; height:3px; background:var(--mustard); z-index:0;"></div>
+      <div class="jstep" style="z-index:1;"><div class="jnum">01</div><h4>Representante libera acesso</h4><p>Você define quem entra e quais produtos cada lojista vê.</p></div>
+      <div class="jstep" style="z-index:1;"><div class="jnum">02</div><h4>Lojista acessa o portal</h4><p>Do celular ou computador, com a sua marca na tela.</p></div>
+      <div class="jstep" style="z-index:1;"><div class="jnum">03</div><h4>Cliente monta o carrinho</h4><p>Seleciona itens, ajusta quantidades e finaliza sozinho.</p></div>
+      <div class="jstep" style="z-index:1;"><div class="jnum">04</div><h4>Representante aprova e acompanha</h4><p>O pedido entra na sua carteira, pronto para validar.</p></div>
+    </div>
+  </div>
+  <div style="position:absolute; left:64px; right:64px; bottom:84px;">
+    <div class="quote" style="text-align:center;">“É como transformar o processo de pedido em algo tão <span class="red">simples quanto comprar online.</span>”</div>
+  </div>
+  <div class="footer"><span>Portal do Lojista · SoftHam</span><span class="red">04 / 11</span></div>
+</section>
+
+<!-- ============ SLIDE 5 — BENEFÍCIOS REPRESENTANTE ============ -->
+<section class="slide">
+  <div class="chrome-top"></div>
+  <div class="pad">
+    <h2 class="h-title">Benefícios estratégicos<br><span class="red">para o representante.</span></h2>
+    <div class="rule"></div>
+    <div class="sub" style="margin-bottom:34px;">Quem automatiza pedido vende mais — com menos desgaste.</div>
+  </div>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:28px; padding:0 64px;">
+    <div class="stat">
+      <div class="num">70%</div>
+      <h4>Menos erros e retrabalho</h4>
+      <p>Pedidos organizados e dados limpos desde o início. Redução drástica no tempo corrigindo pedido.</p>
+    </div>
+    <div class="stat" style="background:var(--red);">
+      <div class="num" style="color:#fff;">10h</div>
+      <h4>Economizadas por semana</h4>
+      <p style="color:#F6DAD4;">Tempo devolvido para o que importa: prospecção e fechamento de novos negócios.</p>
+    </div>
+  </div>
+  <div style="display:flex; gap:12px; justify-content:center; padding:30px 64px 0; flex-wrap:wrap;">
+    <span class="pill">Mais tempo para vender</span>
+    <span class="pill">Menos digitação</span>
+    <span class="pill">Foco em prospecção</span>
+    <span class="pill solid">Mais resultado, menos desgaste</span>
+  </div>
+  <div class="footer"><span>Portal do Lojista · SoftHam</span><span class="red">05 / 11</span></div>
+</section>
+
+<!-- ============ SLIDE 6 — VANTAGENS LOJISTA ============ -->
+<section class="slide">
+  <div class="chrome-top"></div>
+  <div class="pad">
+    <h2 class="h-title">Seu representante passa a operar<br>como uma <span class="red">grande distribuidora.</span></h2>
+    <div class="rule"></div>
+    <div class="sub" style="margin-bottom:34px;">Autonomia, agilidade e uma experiência de compra moderna — disponível 24 horas por dia.</div>
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:22px;">
+      <div class="card"><div class="ci">🕑</div><h3>Pedidos a qualquer hora</h3><p>Disponibilidade 24/7 — o lojista pede quando for mais conveniente, sem depender do seu horário</p></div>
+      <div class="card"><div class="ci">↺</div><h3>Histórico de compras</h3><p>Acesso aos pedidos anteriores para recompra rápida e consulta de referências</p></div>
+      <div class="card"><div class="ci">⌕</div><h3>Consulta rápida de produtos</h3><p>Catálogo sempre atualizado, com busca fácil por categoria, referência ou linha</p></div>
+      <div class="card"><div class="ci">✦</div><h3>Experiência moderna</h3><p>Interface intuitiva similar a grandes e-commerces — simples, fluida e profissional</p></div>
+    </div>
+  </div>
+  <div class="footer"><span>Portal do Lojista · SoftHam</span><span class="red">06 / 11</span></div>
+</section>
+
+<!-- ============ SLIDE 7 — DIFERENCIAIS ============ -->
+<section class="slide">
+  <div class="chrome-top"></div>
+  <div class="pad">
+    <h2 class="h-title">Não é só um catálogo.<br><span class="red">É um canal de vendas inteligente.</span></h2>
+    <div class="rule"></div>
+    <div class="sub" style="margin-bottom:30px;">Diferenciais competitivos do portal</div>
+    <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:16px;">
+      <div class="card" style="padding:22px 16px;"><div class="ci" style="width:46px; height:46px; font-size:22px;">⇄</div><h3 style="font-size:18px;">Integração nativa</h3><p style="font-size:14px;">Conexão direta com o RepOne — sem retrabalho de importação manual</p></div>
+      <div class="card" style="padding:22px 16px;"><div class="ci" style="width:46px; height:46px; font-size:22px; font-weight:900; color:var(--red);">®</div><h3 style="font-size:18px;">White-label</h3><p style="font-size:14px;">O portal leva sua marca e seu logo. O lojista vê você, não a plataforma</p></div>
+      <div class="card" style="padding:22px 16px;"><div class="ci" style="width:46px; height:46px; font-size:22px;">⚙</div><h3 style="font-size:18px;">Controle total</h3><p style="font-size:14px;">Você define regras, acessos e aprovações. A decisão é sempre sua</p></div>
+      <div class="card" style="padding:22px 16px;"><div class="ci" style="width:46px; height:46px; font-size:22px;">⚡</div><h3 style="font-size:18px;">Implantação rápida</h3><p style="font-size:14px;">Setup ágil, sem meses de projeto. Você começa a operar em pouco tempo</p></div>
+      <div class="card" style="padding:22px 16px;"><div class="ci" style="width:46px; height:46px; font-size:22px;">🔗</div><h3 style="font-size:18px;">EDI moderno</h3><p style="font-size:14px;">Troca de dados simplificada entre sistemas, sem complexidade técnica</p></div>
+    </div>
+  </div>
+  <div style="position:absolute; left:64px; right:64px; bottom:80px;">
+    <div class="quote" style="text-align:center;">“Você não precisa virar empresa de tecnologia para <span class="red">vender como uma.</span>”</div>
+  </div>
+  <div class="footer"><span>Portal do Lojista · SoftHam</span><span class="red">07 / 11</span></div>
+</section>
+
+<!-- ============ SLIDE 8 — CASOS DE USO AUTOPEÇAS ============ -->
+<section class="slide">
+  <div class="chrome-top"></div>
+  <div class="pad">
+    <div class="kicker">Autopeças</div>
+    <h2 class="h-title">O pedido acontece <span class="red">mesmo quando<br>você está dormindo.</span></h2>
+    <div class="rule"></div>
+    <div class="sub" style="margin-bottom:32px;">O portal trabalha no ritmo do setor — rápido, preciso e disponível quando você precisa.</div>
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:22px;">
+      <div class="card"><div class="ci">🌙</div><h3>Reposição noturna</h3><p>Pedido após o expediente para entrega prioritária — sem acionar você fora do horário</p></div>
+      <div class="card"><div class="ci">🔥</div><h3>Curva A e B</h3><p>Reposição rápida do alto giro: freios, filtros e velas sempre disponíveis no momento certo</p></div>
+      <div class="card"><div class="ci">🧰</div><h3>Kits de revisão</h3><p>Freio, filtro, óleo e velas montados num único pedido completo de manutenção</p></div>
+      <div class="card"><div class="ci">🚗</div><h3>Compatibilidade</h3><p>Garante a peça correta para o veículo específico do cliente</p></div>
+    </div>
+  </div>
+  <div class="footer"><span>Portal do Lojista · SoftHam</span><span class="red">08 / 11</span></div>
+</section>
+
+<!-- ============ SLIDE 9 — SEGURANÇA E CONTROLE ============ -->
+<section class="slide">
+  <div class="chrome-top"></div>
+  <div class="pad">
+    <h2 class="h-title">O controle continua <span class="red">totalmente<br>nas suas mãos.</span></h2>
+    <div class="rule"></div>
+    <div class="sub" style="margin-bottom:34px;">Automatizar o operacional significa ganhar escala — sem abrir mão do comando.</div>
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:22px;">
+      <div class="card"><div class="ci">🔑</div><h3>Controle de acesso</h3><p>Você decide quem acessa e quando</p></div>
+      <div class="card"><div class="ci">✓</div><h3>Aprovação de pedidos</h3><p>Nenhum pedido entra sem a sua validação</p></div>
+      <div class="card"><div class="ci">📜</div><h3>Histórico completo</h3><p>Log auditável de toda a operação</p></div>
+      <div class="card"><div class="ci">👥</div><h3>Gestão de clientes ativos</h3><p>Controle total da sua carteira de lojistas</p></div>
+    </div>
+  </div>
+  <div class="footer"><span>Portal do Lojista · SoftHam</span><span class="red">09 / 11</span></div>
+</section>
+
+<!-- ============ SLIDE 10 — ROI ============ -->
+<section class="slide">
+  <div class="chrome-top"></div>
+  <div class="pad" style="padding-bottom:0;">
+    <h2 class="h-title">Quanto custa <span class="red">continuar do jeito atual?</span></h2>
+    <div class="rule"></div>
+    <div class="sub" style="margin-bottom:28px;">ROI e custo de oportunidade</div>
+  </div>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:28px; padding:0 64px;">
+    <div class="roicol" style="background:#fff; border:2px solid var(--line);">
+      <h3 style="color:var(--gray);">✗ Sem o portal</h3>
+      <div class="line" style="color:var(--navy);"><span style="color:var(--red);">✗</span> Horas perdidas digitando pedido</div>
+      <div class="line" style="color:var(--navy);"><span style="color:var(--red);">✗</span> Pedidos com erros frequentes</div>
+      <div class="line" style="color:var(--navy);"><span style="color:var(--red);">✗</span> Clientes esperando resposta</div>
+      <div class="line" style="color:var(--navy);"><span style="color:var(--red);">✗</span> Imagem pouco profissional</div>
+      <div class="tag" style="color:var(--red);">Custo invisível que cresce todo mês</div>
+    </div>
+    <div class="roicol" style="background:var(--navy); color:#fff; box-shadow:0 18px 44px rgba(40,55,74,.22);">
+      <h3 style="color:#fff;">✓ Com o Portal RepOne</h3>
+      <div class="line"><span style="color:var(--mustard);">✓</span> Até 70% menos retrabalho</div>
+      <div class="line"><span style="color:var(--mustard);">✓</span> Pedidos limpos e organizados</div>
+      <div class="line"><span style="color:var(--mustard);">✓</span> Disponibilidade 24/7 para o lojista</div>
+      <div class="line"><span style="color:var(--mustard);">✓</span> Imagem de grande distribuidora</div>
+      <div class="tag" style="color:var(--mustard);">Retorno imediato em tempo e vendas</div>
+    </div>
+  </div>
+  <div style="position:absolute; left:64px; right:64px; bottom:80px;">
+    <div class="quote" style="text-align:center;">“O barato sai caro quando o cliente <span class="red">compra do concorrente.</span>”</div>
+  </div>
+  <div class="footer"><span>Portal do Lojista · SoftHam</span><span class="red">10 / 11</span></div>
+</section>
+
+<!-- ============ SLIDE 11 — CONCLUSÃO + CTA ============ -->
+<section class="slide">
+  <div class="chrome-top"></div>
+  <div style="padding:60px 64px 0; display:flex; align-items:center; gap:18px;">
+    <div style="background:#fff; border-radius:12px; padding:8px 12px; box-shadow:0 6px 18px rgba(0,0,0,.10);"><img src="softham-logo-white.png" style="height:44px; display:block;"></div>
+    <div>
+      <div style="font-size:42px; font-weight:900; color:var(--navy); letter-spacing:-1px;">Quem profissionaliza primeiro, <span style="color:var(--red);">vende primeiro.</span></div>
+      <div style="font-size:19px; color:var(--gray); font-weight:500;">Enquanto muitos ainda anotam pedidos no WhatsApp, você opera como uma central digital.</div>
+    </div>
+  </div>
+  <div style="padding:32px 64px 0; display:grid; grid-template-columns:repeat(4,1fr); gap:18px;">
+    <div class="card" style="padding:20px 18px;"><div class="ci">⚡</div><h3 style="font-size:19px;">Mais produtividade</h3><p style="font-size:14.5px;">Agilize processos e economize tempo</p></div>
+    <div class="card" style="padding:20px 18px;"><div class="ci">📈</div><h3 style="font-size:19px;">Mais pedidos</h3><p style="font-size:14.5px;">Aumente as vendas com um canal digital</p></div>
+    <div class="card" style="padding:20px 18px;"><div class="ci">✓</div><h3 style="font-size:19px;">Menos retrabalho</h3><p style="font-size:14.5px;">Erros reduzidos na captação e no envio</p></div>
+    <div class="card" style="padding:20px 18px;"><div class="ci">🚀</div><h3 style="font-size:19px;">Escalabilidade</h3><p style="font-size:14.5px;">Cresça sem aumentar a complexidade operacional</p></div>
+  </div>
+  <div style="position:absolute; left:64px; right:64px; bottom:84px; background:var(--mustard); border-radius:14px; padding:22px 28px; text-align:center; box-shadow:0 16px 40px rgba(231,169,43,.35);">
+    <div style="font-size:26px; font-weight:900; color:#1A1A1A;">Fale com um especialista RepOne e ative o seu Portal do Lojista.</div>
+    <div style="font-size:17px; color:#3A2E10; margin-top:8px; font-weight:600;">Hamilton Luiz R. Silva — Fundador SoftHam &nbsp;·&nbsp; hamilton@softham.com.br &nbsp;·&nbsp; WhatsApp (67) 9 9607-8885</div>
+  </div>
+  <div class="footer"><span>Portal do Lojista · SoftHam</span><span class="red">11 / 11</span></div>
+</section>
+
+</body>
+</html>
