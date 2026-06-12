@@ -188,6 +188,8 @@ function EditSelect({ label, value, onChange, options }: {
 // ─── Enter = Tab (navegação por Enter nos campos) ─────────────────────────────
 function handleEnterAsTab(e: React.KeyboardEvent) {
   if (e.key !== 'Enter') return;
+  // Numa textarea (ex.: Observação do pedido), Enter quebra linha — não pula de campo.
+  if ((e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
   const focusable = Array.from(
     (e.currentTarget as HTMLElement).querySelectorAll(
       'input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled])'
