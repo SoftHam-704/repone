@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
-import { masterPool } from '../../config/database';
 import * as acbr from '../../shared/utils/acbr-nfse.service';
-import { buildNfsePayload, Provedor } from './nfse-payload';
+import { buildNfsePayload } from './nfse-payload';
 import { empresaToAliquotas, empresaToConfigNfse, cnpjDigits } from './nfse-empresa-config';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -216,17 +215,6 @@ export async function deleteNfseHandler(req: Request, res: Response): Promise<vo
 // EMISSÃO ACBr (homologação nesta fase)
 // ════════════════════════════════════════════════════════════════════
 
-// Decide RPS×Nacional pelo metadado do município (cache simples em memória).
-const _provedorCache = new Map<string, Provedor>();
-async function resolverProvedor(ibge: string): Promise<Provedor> {
-  if (_provedorCache.has(ibge)) return _provedorCache.get(ibge)!;
-  const r: any = await acbr.cidade(ibge);
-  const nome = String(r?.provedor ?? r?.data?.provedor ?? '').toLowerCase();
-  const prov: Provedor = nome.includes('nacional') ? 'nacional' : 'municipal';
-  _provedorCache.set(ibge, prov);
-  return prov;
-}
-
 // Extrai o motivo de uma resposta 200 da ACBr cujo status é rejeitado/erro — o
 // detalhe vem aninhado (mensagem/motivo/descricao/erros[]), NÃO em `error` (esse
 // só aparece quando a chamada HTTP falha e o serviço lança AcbrError).
@@ -250,6 +238,13 @@ function extrairMotivoAcbr(info: any): string | null {
   const seen = new Set<string>();
   const uniq = partes.filter(p => (seen.has(p) ? false : (seen.add(p), true)));
   return uniq.length ? uniq.join(' · ').slice(0, 1000) : null;
+}
+
+// Motivo vindo de info.mensagens[] (Sistema Nacional NFS-e: [{codigo, descricao}]).
+function motivoMensagens(info: any): string | null {
+  const arr = Array.isArray(info?.mensagens) ? info.mensagens : null;
+  if (!arr || !arr.length) return null;
+  return arr.map((m: any) => (m?.codigo ? `${m.codigo}: ` : '') + (m?.descricao ?? m?.mensagem ?? '')).filter(Boolean).join(' · ').slice(0, 1000) || null;
 }
 
 // Carrega o que a emissão/prévia precisam: lançamento (com CNPJ do tomador) + empresa_status.
@@ -313,89 +308,59 @@ export async function previaNfseHandler(req: Request, res: Response): Promise<vo
   }
 }
 
-// POST /:id/emitir  — emite a NFS-e do lançamento em homologação
+// POST /:id/emitir  — emite a NFS-e do lançamento via empresa_status
 export async function emitirNfseHandler(req: Request, res: Response): Promise<void> {
   try {
     const db = req.db!;
     const id = Number(req.params.id);
-    const user = (req as any).user;
+    const { lanc, emp } = await carregarParaEmissao(db, id);
+    const faltando = validarEmissao(lanc, emp);
+    if (faltando.length) { res.status(400).json({ success: false, message: 'Faltam dados para emitir: ' + faltando.join('; '), faltando }); return; }
 
-    // 1. lançamento + alíquotas  (CNPJ do fornecedor = coluna for_cgc)
-    const lanc = (await db.query(`
-      SELECT n.*, f.for_cgc AS for_cnpj
-      FROM fin_nfse n LEFT JOIN fornecedores f ON f.for_codigo = n.for_codigo
-      WHERE n.id = $1
-    `, [id])).rows[0];
-    if (!lanc) { res.status(404).json({ success: false, message: 'Lançamento não encontrado.' }); return; }
+    const cnpj = cnpjDigits(emp.emp_cnpj);
+    const { payload } = montarPayload(lanc, emp);
 
-    const aliq = (await db.query(`SELECT * FROM fin_nfse_aliquotas WHERE id = 1`)).rows[0] || {};
+    // Emite; se faltar config no ACBr, configura (lazy, semeando a numeração) e repete UMA vez.
+    let emit: any;
+    try {
+      emit = await acbr.emitirDps(payload);
+    } catch (err: any) {
+      const isConfig = err?.status === 400 && /ConfigNfseNotFound|configura/i.test(String(err?.message) + String(err?.body ?? ''));
+      if (!isConfig) throw err;
+      await acbr.configurarNfseEmpresa(cnpj, empresaToConfigNfse(emp));
+      emit = await acbr.emitirDps(payload);
+    }
 
-    // 2. validações pré-ACBr
-    const faltando: string[] = [];
-    if (!aliq.inscricao_municipal)    faltando.push('Inscrição Municipal (matriz de alíquotas)');
-    if (!aliq.codigo_servico_padrao)  faltando.push('Código de serviço (matriz de alíquotas)');
-    if (!lanc.for_cnpj)               faltando.push('CNPJ da representada (tomador)');
-    if (!(Number(lanc.vr_bruto) > 0)) faltando.push('Valor (VR Bruto) maior que zero');
-    if (faltando.length) { res.status(400).json({ success: false, message: 'Faltam dados para emitir: ' + faltando.join('; ') }); return; }
-
-    // 3. prestador (master) — usa user.schema que o JWT sempre fornece
-    const emp = (await masterPool.query(
-      `SELECT razao_social, cnpj FROM empresas WHERE db_schema = $1 LIMIT 1`, [user?.schema]
-    )).rows[0];
-    if (!emp) { res.status(400).json({ success: false, message: 'Empresa (prestador) não encontrada no master.' }); return; }
-    const ibge = '3106200'; // BH — borcatorep. (Generalizar via empresas numa fase seguinte.)
-
-    // 4. provedor + payload (ambiente sempre homologacao nesta fase)
-    const provedor = await resolverProvedor(ibge);
-    const { tipo, payload } = buildNfsePayload({
-      lancamento: {
-        id: lanc.id, competencia: lanc.competencia, vr_bruto: Number(lanc.vr_bruto),
-        iss: Number(lanc.iss), representada_nome: lanc.representada_nome || '', for_cnpj: String(lanc.for_cnpj),
-      },
-      aliquotas: {
-        regime: aliq.regime, iss_pct: Number(aliq.iss_pct),
-        inscricao_municipal: String(aliq.inscricao_municipal), codigo_servico_padrao: String(aliq.codigo_servico_padrao),
-      },
-      prestador: { cnpj: String(emp.cnpj), razao: emp.razao_social, ibge },
-      provedor, ambiente: 'homologacao',
-    });
-
-    // 5. emitir
-    const emit: any = tipo === 'dps' ? await acbr.emitirDps(payload) : await acbr.emitirRps(payload);
     const acbrId = emit?.id ?? emit?.data?.id;
-
-    // 6. polling até status final (máx 10 tentativas × 3s)
     let status = String(emit?.status ?? '').toLowerCase();
     let info: any = emit;
-    for (let i = 0; acbrId && !['autorizado','concluido','rejeitado','erro','cancelado'].includes(status) && i < 10; i++) {
+    for (let i = 0; acbrId && !['autorizada','autorizado','concluido','negada','rejeitado','erro','cancelada'].includes(status) && i < 10; i++) {
       await new Promise(r => setTimeout(r, 3000));
       info = await acbr.consultar(acbrId);
       status = String(info?.status ?? '').toLowerCase();
     }
 
-    // 7. classificar e persistir (ciclo do schema: EMITIDA / ERRO / PENDENTE)
-    const ok       = ['autorizado','concluido'].includes(status);
-    const terminal = ['rejeitado','erro','cancelado'].includes(status);
-    // EMITIDA = autorizada · ERRO = rejeição/erro definitivo (entra na fila do índice
-    // parcial) · PENDENTE = ainda processando após o timeout → resolve via sincronizar.
+    const ok = ['autorizada','autorizado','concluido'].includes(status);
+    const terminal = ['negada','rejeitado','erro','cancelada'].includes(status);
     const novoStatus = ok ? 'EMITIDA' : terminal ? 'ERRO' : 'PENDENTE';
-    const motivo = ok ? null : (extrairMotivoAcbr(info) ?? `status ACBr: ${status || 'desconhecido'}`);
+    const motivo = ok ? null : (extrairMotivoAcbr(info) ?? motivoMensagens(info) ?? `status ACBr: ${status || 'desconhecido'}`);
+    const numero = info?.numero ?? null;
+
     await db.query(`
       UPDATE fin_nfse SET
-        status = $1, protocolo = $2, codigo_verificacao = $3,
-        xml = $4, erro_msg = $5, emitida_em = CASE WHEN $6 THEN now() ELSE emitida_em END,
-        updated_at = now()
-      WHERE id = $7
-    `, [
-      novoStatus,
-      info?.protocolo ?? acbrId ?? null,
-      info?.codigo_verificacao ?? info?.data?.codigo_verificacao ?? null,
-      info?.xml ?? null,
-      motivo,
-      ok, id,
-    ]);
+        status=$1, numero=COALESCE($2, numero), protocolo=$3, codigo_verificacao=$4,
+        xml=$5, erro_msg=$6, emitida_em = CASE WHEN $7 THEN now() ELSE emitida_em END, updated_at=now()
+      WHERE id=$8
+    `, [novoStatus, numero, acbrId ?? null,
+        info?.codigo_verificacao ?? null, info?.xml ?? null, motivo, ok, id]);
 
-    res.json({ success: ok, status, acbr_status: novoStatus, acbr_id: acbrId, data: info });
+    if (ok && numero) {
+      await db.query(`UPDATE empresa_status SET emp_nfse_proximo_numero = $1 WHERE emp_id = 1`, [Number(numero) + 1]);
+    }
+
+    res.json({ success: ok, status: novoStatus, numero, acbr_id: acbrId,
+      codigo_verificacao: info?.codigo_verificacao ?? null, link_url: info?.link_url ?? null,
+      motivo, data: info });
   } catch (e: any) {
     const msg = e?.message ?? 'Erro ao emitir NFS-e';
     console.error('❌ [NFSE emitir]:', msg, e?.body ? '| body: ' + String(e.body).slice(0, 800) : '');
