@@ -281,10 +281,14 @@ function validarEmissao(lanc: any, emp: any): string[] {
 
 function montarPayload(lanc: any, emp: any) {
   const usaServ = !!lanc.serv_ctribnac;
+  // Serviço escolhido define os códigos; cada campo cai no default da empresa se vazio
+  // (evita emitir cNBS/cTribMun em branco quando o serviço só preencheu o cTribNac).
   const aliquotas = usaServ
     ? { regime: emp.emp_regime || 'PRESUMIDO', iss_pct: Number(lanc.serv_iss) || 0,
-        inscricao_municipal: emp.emp_im || '', codigo_servico_padrao: lanc.serv_ctribnac,
-        ctrib_mun: lanc.serv_ctribmun || undefined, cnbs: lanc.serv_cnbs || undefined }
+        inscricao_municipal: emp.emp_im || '',
+        codigo_servico_padrao: lanc.serv_ctribnac || emp.emp_ctribnac,
+        ctrib_mun: lanc.serv_ctribmun || emp.emp_ctribmun || undefined,
+        cnbs: lanc.serv_cnbs || emp.emp_cnbs || undefined }
     : empresaToAliquotas(emp);
   const desc = lanc.serv_descricao
     ? `${lanc.serv_descricao} — competência ${lanc.competencia}`
@@ -314,7 +318,8 @@ export async function previaNfseHandler(req: Request, res: Response): Promise<vo
                  cnbs: lanc.serv_cnbs || emp.emp_cnbs, descricao: lanc.serv_descricao
                    ? `${lanc.serv_descricao} — competência ${lanc.competencia}`
                    : `Comissão sobre representação comercial — competência ${lanc.competencia}` },
-      valor: Number(lanc.vr_bruto), iss_pct: isSimples ? null : Number(emp.emp_iss_pct) || 0, iss_simples: isSimples,
+      valor: Number(lanc.vr_bruto), iss_simples: isSimples,
+      iss_pct: isSimples ? null : (lanc.serv_ctribnac ? Number(lanc.serv_iss) : Number(emp.emp_iss_pct)) || 0,
       competencia: lanc.competencia,
       ambiente: emp.emp_nfse_ambiente === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO',
     }, payload });
