@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, X, Trash2, Pencil, FileSpreadsheet, Percent, FileText, FileUp, FileCode, Ban } from 'lucide-react'
+import { Plus, X, Trash2, Pencil, FileSpreadsheet, Percent, FileText, FileUp, FileCode, Ban, Layers, Mail, Save } from 'lucide-react'
 import { api } from '@/shared/lib/api'
 import SearchCombobox from '@/shared/components/ui/SearchCombobox'
 import { exportNfseToExcel } from '../utils/exportNfseToExcel'
@@ -88,6 +88,8 @@ export default function NfseComissoesPage() {
   const [cancelar, setCancelar] = useState<Nfse | null>(null)
   const [servicos, setServicos] = useState<any[]>([])
   const [proxNum, setProxNum] = useState<string>('')
+  const [servicosModal, setServicosModal] = useState(false)
+  const [email, setEmail] = useState<Nfse | null>(null)
 
   const reps = useMemo(() => representadas.map(r => ({ id: r.for_codigo, nome: (r.for_nomered || r.for_nome || '').trim() })), [representadas])
 
@@ -130,6 +132,7 @@ export default function NfseComissoesPage() {
             <input type="month" value={competencia} onChange={e => setCompetencia(e.target.value)}
               style={{ ...inputStyle, width: 160, marginTop: 2, color: G.text }} />
           </label>
+          <button style={btnGhost} onClick={() => setServicosModal(true)}><Layers size={15} /> Serviços</button>
           <button style={btnGhost} onClick={() => setAliqModal(true)}><Percent size={15} /> Alíquotas</button>
           <button style={btnGhost} onClick={() => exportNfseToExcel(competencia, list, totais)} disabled={!list.length}>
             <FileSpreadsheet size={15} /> Excel
@@ -188,6 +191,7 @@ export default function NfseComissoesPage() {
                       <button title="PDF" onClick={() => baixarArquivo(`/nfse/${n.id}/pdf`, true)} style={{ ...iconBtn, color: G.navy }}><FileText size={14} /></button>
                       <button title="XML" onClick={() => baixarArquivo(`/nfse/${n.id}/xml`)} style={{ ...iconBtn, color: G.navy }}><FileCode size={14} /></button>
                       <button title="Cancelar NFS-e" onClick={() => setCancelar(n)} style={{ ...iconBtn, color: G.red }}><Ban size={14} /></button>
+                      <button title="Enviar por e-mail" onClick={() => setEmail(n)} style={{ ...iconBtn, color: G.navy }}><Mail size={14} /></button>
                     </>)}
                     {n.status === 'ERRO' && n.erro_msg && (
                       <span title={n.erro_msg} style={{ color: G.red, fontSize: 11, cursor: 'help' }}>⚠</span>
@@ -233,6 +237,8 @@ export default function NfseComissoesPage() {
         <AliquotasModal aliq={aliq} onClose={() => setAliqModal(false)}
           onSaved={(a) => { setAliq(a); setAliqModal(false); reload() }} />
       )}
+      {servicosModal && <ServicosModal onClose={() => setServicosModal(false)} onSaved={() => api.get('/nfse/servicos').then(r => setServicos((r.data.data || []).filter((s: any) => s.ativo)))} />}
+      {email && <EmailModal nfse={email} onClose={() => setEmail(null)} onDone={() => { setEmail(null); alert('E-mail enviado!') }} />}
     </div>
   )
 }
@@ -525,6 +531,75 @@ function CancelarModal({ nfse, onClose, onDone }: { nfse: Nfse; onClose: () => v
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         <button onClick={onClose} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>Voltar</button>
         <button onClick={go} disabled={busy || !confirma || motivo.trim().length < 15} style={btnPrimary(G.red)}>{busy ? 'Cancelando…' : 'Cancelar a NFS-e'}</button>
+      </div>
+    </Overlay>
+  )
+}
+
+function ServicosModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [lista, setLista] = useState<any[]>([])
+  const [busy, setBusy] = useState(false)
+  const load = () => api.get('/nfse/servicos').then(r => setLista(r.data.data || []))
+  useEffect(() => { load() }, [])
+  const setField = (i: number, k: string, v: any) => setLista(l => l.map((s, idx) => idx === i ? { ...s, [k]: v } : s))
+  const novo = () => setLista(l => [...l, { descricao: '', item_lc116: '', ctribnac: '', cnbs: '', iss_pct: 0, ativo: true }])
+  const salvar = async (s: any) => {
+    setBusy(true)
+    try { if (s.id) await api.put(`/nfse/servicos/${s.id}`, s); else await api.post('/nfse/servicos', s); await load() }
+    finally { setBusy(false) }
+  }
+  const excluir = async (s: any) => { if (s.id && confirm('Excluir serviço?')) { await api.delete(`/nfse/servicos/${s.id}`); await load() } }
+  return (
+    <Overlay onClose={() => { onSaved(); onClose() }} width={700}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 16, color: G.text }}>Serviços da NFS-e</h2>
+        <button onClick={() => { onSaved(); onClose() }} style={iconBtn}><X size={18} /></button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
+        {lista.map((s, i) => (
+          <div key={s.id || `n${i}`} style={{ display: 'grid', gridTemplateColumns: '1.4fr 0.8fr 0.8fr 1fr 0.6fr auto', gap: 6, alignItems: 'center', borderBottom: `1px solid ${G.border}`, paddingBottom: 6 }}>
+            <input value={s.descricao || ''} onChange={e => setField(i, 'descricao', e.target.value)} style={{ ...inputStyle, marginTop: 0 }} placeholder="Descrição" />
+            <input value={s.item_lc116 || ''} onChange={e => setField(i, 'item_lc116', e.target.value)} style={{ ...inputStyle, marginTop: 0 }} placeholder="LC116" />
+            <input value={s.ctribnac || ''} onChange={e => setField(i, 'ctribnac', e.target.value)} style={{ ...inputStyle, marginTop: 0 }} placeholder="cTribNac" />
+            <input value={s.cnbs || ''} onChange={e => setField(i, 'cnbs', e.target.value)} style={{ ...inputStyle, marginTop: 0 }} placeholder="cNBS" />
+            <input value={String(s.iss_pct ?? 0)} onChange={e => setField(i, 'iss_pct', e.target.value)} style={{ ...inputStyle, marginTop: 0 }} placeholder="ISS%" />
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button onClick={() => salvar(s)} disabled={busy} style={{ ...iconBtn, color: G.green }}><Save size={14} /></button>
+              <button onClick={() => excluir(s)} style={{ ...iconBtn, color: G.red }}><Trash2 size={14} /></button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button onClick={novo} style={{ ...btnGhost, marginTop: 10 }}><Plus size={14} /> Novo serviço</button>
+    </Overlay>
+  )
+}
+
+function EmailModal({ nfse, onClose, onDone }: { nfse: Nfse; onClose: () => void; onDone: () => void }) {
+  const [para, setPara] = useState('')
+  const [assunto, setAssunto] = useState(`NFS-e nº ${nfse.numero ?? ''}`)
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  useEffect(() => { api.get(`/nfse/${nfse.id}/previa`).then(r => setPara(r.data?.data?.tomador?.email || '')).catch(() => {}) }, [nfse.id])
+  const enviar = async () => {
+    setBusy(true); setErro(null)
+    try { const r = await api.post(`/nfse/${nfse.id}/email`, { para, assunto }); if (r.data.success) onDone(); else setErro(r.data.message || 'Falha ao enviar.') }
+    catch (e: any) { setErro(e?.response?.data?.message || 'Erro ao enviar.') } finally { setBusy(false) }
+  }
+  return (
+    <Overlay onClose={onClose} width={480}>
+      <div style={{ fontSize: 16, fontWeight: 800, color: G.navy, marginBottom: 12 }}>Enviar NFS-e por e-mail</div>
+      <label style={lbl}>Para
+        <input value={para} onChange={e => setPara(e.target.value)} style={inputStyle} placeholder="email@cliente.com" />
+      </label>
+      <label style={lbl}>Assunto
+        <input value={assunto} onChange={e => setAssunto(e.target.value)} style={inputStyle} />
+      </label>
+      <div style={{ fontSize: 11, color: G.muted, margin: '8px 0' }}>Anexos: DANFSE (PDF) + XML.</div>
+      {erro && <div style={{ padding: 10, borderRadius: 8, background: '#FDECEA', color: '#C62828', fontSize: 12, marginBottom: 10 }}>{erro}</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <button onClick={onClose} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>Cancelar</button>
+        <button onClick={enviar} disabled={busy || !para} style={btnPrimary(G.green)}>{busy ? 'Enviando…' : 'Enviar'}</button>
       </div>
     </Overlay>
   )
