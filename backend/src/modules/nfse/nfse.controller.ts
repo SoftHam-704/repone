@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { masterPool } from '../../config/database';
 import * as acbr from '../../shared/utils/acbr-nfse.service';
 import { buildNfsePayload, Provedor } from './nfse-payload';
+import { empresaToAliquotas, empresaToConfigNfse, cnpjDigits } from './nfse-empresa-config';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 function err(res: Response, e: any, ctx = '') {
@@ -249,6 +250,67 @@ function extrairMotivoAcbr(info: any): string | null {
   const seen = new Set<string>();
   const uniq = partes.filter(p => (seen.has(p) ? false : (seen.add(p), true)));
   return uniq.length ? uniq.join(' · ').slice(0, 1000) : null;
+}
+
+// Carrega o que a emissão/prévia precisam: lançamento (com CNPJ do tomador) + empresa_status.
+async function carregarParaEmissao(db: any, id: number) {
+  const lanc = (await db.query(`
+    SELECT n.*, f.for_cgc AS for_cnpj, COALESCE(NULLIF(TRIM(f.for_nomered),''), f.for_nome, n.representada_nome) AS tomador_nome
+    FROM fin_nfse n LEFT JOIN fornecedores f ON f.for_codigo = n.for_codigo
+    WHERE n.id = $1
+  `, [id])).rows[0];
+  const emp = (await db.query(`SELECT * FROM empresa_status WHERE emp_id = 1`)).rows[0] || {};
+  return { lanc, emp };
+}
+
+function validarEmissao(lanc: any, emp: any): string[] {
+  const faltando: string[] = [];
+  if (!lanc) { faltando.push('Lançamento não encontrado'); return faltando; }
+  if (!emp.emp_cnpj) faltando.push('CNPJ da empresa (Configurações)');
+  if (!emp.emp_im) faltando.push('Inscrição Municipal (Configurações → Dados Fiscais)');
+  if (!emp.emp_ctribnac) faltando.push('Código de tributação nacional (Configurações)');
+  if (!emp.emp_cnbs) faltando.push('Código NBS (Configurações)');
+  if (!lanc.for_cnpj) faltando.push('CNPJ da representada (tomador)');
+  if (!(Number(lanc.vr_bruto) > 0)) faltando.push('Valor (VR Bruto) maior que zero');
+  return faltando;
+}
+
+function montarPayload(lanc: any, emp: any) {
+  return buildNfsePayload({
+    lancamento: {
+      id: lanc.id, competencia: lanc.competencia, vr_bruto: Number(lanc.vr_bruto),
+      iss: Number(lanc.iss), representada_nome: lanc.tomador_nome || lanc.representada_nome || '',
+      for_cnpj: String(lanc.for_cnpj),
+    },
+    aliquotas: empresaToAliquotas(emp),
+    prestador: { cnpj: String(emp.emp_cnpj), razao: emp.emp_nome || '', ibge: String(emp.emp_ibge || '') },
+    provedor: 'nacional',
+    ambiente: emp.emp_nfse_ambiente === 'PRODUCAO' ? 'producao' : 'homologacao',
+  });
+}
+
+// GET /:id/previa — monta o payload e devolve um resumo legível, SEM emitir.
+export async function previaNfseHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const { lanc, emp } = await carregarParaEmissao(db, Number(req.params.id));
+    const faltando = validarEmissao(lanc, emp);
+    if (faltando.length) { res.status(400).json({ success: false, message: 'Faltam dados para emitir: ' + faltando.join('; '), faltando }); return; }
+    const { payload } = montarPayload(lanc, emp);
+    const isSimples = (emp.emp_regime || '').toUpperCase().includes('SIMPLES');
+    res.json({ success: true, data: {
+      prestador: { nome: emp.emp_nome, cnpj: emp.emp_cnpj, im: emp.emp_im },
+      tomador: { nome: lanc.tomador_nome || lanc.representada_nome, cnpj: lanc.for_cnpj },
+      servico: { item_lc116: emp.emp_item_lc116, ctribnac: emp.emp_ctribnac, cnbs: emp.emp_cnbs,
+                 descricao: `Comissão sobre representação comercial — competência ${lanc.competencia}` },
+      valor: Number(lanc.vr_bruto), iss_pct: isSimples ? null : Number(emp.emp_iss_pct) || 0, iss_simples: isSimples,
+      competencia: lanc.competencia,
+      ambiente: emp.emp_nfse_ambiente === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO',
+    }, payload });
+  } catch (e: any) {
+    console.error('❌ [NFSE previa]:', e?.message);
+    res.status(500).json({ success: false, message: e?.message ?? 'Erro ao montar prévia' });
+  }
 }
 
 // POST /:id/emitir  — emite a NFS-e do lançamento em homologação
