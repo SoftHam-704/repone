@@ -226,6 +226,31 @@ async function resolverProvedor(ibge: string): Promise<Provedor> {
   return prov;
 }
 
+// Extrai o motivo de uma resposta 200 da ACBr cujo status é rejeitado/erro — o
+// detalhe vem aninhado (mensagem/motivo/descricao/erros[]), NÃO em `error` (esse
+// só aparece quando a chamada HTTP falha e o serviço lança AcbrError).
+function extrairMotivoAcbr(info: any): string | null {
+  if (!info || typeof info !== 'object') return null;
+  const partes: string[] = [];
+  for (const k of ['message', 'mensagem', 'motivo', 'descricao', 'error']) {
+    const v = info[k];
+    if (typeof v === 'string' && v.trim()) partes.push(v.trim());
+    else if (v && typeof v === 'object' && typeof v.message === 'string') partes.push(v.message);
+  }
+  for (const arr of [info.erros, info.errors, info.error?.errors].filter(Array.isArray)) {
+    for (const s of arr) {
+      if (typeof s === 'string') partes.push(s);
+      else if (s && typeof s === 'object') {
+        const m = s.message ?? s.mensagem ?? s.motivo;
+        if (typeof m === 'string') { const ref = s.campo ?? s.field ?? s.codigo; partes.push(ref ? `${ref}: ${m}` : m); }
+      }
+    }
+  }
+  const seen = new Set<string>();
+  const uniq = partes.filter(p => (seen.has(p) ? false : (seen.add(p), true)));
+  return uniq.length ? uniq.join(' · ').slice(0, 1000) : null;
+}
+
 // POST /:id/emitir  — emite a NFS-e do lançamento em homologação
 export async function emitirNfseHandler(req: Request, res: Response): Promise<void> {
   try {
@@ -286,8 +311,13 @@ export async function emitirNfseHandler(req: Request, res: Response): Promise<vo
       status = String(info?.status ?? '').toLowerCase();
     }
 
-    // 7. persistir
-    const ok = ['autorizado','concluido'].includes(status);
+    // 7. classificar e persistir (ciclo do schema: EMITIDA / ERRO / PENDENTE)
+    const ok       = ['autorizado','concluido'].includes(status);
+    const terminal = ['rejeitado','erro','cancelado'].includes(status);
+    // EMITIDA = autorizada · ERRO = rejeição/erro definitivo (entra na fila do índice
+    // parcial) · PENDENTE = ainda processando após o timeout → resolve via sincronizar.
+    const novoStatus = ok ? 'EMITIDA' : terminal ? 'ERRO' : 'PENDENTE';
+    const motivo = ok ? null : (extrairMotivoAcbr(info) ?? `status ACBr: ${status || 'desconhecido'}`);
     await db.query(`
       UPDATE fin_nfse SET
         status = $1, protocolo = $2, codigo_verificacao = $3,
@@ -295,15 +325,15 @@ export async function emitirNfseHandler(req: Request, res: Response): Promise<vo
         updated_at = now()
       WHERE id = $7
     `, [
-      ok ? 'EMITIDA' : 'CONTROLE',
+      novoStatus,
       info?.protocolo ?? acbrId ?? null,
       info?.codigo_verificacao ?? info?.data?.codigo_verificacao ?? null,
       info?.xml ?? null,
-      ok ? null : (info?.error ? String(info.error) : `status ACBr: ${status || 'desconhecido'}`),
+      motivo,
       ok, id,
     ]);
 
-    res.json({ success: ok, status, acbr_id: acbrId, data: info });
+    res.json({ success: ok, status, acbr_status: novoStatus, acbr_id: acbrId, data: info });
   } catch (e: any) {
     const msg = e?.message ?? 'Erro ao emitir NFS-e';
     console.error('❌ [NFSE emitir]:', msg, e?.body ? '| body: ' + String(e.body).slice(0, 800) : '');
