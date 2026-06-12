@@ -16,12 +16,14 @@ Construir a **camada de emissão de NFS-e** dentro do RepOne (a infraestrutura A
 - Cliente ACBr de NFS-e no backend do RepOne (auth OAuth2, request, emitir, polling, PDF/XML, cancelar, upload de certificado).
 - Builder de payload a partir dos dados já existentes (`fin_nfse` + `fin_nfse_aliquotas` + empresa).
 - Ação `POST /nfse/:id/emitir` que persiste o resultado em `fin_nfse`.
+- **Entrada do usuário no lançamento:** o usuário informa **indústria (representada)** e **valor (VR Bruto) manualmente**, além dos campos obrigatórios. O valor é **digitado**, não calculado — porque nem todos lançam o faturamento pelo sistema.
+- **Botão "Buscar valor a receber"** no form, visível mas marcado como *em breve* (placeholder da Fase 2: VR Bruto = faturamento da representada × % comissão).
 - Criação de **1 lançamento de teste** na borcatorep e **emissão em `ambiente:homologacao`**.
 
 **NÃO inclui (fases seguintes):**
-- Botão de emitir na UI de Comissões (esta rodada é backend + teste via chamada direta/Insomnia).
+- Botão de **emitir** na UI de Comissões (esta rodada é backend + teste via chamada direta/Insomnia; o ajuste de UI desta rodada é só o campo de valor manual + o botão "Buscar valor a receber" desabilitado).
 - Cancelamento exposto na UI, lotes, produção real.
-- VR Bruto automático (Fase 2 do módulo — separada).
+- **VR Bruto automático** (Fase 2 do módulo — separada; é o que o botão "Buscar valor a receber" fará no futuro).
 
 ## Arquitetura
 
@@ -75,6 +77,10 @@ Nova ação `POST /nfse/:id/emitir` (MASTER):
 5. Persiste em `fin_nfse`: `status`, `protocolo`, `codigo_verificacao`, `xml`, `pdf_url`; ou `erro_msg` na rejeição.
 - Rota registrada em `nfse.routes.ts` com `authMiddleware` + `RequireMaster` (padrão do módulo).
 
+### 4. `src/modules/financeiro/pages/NfseComissoesPage.tsx` (ajuste mínimo no form existente)
+- Garante **valor (VR Bruto) digitável** e **indústria** como campos obrigatórios no lançamento.
+- Adiciona o botão **"Buscar valor a receber"** ao lado do valor, **desabilitado / "em breve"** (placeholder da automação Fase 2). Sem lógica de cálculo nesta rodada.
+
 ## Mapeamento do payload (comissão → NFS-e)
 
 | Campo NFS-e | Origem |
@@ -84,9 +90,19 @@ Nova ação `POST /nfse/:id/emitir` (MASTER):
 | Tomador (CNPJ/razão) | a indústria do lançamento (`fin_nfse`) |
 | Código de serviço (LC116) | `fin_nfse_aliquotas.codigo_servico_padrao` (~10.09 representação) |
 | Discriminação | "Comissão s/ representação comercial — competência MM/AAAA" |
-| Valor do serviço (VR bruto) | `fin_nfse.vr_bruto` |
+| Valor do serviço (VR bruto) | `fin_nfse.vr_bruto` — **informado manualmente pelo usuário** (nesta fase) |
 | ISS (alíquota/valor) | `fin_nfse_aliquotas.iss_pct` |
 | Competência / emissão | `fin_nfse.competencia` / data corrente |
+
+## Entrada do usuário (criação do lançamento)
+
+Ao iniciar o processo, o usuário informa no form de Comissões:
+- **Indústria / representada** (obrigatório) — combobox de fornecedores (`for_tipo2='A'`); grava `for_codigo` + `representada_nome`.
+- **Valor (VR Bruto)** (obrigatório) — digitado manualmente. Ao lado, o botão **"Buscar valor a receber"** (desabilitado / *em breve*) sinaliza a automação futura.
+- **Competência** (obrigatório) — mês/ano de referência.
+- Demais campos fiscais necessários para emitir (código de serviço, discriminação) vêm das alíquotas/derivados; se faltarem (IM, código de serviço), a emissão valida e orienta antes de chamar a ACBr.
+
+Os impostos seguem calculados no servidor a partir das alíquotas (snapshot), como na Fase 1.
 
 ## Tratamento de erros
 
@@ -99,7 +115,7 @@ Nova ação `POST /nfse/:id/emitir` (MASTER):
 
 1. Subir o certificado A1 da borcatorep pra ACBr (`uploadCertificado`).
 2. Preencher `fin_nfse_aliquotas` da borcatorep: `inscricao_municipal`, `codigo_servico_padrao`.
-3. Criar 1 lançamento de teste em `fin_nfse` (prestador=HM Borçato, tomador=uma indústria real da carteira, vr_bruto simbólico, competência atual).
+3. Criar 1 lançamento em `fin_nfse` pelo form (usuário informa indústria + valor manual): prestador=HM Borçato, tomador=uma indústria real da carteira, vr_bruto simbólico, competência atual.
 4. `POST /nfse/:id/emitir` em `ambiente:homologacao` → conferir protocolo → PDF/XML retornados → `status='EMITIDA'`.
 
 ## Dependências externas (gating do teste)
