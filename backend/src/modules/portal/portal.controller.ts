@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as XLSX from 'xlsx';
 import multer from 'multer';
 import { pool } from '../../config/database';
+import { nextOrderNumber } from '../../shared/utils/orderSequence';
 
 // ─── Multer para upload da planilha Paraflu ───────────────────────────────────
 const storage = multer.diskStorage({
@@ -21,7 +22,36 @@ const storage = multer.diskStorage({
     },
     filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
 });
-export const uploadParaflu = multer({ storage });
+
+const PARAFLU_MAX_BYTES = 15 * 1024 * 1024;            // 15 MB — trava arquivo gigante que derruba o servidor
+const PARAFLU_EXT_OK = ['.xlsx', '.xls'];
+const parafluUpload = multer({
+    storage,
+    limits: { fileSize: PARAFLU_MAX_BYTES, files: 1 },
+    fileFilter: (_req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (!PARAFLU_EXT_OK.includes(ext)) {
+            cb(new Error('Arquivo inválido: envie a planilha .xlsx/.xls exportada do portal PARAFLU.'));
+            return;
+        }
+        cb(null, true);
+    },
+}).single('file');
+
+// Wrapper: converte erro do multer (tamanho/extensão) em resposta JSON limpa,
+// em vez de estourar 500 HTML pro front.
+export function uploadParaflu(req: Request, res: Response, next: (err?: any) => void): void {
+    parafluUpload(req, res, (err: any) => {
+        if (err) {
+            const msg = err?.code === 'LIMIT_FILE_SIZE'
+                ? 'Arquivo muito grande (máx. 15 MB). Exporte um intervalo menor no portal PARAFLU e importe em partes.'
+                : (err?.message || 'Falha no upload do arquivo.');
+            res.status(400).json({ success: false, message: msg });
+            return;
+        }
+        next();
+    });
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const formatCurrency = (value: any) =>
@@ -40,6 +70,51 @@ const handleFileDownload = (res: Response, content: string, filename: string, co
     const buffer = Buffer.from(content, encoding);
     res.send(buffer);
 };
+
+// ─── Helpers da planilha PARAFLU ──────────────────────────────────────────────
+const PARAFLU_DOC_KEYS = ['Documento', 'DOCUMENTO', 'documento', 'Doc', 'NFe'];
+const PARAFLU_MAX_ROWS = 80000;   // teto de segurança: planilha além disso é rejeitada (protege memória/CPU)
+
+/**
+ * Lê a 1ª aba e localiza a linha de cabeçalho REAL, pulando banners do tipo
+ * "Filtros aplicados: ...". Sem isso, sheet_to_json adota o banner como header e
+ * NADA bate (Documento/Período viram undefined). Lança erro claro se não achar.
+ */
+function lerPlanilhaParaflu(filePath: string): any[] {
+    const wb = XLSX.readFile(filePath);
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    if (!sheet) throw new Error('Planilha sem aba legível.');
+    // NÃO usar blankrows:false aqui: precisamos do índice REAL da linha na planilha
+    // para passar como `range`. Compactar índices faria o range apontar errado.
+    const matrix: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    let headerRow = -1;
+    for (let i = 0; i < Math.min(matrix.length, 15); i++) {
+        const cells = (matrix[i] || []).map((c) => String(c ?? '').trim());
+        if (cells.some((c) => PARAFLU_DOC_KEYS.includes(c))) { headerRow = i; break; }
+    }
+    if (headerRow < 0) {
+        throw new Error('Não encontrei a coluna "Documento" no cabeçalho. Confira se é a planilha correta exportada do portal PARAFLU.');
+    }
+    const rows: any[] = XLSX.utils.sheet_to_json(sheet, { range: headerRow });
+    if (rows.length > PARAFLU_MAX_ROWS) {
+        throw new Error(`Planilha com ${rows.length} linhas — acima do limite de ${PARAFLU_MAX_ROWS}. Exporte um intervalo menor e importe em partes.`);
+    }
+    return rows;
+}
+
+/**
+ * Converte o Período "AA-MM" do portal na data de competência (sempre dia 1º).
+ * Retorna null se o formato for inválido — NUNCA cai na data de hoje (foi esse
+ * fallback silencioso que carimbou pedidos antigos no ano corrente).
+ */
+function parsePeriodoParaData(periodo: any): Date | null {
+    const m = /^(\d{2})-(\d{2})$/.exec(String(periodo ?? '').trim());
+    if (!m) return null;
+    const yy = parseInt(m[1], 10);
+    const mm = parseInt(m[2], 10);
+    if (mm < 1 || mm > 12) return null;
+    return new Date(2000 + yy, mm - 1, 1);
+}
 
 // ─── 1. STAHL (.txt) ──────────────────────────────────────────────────────────
 export async function exportStahlHandler(req: Request, res: Response): Promise<void> {
@@ -266,20 +341,22 @@ export async function parafluPreviewHandler(req: Request, res: Response): Promis
         if (!req.file) { res.status(400).json({ success: false, message: 'Nenhum arquivo enviado.' }); return; }
         filePath = req.file.path;
 
-        const workbook = XLSX.readFile(filePath);
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+        const rows: any[] = lerPlanilhaParaflu(filePath);
 
         const nfeMap: Record<string, any> = {};
         for (const row of rows) {
             const doc = String(row['Documento'] || row['DOCUMENTO'] || '').trim();
             if (!doc) continue;
             if (!nfeMap[doc]) {
+                const periodo = String(row['Período'] || '').trim();
+                const data = parsePeriodoParaData(periodo);
                 nfeMap[doc] = {
                     documento: doc,
                     cnpj: String(row['CNPJ'] || '').trim(),
                     pedidoCompra: String(row['Pedido de compra'] || '').trim(),
-                    periodo: String(row['Período'] || '').trim(),
+                    periodo,
+                    dataPrevista: data ? data.toISOString().slice(0, 10) : null,
+                    periodoValido: !!data,
                     totalFat: 0,
                     qtdItens: 0
                 };
@@ -290,11 +367,14 @@ export async function parafluPreviewHandler(req: Request, res: Response): Promis
 
         try { fs.unlinkSync(filePath); } catch (_) { }
 
+        const nfes = Object.values(nfeMap);
+        const semPeriodo = nfes.filter((n: any) => !n.periodoValido).length;
         res.json({
             success: true,
-            data: Object.values(nfeMap),
+            data: nfes,
             totalRows: rows.length,
-            totalNFes: Object.keys(nfeMap).length
+            totalNFes: nfes.length,
+            semPeriodo  // > 0 ⇒ o import será bloqueado até a planilha ser corrigida
         });
     } catch (error: any) {
         if (filePath) try { fs.unlinkSync(filePath); } catch (_) { }
@@ -312,9 +392,7 @@ export async function parafluImportHandler(req: Request, res: Response): Promise
 
         console.log(`📦 [PARAFLU] Processando: ${req.file.originalname}`);
 
-        const workbook = XLSX.readFile(filePath);
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+        const rows: any[] = lerPlanilhaParaflu(filePath);
 
         if (!rows.length) { res.status(400).json({ success: false, message: 'Planilha vazia.' }); return; }
 
@@ -375,6 +453,19 @@ export async function parafluImportHandler(req: Request, res: Response): Promise
         const nfeList = Object.values(nfeGroups);
         console.log(`📊 [PARAFLU] ${nfeList.length} NFes encontradas, ${skipped} linhas ignoradas`);
 
+        // ── GUARDA DE DATA: toda NFe precisa de Período "AA-MM" válido. Sem isso o
+        // código antigo carimbava a data de HOJE e bagunçava o histórico. Agora a
+        // importação inteira é abortada (atômico) até a planilha vir correta.
+        const semPeriodo = nfeList.filter((n: any) => !parsePeriodoParaData(n.periodo));
+        if (semPeriodo.length > 0) {
+            const exemplos = semPeriodo.slice(0, 8).map((n: any) => `${n.documento} (Período="${n.periodo || '—'}")`).join(', ');
+            res.status(400).json({
+                success: false,
+                message: `Importação cancelada: ${semPeriodo.length} de ${nfeList.length} nota(s) sem Período válido (formato AA-MM). Nenhum pedido foi gravado, para não carimbar datas erradas. Corrija a coluna "Período" na planilha. Ex.: ${exemplos}`
+            });
+            return;
+        }
+
         // Buscar for_codigo da PARAFLU
         let parafluId: any = null;
         const indRes = await db.query(
@@ -388,10 +479,10 @@ export async function parafluImportHandler(req: Request, res: Response): Promise
         }
         console.log(`🏭 [PARAFLU] Indústria ID: ${parafluId}`);
         
-        // Buscar uma tabela padrão para a PARAFLU (evita erro de constraint NOT NULL)
+        // Buscar uma tabela padrão ATIVA para a PARAFLU (evita erro de constraint NOT NULL)
         let defaultTable = 'PADRAO';
         const tabRes = await db.query(
-            "SELECT itab_tabela FROM cad_tabelaspre WHERE itab_idindustria = $1 LIMIT 1",
+            "SELECT itab_tabela FROM cad_tabelaspre WHERE itab_idindustria = $1 AND COALESCE(itab_status, true) = true LIMIT 1",
             [parafluId]
         );
         if (tabRes.rows.length > 0) defaultTable = tabRes.rows[0].itab_tabela;
@@ -450,19 +541,14 @@ export async function parafluImportHandler(req: Request, res: Response): Promise
         }
         console.log(`🗂️ [PARAFLU] Bulk pre-load: ${clientMap.size} clientes, ${existMap.size/2} existentes, ${prodMap.size} produtos`);
 
-        // ── Próximo número de pedido ─────────────────────────────────────────────
+        // ── Próximo número de pedido (qualificado com schema do tenant) ──────────
         let nextNum: number;
         try {
-            const seqRes = await db.query("SELECT nextval('gen_pedidos_id') AS n");
-            nextNum = Number(seqRes.rows[0].n);
+            nextNum = await nextOrderNumber(db, req.user!.schema);
         } catch {
-            try {
-                const seqRes = await db.query("SELECT nextval('pedidos_ped_numero_seq') AS n");
-                nextNum = Number(seqRes.rows[0].n);
-            } catch {
-                const seqRes = await db.query("SELECT COALESCE(MAX(ped_numero),0)+1 AS n FROM pedidos");
-                nextNum = Number(seqRes.rows[0].n);
-            }
+            // último fallback: lê MAX+1 da tabela do tenant (search_path do req.db ainda protege)
+            const seqRes = await db.query("SELECT COALESCE(MAX(ped_numero),0)+1 AS n FROM pedidos");
+            nextNum = Number(seqRes.rows[0].n);
         }
 
         let inserted = 0, updated = 0;
@@ -485,11 +571,8 @@ export async function parafluImportHandler(req: Request, res: Response): Promise
                         const cliCodigo   = cliRow?.cli_codigo  ?? 0;
                         const cliVendedor = cliRow?.cli_vendedor ?? null;
 
-                        let pedData = new Date();
-                        if (nfe.periodo) {
-                            const parts = nfe.periodo.split('-');
-                            if (parts.length === 2) pedData = new Date(2000 + parseInt(parts[0]), parseInt(parts[1]) - 1, 1);
-                        }
+                        // Período já foi validado acima (guarda de data) → sempre válido aqui.
+                        const pedData = parsePeriodoParaData(nfe.periodo)!;
 
                         const pedPedidoStr   = nfe.documento.replace(/\s+/g, '').substring(0, 10);
                         const existingPedido = existMap.get(nfe.documento.trim()) ?? existMap.get(pedPedidoStr);

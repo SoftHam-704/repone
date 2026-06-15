@@ -12,7 +12,7 @@ const router = Router();
 router.use(authMiddleware, tenantMiddleware);
 
 // PARAFLU
-router.post('/paraflu/preview', uploadParaflu.single('file'), parafluPreviewHandler);
-router.post('/paraflu/import',  uploadParaflu.single('file'), parafluImportHandler);
+router.post('/paraflu/preview', uploadParaflu, parafluPreviewHandler);
+router.post('/paraflu/import',  uploadParaflu, parafluImportHandler);
 
 export default router;
