@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Trash2, MapPin, History, X, Package, ShoppingBag } from 'lucide-react';
+import { Trash2, MapPin, History, X, Package, ShoppingBag, Printer } from 'lucide-react';
 import {
   CadastroShell, CadastroTable, Th, Td, TrHover,
   StatusBadge, G,
@@ -13,6 +13,107 @@ function fmtCnpj(v?: string) {
   const d = v.replace(/\D/g, '');
   if (d.length === 14) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
   return v;
+}
+
+// ─── Ficha completa do cliente para IMPRESSÃO (HTML autocontido) ──────────────
+// Recebe os dados já carregados (cadastrais + contatos + indústrias) e devolve a
+// página pronta pra abrir numa janela nova e imprimir (browser → PDF/impressora).
+function buildFichaHtml(cli: any, contatos: any[], industrias: any[], vendedorNome: string): string {
+  const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+  const v = (s: any) => { const t = String(s ?? '').trim(); return t ? esc(t) : '—'; };
+  const fmtD = (s: any) => {
+    const t = String(s ?? '').trim(); if (!t) return '—';
+    if (/^\d{4}-\d{2}-\d{2}/.test(t)) { const [y, m, d] = t.slice(0, 10).split('-'); return `${d}/${m}/${y}`; }
+    return esc(t);
+  };
+  const status = cli.cli_tipopes === 'A'
+    ? '<span style="color:#16A34A;font-weight:800">● Ativo</span>'
+    : '<span style="color:#C0392B;font-weight:800">● Inativo</span>';
+  const niver = (c: any) => (c.ani_diaaniv && c.ani_mes) ? `${String(c.ani_diaaniv).padStart(2, '0')}/${String(c.ani_mes).padStart(2, '0')}` : '—';
+  const campo = (label: string, valor: string) => `<div class="f"><span class="l">${label}</span><span class="d">${valor}</span></div>`;
+
+  const contatosRows = contatos.length
+    ? contatos.map((c: any) => `<tr><td>${v(c.ani_nome)}</td><td>${v(c.ani_funcao)}</td><td>${v(c.ani_fone)}</td><td>${v(c.ani_email)}</td><td style="text-align:center">${niver(c)}</td></tr>`).join('')
+    : `<tr><td colspan="5" class="empty">Nenhum contato cadastrado</td></tr>`;
+  const indRows = industrias.length
+    ? industrias.map((i: any) => `<tr><td>${v(i.industria_nome)}</td><td>${v(i.cli_tabela)}</td><td>${v(i.cli_prazopg)}</td><td>${v(i.cli_frete)}</td><td>${v(i.cli_canal)}</td><td>${v(i.cli_comprador)}</td></tr>`).join('')
+    : `<tr><td colspan="6" class="empty">Nenhuma indústria vinculada</td></tr>`;
+
+  const agora = new Date();
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ficha — ${v(cli.cli_nomred)}</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Segoe UI', system-ui, sans-serif; color:#28374A; font-size:11px; }
+  .wrap { max-width:760px; margin:0 auto; padding:24px; }
+  .head { background:linear-gradient(135deg,#28374A,#1c2836); color:#fff; border-radius:12px; padding:16px 20px; display:flex; justify-content:space-between; align-items:flex-end; }
+  .head .t { font-size:18px; font-weight:900; }
+  .head .s { font-size:10px; color:#FFD200; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; }
+  .head .r { text-align:right; font-size:11px; color:#cdd6e0; }
+  .sec { margin-top:16px; }
+  .sec h2 { font-size:11px; font-weight:800; color:#28374A; text-transform:uppercase; letter-spacing:1px; border-bottom:2px solid #FFD200; padding-bottom:4px; margin-bottom:8px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:4px 22px; }
+  .f { display:flex; gap:6px; padding:2px 0; border-bottom:1px dotted #e2d8c6; }
+  .f .l { font-weight:700; color:#5E7282; min-width:115px; }
+  .f .d { color:#28374A; font-weight:600; }
+  table { width:100%; border-collapse:collapse; margin-top:4px; }
+  th { background:#28374A; color:#fff; font-size:9.5px; text-transform:uppercase; letter-spacing:0.4px; text-align:left; padding:6px 8px; }
+  td { font-size:10.5px; padding:5px 8px; border-bottom:1px solid #eee; }
+  .empty { color:#9aa; text-align:center; font-style:italic; }
+  .foot { margin-top:20px; padding-top:8px; border-top:1px solid #e2d8c6; font-size:9px; color:#9aa; display:flex; justify-content:space-between; }
+  @page { size:A4; margin:12mm; }
+  @media print { .wrap { padding:0; } }
+</style></head>
+<body><div class="wrap">
+  <div class="head">
+    <div><div class="s">Ficha completa do cliente</div><div class="t">${v(cli.cli_nomred)}</div></div>
+    <div class="r">Código #${v(cli.cli_codigo)}<br>${status}</div>
+  </div>
+
+  <div class="sec"><h2>Dados Cadastrais</h2><div class="grid">
+    ${campo('Razão Social', v(cli.cli_nome))}
+    ${campo('Nome Fantasia', v(cli.cli_fantasia))}
+    ${campo('CNPJ / CPF', fmtCnpj(cli.cli_cnpj))}
+    ${campo('Inscrição Est.', v(cli.cli_inscricao))}
+    ${campo('Rede de Lojas', v(cli.cli_redeloja))}
+    ${campo('Data de Abertura', fmtD(cli.cli_dtabertura))}
+    ${campo('SUFRAMA', v(cli.cli_suframa))}
+    ${campo('Vendedor', v(vendedorNome))}
+  </div></div>
+
+  <div class="sec"><h2>Endereço</h2><div class="grid">
+    ${campo('Logradouro', v([cli.cli_endereco, cli.cli_endnum].filter(Boolean).join(', ')))}
+    ${campo('Complemento', v(cli.cli_complemento))}
+    ${campo('Bairro', v(cli.cli_bairro))}
+    ${campo('Cidade / UF', v([cli.cli_cidade, cli.cli_uf].filter(Boolean).join(' / ')))}
+    ${campo('CEP', v(cli.cli_cep))}
+    ${campo('GPS', (cli.cli_latitude && cli.cli_longitude) ? `${v(cli.cli_latitude)}, ${v(cli.cli_longitude)}` : '—')}
+  </div></div>
+
+  <div class="sec"><h2>Contato</h2><div class="grid">
+    ${campo('Telefone 1', v(cli.cli_fone1))}
+    ${campo('Telefone 2', v(cli.cli_fone2))}
+    ${campo('WhatsApp', v(cli.cli_fone3))}
+    ${campo('E-mail', v(cli.cli_email))}
+    ${campo('E-mail NF-e', v(cli.cli_emailnfe))}
+    ${campo('E-mail Financeiro', v(cli.cli_emailfinanc))}
+  </div></div>
+
+  <div class="sec"><h2>Contatos / Pessoas</h2>
+    <table><thead><tr><th>Nome</th><th>Função</th><th>Telefone</th><th>E-mail</th><th style="text-align:center">Aniversário</th></tr></thead>
+    <tbody>${contatosRows}</tbody></table>
+  </div>
+
+  <div class="sec"><h2>Indústrias Vinculadas</h2>
+    <table><thead><tr><th>Indústria</th><th>Tabela</th><th>Prazo</th><th>Frete</th><th>Canal</th><th>Comprador</th></tr></thead>
+    <tbody>${indRows}</tbody></table>
+  </div>
+
+  ${v(cli.cli_obspedido) !== '—' ? `<div class="sec"><h2>Observações do Pedido</h2><p style="font-size:11px;white-space:pre-wrap">${v(cli.cli_obspedido)}</p></div>` : ''}
+
+  <div class="foot"><span>RepOne · SoftHam — Ficha do Cliente</span><span>Gerado em ${agora.toLocaleDateString('pt-BR')} ${agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span></div>
+</div>
+<script>setTimeout(function(){ window.print(); }, 350);</script>
+</body></html>`;
 }
 
 interface Cliente {
@@ -53,6 +154,31 @@ export default function ClientesPage() {
 
   const openNew  = () => { setEditingId('novo'); setSelectedId(null); setModalOpen(true); };
   const openEdit = (id: number) => { setEditingId(String(id)); setSelectedId(id); setModalOpen(true); };
+
+  // Imprimir a ficha completa do cliente: busca os dados (autenticado) e abre uma
+  // janela com a ficha pronta + print automático (browser → PDF/impressora).
+  const imprimirFicha = async (row: Cliente, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const win = window.open('', '_blank', 'width=920,height=760');
+    if (!win) { alert('Permita pop-ups para imprimir a ficha do cliente.'); return; }
+    win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ficha…</title></head><body style="font-family:system-ui;padding:40px;color:#28374A">Gerando ficha…</body></html>');
+    try {
+      const [rc, rk, ri] = await Promise.all([
+        api.get(`/clients/${row.cli_codigo}`),
+        api.get(`/clients/${row.cli_codigo}/contacts`),
+        api.get(`/clients/${row.cli_codigo}/industries`),
+      ]);
+      const cli        = rc.data?.data ?? rc.data ?? {};
+      const contatos   = rk.data?.data ?? [];
+      const industrias = ri.data?.data ?? [];
+      win.document.open();
+      win.document.write(buildFichaHtml(cli, contatos, industrias, row.cli_vendedor_nome || ''));
+      win.document.close();
+      win.focus();
+    } catch {
+      win.document.body.innerHTML = '<p style="font-family:system-ui;padding:40px;color:#C0392B">Não consegui carregar a ficha. Tente novamente.</p>';
+    }
+  };
   const closeModal = () => { setModalOpen(false); load(); };
 
   const [vinculando, setVinculando] = useState(false);
@@ -170,9 +296,16 @@ export default function ClientesPage() {
                   <Td align="center">
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                       <button
+                        title="Imprimir ficha completa do cadastro"
+                        onClick={e => imprimirFicha(row, e)}
+                        style={{ ...actionBtn, color: G.text }}
+                      >
+                        <Printer size={13} />
+                      </button>
+                      <button
                         title="Histórico do cliente"
                         onClick={e => openHistorico(row.cli_codigo, row.cli_nomred, e)}
-                        style={{ ...actionBtn, color: G.mustard }}
+                        style={{ ...actionBtn, color: G.textSec }}
                       >
                         <History size={13} />
                       </button>
@@ -273,9 +406,9 @@ function ClienteHistoricoModal({ clienteId, clienteNome, onClose }: {
   const tabStyle = (active: boolean): React.CSSProperties => ({
     display: 'flex', alignItems: 'center', gap: 6,
     padding: '7px 18px', borderRadius: 8,
-    border: active ? `1.5px solid ${G.mustard}` : `1px solid ${G.border}`,
-    background: active ? `${G.mustard}22` : 'transparent',
-    color: active ? G.mustard : G.textSec,
+    border: active ? `1.5px solid ${G.text}` : `1px solid ${G.border}`,
+    background: active ? G.text : 'transparent',
+    color: active ? '#fff' : G.textSec,
     fontWeight: 700, fontSize: 12, cursor: 'pointer',
   });
 
