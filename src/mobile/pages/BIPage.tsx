@@ -625,6 +625,21 @@ export default function BIPage() {
       .filter(m => m.meta > 0).sort((a, b) => a.mes - b.mes);
   }, [metas]);
 
+  // Giro de produtos: o REP precisa achar o giro de QUALQUER item, não só do top 10.
+  // Mantém o ranking absoluto e filtra por código/nome.
+  const [prodSearch, setProdSearch] = useState('');
+  const rankedProds = useMemo(
+    () => products.map((p: any, i: number) => ({ ...p, _rank: i + 1 })),
+    [products],
+  );
+  const filteredProds = useMemo(() => {
+    const q = prodSearch.trim().toLowerCase();
+    if (!q) return rankedProds;
+    return rankedProds.filter((p: any) =>
+      String(p.produto ?? '').toLowerCase().includes(q) ||
+      String(p.nome ?? '').toLowerCase().includes(q));
+  }, [rankedProds, prodSearch]);
+
   if (!isOnline) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -785,13 +800,34 @@ export default function BIPage() {
         {/* Análise de Carteira */}
         <CarteiraSection globalParams={params} />
 
-        {/* Top Produtos */}
-        <Section title="Top Produtos" loading={loadProd && !products.length}>
-          {products.slice(0, 10).map((p: any, i: number) => (
-            <RankedRow key={p.produto ?? i} rank={i+1} code={p.produto} name={p.nome ?? ''}
-              value={fmtBRL(parseFloat(p.total || '0'))}
-              sub={`${fmtN(Number(p.quantidade || 0))} un · ${p.pedidos ?? 0} ped.`} />
-          ))}
+        {/* Giro de Produtos — todos os vendidos no período, com busca por item */}
+        <Section title="Giro de Produtos" loading={loadProd && !products.length}>
+          {products.length > 0 ? (
+            <>
+              <input
+                value={prodSearch}
+                onChange={e => setProdSearch(e.target.value)}
+                placeholder="Buscar produto por código ou nome…"
+                style={{ width: '100%', padding: '10px 12px', fontSize: 13, marginBottom: 10,
+                  border: '1px solid var(--border)', borderRadius: 10, background: '#fff',
+                  color: 'var(--navy)', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' as const }}
+              />
+              {filteredProds.length > 0
+                ? filteredProds.map((p: any) => (
+                    <RankedRow key={p.produto} rank={p._rank} code={p.produto} name={p.nome ?? ''}
+                      value={fmtBRL(parseFloat(p.total || '0'))}
+                      sub={`${fmtN(Number(p.quantidade || 0))} un · ${p.pedidos ?? 0} ped.`} />
+                  ))
+                : <div style={{ textAlign: 'center', color: 'var(--navy-muted)', fontSize: 12, padding: '14px 0' }}>
+                    Nenhum produto encontrado para “{prodSearch}”.
+                  </div>}
+              <div style={{ fontSize: 10, color: 'var(--navy-muted)', textAlign: 'center', marginTop: 10 }}>
+                {prodSearch.trim()
+                  ? `${filteredProds.length} de ${products.length} produtos`
+                  : `${products.length} produtos com venda no período`}
+              </div>
+            </>
+          ) : undefined}
         </Section>
 
       </div>

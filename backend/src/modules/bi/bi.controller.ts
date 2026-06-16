@@ -469,6 +469,11 @@ export async function rankingProdutosHandler(req: Request, res: Response): Promi
 
     const { where, params } = buildWhere(anos, meses, forInt, cliInt, allowedIndustries, venInt);
 
+    // "Todos que tiveram venda" — limite alto e configurável (?limit=). O REP precisa
+    // ver o giro de QUALQUER item, não só do top 10. Teto de 5000 protege o payload.
+    const limite = Math.min(parseInt(String(req.query.limit || '2000')) || 2000, 5000);
+    params.push(limite);
+
     const r = await db.query(`
       SELECT
         i.ite_produto                                                      AS produto,
@@ -483,7 +488,7 @@ export async function rankingProdutosHandler(req: Request, res: Response): Promi
       WHERE ${where}
       GROUP BY i.ite_produto
       ORDER BY ${orderCol} DESC
-      LIMIT 10
+      LIMIT $${params.length}
     `, params);
 
     res.json({ success: true, data: r.rows });
