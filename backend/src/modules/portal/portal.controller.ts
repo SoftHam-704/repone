@@ -147,7 +147,7 @@ export async function exportStahlHandler(req: Request, res: Response): Promise<v
         content += `Transportadora: ${order.tra_nome || ''}\r\n`;
         content += `Prazo:          ${order.ped_condpag || ''}\r\n`;
         content += `Razão Social:   ${order.cli_nome || ''}\r\n`;
-        content += `CNPJ:           ${order.cli_cnpj || ''}\r\n`;
+        content += `CNPJ:           ${String(order.cli_cnpj || '').replace(/\D/g, '')}\r\n`; // Stahl quer SEM máscara (só dígitos)
         content += `Endereço:       ${order.cli_endereco || ''}\r\n`;
         content += `Bairro:         ${order.cli_bairro || ''}\r\n`;
         content += `CEP:            ${order.cli_cep || ''}\r\n`;
