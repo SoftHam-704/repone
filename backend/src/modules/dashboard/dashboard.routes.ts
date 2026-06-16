@@ -3,6 +3,7 @@ import { authMiddleware } from '../../middleware/auth';
 import { tenantMiddleware } from '../../middleware/tenant';
 import {
   metricsHandler,
+  projecaoHandler,
   auraInsightsHandler,
   industryRevenueHandler,
   industriesListHandler,
@@ -24,6 +25,7 @@ const router = Router();
 router.use(authMiddleware, tenantMiddleware);
 
 router.get('/metrics',                metricsHandler);
+router.get('/projecao',               projecaoHandler);
 router.get('/aura-insights',          auraInsightsHandler);
 router.get('/industry-revenue',       industryRevenueHandler);
 router.get('/industries-list',        industriesListHandler);

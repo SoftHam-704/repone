@@ -103,6 +103,87 @@ const DarkTip = ({ active, payload, label }: any) => {
 // ─── META RING ────────────────────────────────────────────────────────────────
 const MONTHS_SHORT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
+// ─── PROJEÇÃO RING (run-rate por dia útil, sem meta) ──────────────────────────
+const ProjecaoRing = ({ titulo, accent, dados, periodoLabel }: {
+  titulo: string;
+  accent: string;
+  periodoLabel: string; // "mês" | "ano"
+  dados: { vendido: number; dias_uteis_decorridos: number; dias_uteis_totais: number; projetado: number | null } | null;
+}) => {
+  const [tip, setTip] = useState(false);
+  const r = 50;
+  const circ = 2 * Math.PI * r;
+  const loading = dados === null;
+  const proj = dados?.projetado ?? null;
+  const semDados = !loading && (proj === null);
+  const prog = proj && proj > 0 ? Math.min((dados!.vendido) / proj, 1) : 0;
+  const offset = circ - prog * circ;
+  const big = proj !== null && proj >= 10_000_000;
+
+  return (
+    <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <div className="flex items-center gap-1">
+        <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.7, color: G.textMuted }}>{titulo}</span>
+        <button onMouseEnter={() => setTip(true)} onMouseLeave={() => setTip(false)}
+          style={{ background: 'transparent', border: 'none', cursor: 'help', padding: 0, color: G.textMuted, display: 'flex' }}>
+          <Info size={11} />
+        </button>
+      </div>
+
+      <div style={{ position: 'relative', width: 118, height: 118 }}>
+        <svg width="118" height="118" viewBox="0 0 118 118" style={{ transform: 'rotate(-90deg)' }}>
+          <circle cx="59" cy="59" r={r} stroke={G.border} strokeWidth="9" fill="none" />
+          {!loading && !semDados && (
+            <motion.circle cx="59" cy="59" r={r} stroke={accent} strokeWidth="9" fill="none"
+              strokeLinecap="round" strokeDasharray={circ}
+              initial={{ strokeDashoffset: circ }} animate={{ strokeDashoffset: offset }}
+              transition={{ duration: 1.4, ease: 'easeOut', delay: 0.3 }} />
+          )}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-1">
+          {loading
+            ? <div className="w-14 h-7 rounded-md animate-pulse" style={{ background: G.border }} />
+            : semDados
+              ? <span style={{ fontSize: 10, fontWeight: 700, color: G.textMuted, lineHeight: 1.3 }}>sem venda<br />no {periodoLabel}</span>
+              : <>
+                  <span style={{ fontSize: big ? 13 : 15, fontWeight: 900, lineHeight: 1.0, color: G.text }}>{fmtBRLd(proj!)}</span>
+                  <span style={{ fontSize: 8.5, fontWeight: 700, color: G.textMuted, marginTop: 3, textTransform: 'uppercase', letterSpacing: 0.5 }}>projetado</span>
+                </>
+          }
+        </div>
+      </div>
+
+      {!loading && !semDados && (
+        <span style={{ fontSize: 9, fontWeight: 700, color: accent }}>{Math.round(prog * 100)}% já realizado</span>
+      )}
+
+      {tip && (
+        <div style={{
+          position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)', zIndex: 9999,
+          background: G.text, color: '#fff', borderRadius: 10, padding: '11px 13px', width: 250,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.25)', pointerEvents: 'none',
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 7, color: G.mustard, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Como é calculado
+          </div>
+          <div style={{ fontSize: 11, lineHeight: 1.6, color: '#cbd5e1' }}>
+            Projeção pelo <b style={{ color: '#fff' }}>ritmo por dia útil</b> (sem fins de semana e feriados nacionais):<br />
+            <span style={{ fontFamily: 'monospace', fontSize: 10, background: 'rgba(255,255,255,0.1)', borderRadius: 4, padding: '2px 6px', display: 'inline-block', margin: '5px 0' }}>
+              (vendido ÷ dias úteis decorridos) × dias úteis do {periodoLabel}
+            </span>
+            {!loading && !semDados && dados && (
+              <div style={{ marginTop: 4 }}>
+                = ({fmtBRLd(dados.vendido)} ÷ {dados.dias_uteis_decorridos}) × {dados.dias_uteis_totais}<br />
+                = <b style={{ color: '#fff' }}>{fmtBRLd(proj!)}</b>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const MetaRing = ({
   pct, projected, loading, industries, month, year,
 }: { pct: number; projected: number | null; loading: boolean; industries: any[]; month: number | null; year: number }) => {
@@ -190,11 +271,11 @@ const MetaRing = ({
           background: G.text, color: '#fff', borderRadius: 10, padding: '12px 14px',
           width: 280, boxShadow: '0 4px 20px rgba(0,0,0,0.25)', pointerEvents: 'none',
         }}>
-          <div style={{ fontSize: 11, fontWeight: 800, marginBottom: 8, color: G.mustardHi, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, marginBottom: 8, color: G.mustard, textTransform: 'uppercase', letterSpacing: 0.8 }}>
             Como é calculado
           </div>
           <div style={{ fontSize: 11, lineHeight: 1.7, color: '#cbd5e1' }}>
-            <b style={{ color: '#fff' }}>% da Meta</b> — resultado <b style={{ color: G.mustardHi }}>consolidado</b> de todas as indústrias:<br />
+            <b style={{ color: '#fff' }}>% da Meta</b> — resultado <b style={{ color: G.mustard }}>consolidado</b> de todas as indústrias:<br />
             <span style={{ fontFamily: 'monospace', fontSize: 10, background: 'rgba(255,255,255,0.1)', borderRadius: 4, padding: '2px 6px', display: 'inline-block', margin: '4px 0' }}>
               Σ vendas de todas as indústrias ÷ Σ metas × 100
             </span><br />
@@ -225,7 +306,7 @@ const MetaRing = ({
             <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
                 <span>Por indústria</span>
-                <span style={{ color: G.mustardHi }}>
+                <span style={{ color: G.mustard }}>
                   {month ? `${MONTHS_SHORT[month - 1]} ${year}` : `Ano ${year}`}
                 </span>
               </div>
@@ -1054,6 +1135,7 @@ const PortalHome = () => {
   const [industries,      setIndustries]      = useState<Industry[]>([]);
   const [clients,         setClients]         = useState<Client[]>([]);
   const [metrics,         setMetrics]         = useState<Metrics | null>(null);
+  const [projecao,        setProjecao]        = useState<{ mes: any; ano: any } | null>(null);
   const [industryRevenue, setIndustryRevenue] = useState<any[]>([]);
   const [insights,        setInsights]        = useState<any>(null);
   const [salesComp,       setSalesComp]       = useState<any[]>([]);
@@ -1178,6 +1260,7 @@ const PortalHome = () => {
       if (r.data.success) setClients(r.data.data.map((c: any) => ({ value: String(c.cli_codigo), label: c.cli_nomred || c.cli_nome })));
     }).catch(console.error);
     api.get('/agenda/resumo').then(r => r.data.success && setAgendaResumo(r.data.data)).catch(() => {});
+    api.get('/dashboard/projecao').then(r => r.data.success && setProjecao(r.data.data)).catch(() => {});
     const venCodigo = (user as any)?.seller?.ven_codigo ?? (user as any)?.ven_codigo;
     const crmP = venCodigo ? `?ven_codigo=${venCodigo}` : '';
     api.get(`/crm/dashboard${crmP}`).then(r => r.data.success && setCrmDash(r.data.data)).catch(() => {});
@@ -1903,67 +1986,20 @@ const PortalHome = () => {
                 </div>
               </div>
 
-              {/* ── AGENDA (movida do Central de Comando) ────────────── */}
+              {/* ── PROJEÇÃO DE VENDAS (substituiu a Agenda) ────────────── */}
               <div style={{ background: G.card, border: `1px solid ${G.border}` }} className="rounded-2xl overflow-hidden card-soft">
-                <div className="px-4 py-3" style={{ borderBottom: `1px solid ${G.border}` }}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <Clock size={13} style={{ color: G.mustard }} />
-                      <span className="text-sm font-black" style={{ color: G.text }}
-                        title="Resumo dos seus compromissos de hoje. Clique em 'Minha Agenda' para ver detalhes.">Agenda</span>
-                    </div>
-                    {(agendaResumo?.atrasadas || 0) > 0 && (
-                      <span className="text-[10px] font-black px-1.5 py-0.5 rounded-lg"
-                        style={{ background: `${G.danger}18`, color: G.danger }}>
-                        {agendaResumo.atrasadas} atrasada{agendaResumo.atrasadas > 1 ? 's' : ''}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-end gap-1.5">
-                    <span className="text-3xl font-black leading-none" style={{ color: G.text }}>
-                      {agendaResumo?.tarefas_hoje ?? '—'}
-                    </span>
-                    <span className="text-xs font-bold mb-0.5" style={{ color: '#754437' }}>hoje</span>
-                  </div>
-
-                  {/* Birthday badge in agenda widget */}
-                  {agendaResumo?.aniversarios_hoje?.length > 0 && (
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg"
-                      style={{ background: '#EC489915', border: '1px solid #EC489930' }}>
-                      <Cake size={11} style={{ color: '#EC4899' }} />
-                      <span className="text-[10px] font-black" style={{ color: '#EC4899' }}>
-                        {agendaResumo.aniversarios_hoje.length} niver{agendaResumo.aniversarios_hoje.length > 1 ? 's' : ''}
-                      </span>
-                    </div>
-                  )}
+                <div className="px-4 py-3 flex items-center gap-2"
+                  style={{ borderBottom: `1px solid ${G.border}`, background: `linear-gradient(95deg, ${G.text} 0%, #1f2d3d 65%, #2a1f3d 100%)` }}>
+                  <TrendingUp size={15} style={{ color: G.mustard }} />
+                  <span className="text-sm font-black" style={{ color: '#fff' }}>Projeção de Vendas</span>
+                  <span className="text-[9px] font-black uppercase tracking-wider ml-auto px-1.5 py-0.5 rounded-md"
+                    style={{ background: 'rgba(255,255,255,0.12)', color: G.mustard }}>ritmo atual</span>
                 </div>
-                <div className="px-4 py-3">
-                  {agendaResumo?.proximo_compromisso ? (
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: G.textMuted }}>Próximo</p>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-xs font-black flex-shrink-0" style={{ color: '#754437' }}>
-                          {agendaResumo.proximo_compromisso.hora_inicio
-                            ? String(agendaResumo.proximo_compromisso.hora_inicio).substring(0, 5)
-                            : 'Dia todo'}
-                        </span>
-                        <span className="text-xs truncate" style={{ color: G.textSec }}>
-                          {agendaResumo.proximo_compromisso.titulo}
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs" style={{ color: G.textMuted }}>
-                      {agendaResumo ? 'Agenda limpa por hoje.' : 'Carregando...'}
-                    </p>
-                  )}
+                <div className="px-3 py-4 flex items-stretch gap-1">
+                  <ProjecaoRing titulo="Mês corrente" accent={G.blue}    periodoLabel="mês" dados={projecao?.mes ?? null} />
+                  <div style={{ width: 1, background: G.border, margin: '6px 0' }} />
+                  <ProjecaoRing titulo="Ano corrente" accent={G.success} periodoLabel="ano" dados={projecao?.ano ?? null} />
                 </div>
-                <Link to="/agenda"
-                  className="px-4 py-2.5 flex items-center justify-between hover:opacity-80 transition-opacity"
-                  style={{ borderTop: `1px solid ${G.border}`, background: G.cardHi }}>
-                  <span className="text-xs font-bold uppercase tracking-wider" style={{ color: G.textMuted }}>Minha Agenda</span>
-                  <ChevronRight size={11} style={{ color: G.mustard }} />
-                </Link>
               </div>
             </div>
 

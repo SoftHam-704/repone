@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { getAllowedIndustries, getLinkedSellerId, buildIndustryFilterClause } from '../../shared/permissions';
+import { excluiInativoSQL } from '../../shared/utils/cliente-ativo';
+import { diasUteisNoMes, diasUteisNoAno, diasUteisDecorridosNoMes, diasUteisDecorridosNoAno } from '../../shared/utils/feriados';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -60,6 +62,60 @@ export async function metricsHandler(req: Request, res: Response): Promise<void>
   } catch (error: any) {
     console.error('❌ [DASHBOARD/metrics]', error.message);
     res.status(500).json({ success: false, message: error.message, data: { total_vendido_current: 0 } });
+  }
+}
+
+// ─── GET /api/dashboard/projecao ─────────────────────────────────────────────
+// Projeção de vendas por RUN-RATE de dia útil (sem fds/feriado), do MÊS e do ANO
+// CORRENTES (hoje) — independente do seletor de mês. Mesmo escopo de indústria
+// que /metrics. Só projeta se houve venda no período (gate do Hamilton).
+//   projeção = (vendido ÷ dias_úteis_decorridos) × dias_úteis_totais
+export async function projecaoHandler(req: Request, res: Response): Promise<void> {
+  try {
+    const db = req.db!;
+    const userId = getUserId(req);
+    const allowed = await getAllowedIndustries(db, userId);
+
+    const hoje = new Date();
+    const ano = hoje.getFullYear();
+    const mes = hoje.getMonth() + 1;
+
+    const params: any[] = [ano, mes];
+    let indClause = '';
+    if (allowed) { params.push(allowed); indClause = `AND p.ped_industria = ANY($3)`; }
+
+    const r = await db.query(`
+      SELECT
+        COALESCE(SUM(i.ite_totliquido) FILTER (WHERE EXTRACT(MONTH FROM p.ped_data) = $2), 0)::float8 AS vendido_mes,
+        COALESCE(SUM(i.ite_totliquido), 0)::float8 AS vendido_ano
+      FROM pedidos p
+      LEFT JOIN itens_ped i ON i.ite_pedido = p.ped_pedido
+      WHERE EXTRACT(YEAR FROM p.ped_data) = $1
+        AND p.ped_situacao IN ('P','F')
+        ${indClause}
+    `, params);
+
+    const vendidoMes = Number(r.rows[0]?.vendido_mes) || 0;
+    const vendidoAno = Number(r.rows[0]?.vendido_ano) || 0;
+
+    const duMesTot = diasUteisNoMes(ano, mes);
+    const duMesDec = diasUteisDecorridosNoMes(ano, mes, hoje);
+    const duAnoTot = diasUteisNoAno(ano);
+    const duAnoDec = diasUteisDecorridosNoAno(ano, hoje);
+
+    const projMes = vendidoMes > 0 && duMesDec > 0 ? (vendidoMes / duMesDec) * duMesTot : null;
+    const projAno = vendidoAno > 0 && duAnoDec > 0 ? (vendidoAno / duAnoDec) * duAnoTot : null;
+
+    res.json({
+      success: true,
+      data: {
+        mes: { ref_ano: ano, ref_mes: mes, vendido: vendidoMes, dias_uteis_decorridos: duMesDec, dias_uteis_totais: duMesTot, projetado: projMes },
+        ano: { ref_ano: ano, vendido: vendidoAno, dias_uteis_decorridos: duAnoDec, dias_uteis_totais: duAnoTot, projetado: projAno },
+      },
+    });
+  } catch (error: any) {
+    console.error('❌ [DASHBOARD/projecao]', error.message);
+    res.status(500).json({ success: false, message: error.message });
   }
 }
 
@@ -688,7 +744,7 @@ export async function mobileSummaryHandler(req: Request, res: Response): Promise
         SELECT COUNT(DISTINCT p.ped_cliente)::INTEGER AS churn_count
         FROM pedidos p
         INNER JOIN clientes c ON c.cli_codigo = p.ped_cliente
-        WHERE p.ped_situacao IN ('P', 'F', 'A')
+        WHERE p.ped_situacao IN ('P', 'F')
           AND p.ped_data >= CURRENT_DATE - INTERVAL '60 days'
         HAVING MAX(p.ped_data)::DATE < CURRENT_DATE - INTERVAL '30 days'
       `);
@@ -1032,6 +1088,15 @@ export async function irisEventosHandler(req: Request, res: Response): Promise<v
 
     // ── 1. WhatsApp — mensagens recentes de leads (últimas 24h) ──────────────
     try {
+      // Admins (sellerId=null e userId definido via master) vêem todas as conversas.
+      // Usuários comuns vêem apenas conversas atribuídas a eles.
+      const wppParams: any[] = [];
+      let wppUserFilter = '';
+      if (sellerId !== null && userId) {
+        wppParams.push(userId);
+        wppUserFilter = `AND conv.usuario_id = $${wppParams.length}`;
+      }
+      wppParams.push(20);
       const wppRes = await db.query(`
         SELECT
           'wpp_' || m.id            AS id,
@@ -1046,9 +1111,10 @@ export async function irisEventosHandler(req: Request, res: Response): Promise<v
         JOIN wpp_contato   c   ON c.id   = m.contato_id
         WHERE m.remetente = 'lead'
           AND m.created_at > NOW() - INTERVAL '24 hours'
+          ${wppUserFilter}
         ORDER BY m.created_at DESC
-        LIMIT 20
-      `);
+        LIMIT $${wppParams.length}
+      `, wppParams);
       for (const r of wppRes.rows) {
         eventos.push({
           id:       r.id,
@@ -1203,6 +1269,7 @@ export async function irisEventosHandler(req: Request, res: Response): Promise<v
           AND p.ped_situacao IN ('P','F')
         WHERE c.cli_tipopes = 'A'
           AND c.cli_atuacao != 'P'
+          AND ${excluiInativoSQL('c')}
           ${sellerId ? 'AND c.cli_vendedor = $1' : ''}
         GROUP BY c.cli_codigo, c.cli_nomred
         HAVING CURRENT_DATE - MAX(p.ped_data) BETWEEN 45 AND 120
