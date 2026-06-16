@@ -944,20 +944,44 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
   }, [order, orderItems, priceTableItems]);
 
   // ── B · Preço 3 (Especial) ───────────────────────────────────────────────
-  // Preço especial = ite_promocao='N' (aceita desconto), preserva descontos já
-  // aplicados. Antes este botão setava 'S' + zerava descontos — incompatível
-  // com a regra canônica (preço especial aceita desconto, só promo é fechado).
+  // Preço especial = ite_promocao='N' (aceita desconto). Algumas fábricas, porém,
+  // usam preço diferenciado no especial e NÃO concedem desconto — então perguntamos
+  // ao usuário se quer ZERAR os descontos dos itens cujo Preço 3 > 0 (facilita a
+  // vida dele, que hoje teria de zerar manualmente item a item).
   const handlePreco3 = useCallback(() => {
+    const elegiveis = orderItems.filter(it => {
+      const p = priceTableItems.find(c => c.pro_codigo === it.ite_produto) as any;
+      return (p?.preco_especial ?? 0) > 0;
+    }).length;
+    if (elegiveis === 0) {
+      toast('Nenhum item possui preço especial cadastrado.', { icon: 'ℹ️' });
+      return;
+    }
+
+    const zerarDesc = window.confirm(
+      `Aplicar Preço 3 (especial) em ${elegiveis} item(s).\n\n` +
+      `Deseja TAMBÉM zerar os descontos desses itens?\n\n` +
+      `OK = aplica e ZERA os descontos\nCancelar = aplica e MANTÉM os descontos`
+    );
+
     let count = 0;
     setOrderItems(prev => prev.map(it => {
       const p = priceTableItems.find(c => c.pro_codigo === it.ite_produto) as any;
       const p3 = p?.preco_especial;
       if (!p3 || p3 <= 0) return it;
       count++;
-      return calcItem({ ...it, ite_puni: p3, ite_promocao: 'N' });
+      const base: any = { ...it, ite_puni: p3, ite_promocao: 'N' };
+      if (zerarDesc) {
+        base.ite_des1 = 0; base.ite_des2 = 0; base.ite_des3 = 0; base.ite_des4 = 0;
+        base.ite_des5 = 0; base.ite_des6 = 0; base.ite_des7 = 0; base.ite_des8 = 0;
+        base.ite_des9 = 0; base.ite_des10 = 0; base.ite_des11 = 0;
+      }
+      return calcItem(base);
     }));
-    toast.success(count > 0 ? `Preço 3 (especial) aplicado em ${count} item(s).` : 'Nenhum item possui preço especial cadastrado.');
-  }, [priceTableItems, setOrderItems]);
+    toast.success(zerarDesc
+      ? `Preço 3 aplicado em ${count} item(s) — descontos zerados.`
+      : `Preço 3 (especial) aplicado em ${count} item(s).`);
+  }, [orderItems, priceTableItems, setOrderItems]);
 
   // ── D · Conversão → Complemento (truncado em 15) ─────────────────────────
   const handleConversao = useCallback(() => {
