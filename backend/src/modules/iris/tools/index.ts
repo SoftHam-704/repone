@@ -10,6 +10,8 @@ import { registrarLacuna } from './registrar-lacuna';
 import { cadastrarItensTabela } from './cadastrar-itens-tabela';
 import { cadastrarCadastro } from './cadastrar-cadastro';
 import { clientesPorCidade } from './clientes-por-cidade';
+import { removerItens } from './remover-itens';
+import { mesclarItens } from './mesclar-itens';
 
 export type ToolHandler = (db: any, input: any, user: any) => Promise<any>;
 
@@ -27,6 +29,8 @@ export const TOOLS_REGISTRY: Record<string, ToolHandler> = {
   cadastrar_itens_tabela:   cadastrarItensTabela,
   cadastrar_cadastro:       cadastrarCadastro,
   clientes_por_cidade:      clientesPorCidade,
+  remover_itens:            removerItens,
+  mesclar_itens:            mesclarItens,
 };
 
 // Definições JSON Schema enviadas ao modelo (Anthropic SDK tools).
@@ -216,6 +220,40 @@ export const TOOLS = [
         limite: { type: 'integer', description: 'Máximo de clientes a retornar (default 200, máx 500).' },
       },
       required: ['cidade'],
+    },
+  },
+  {
+    name: 'remover_itens',
+    description:
+      'ESCRITA — Inativa, reativa ou exclui itens do CATÁLOGO de UMA indústria. SEMPRE 2 passos: confirmar=false (PRÉVIA, mostra a lista exata) → mostre ao REP e peça "confirma?"; confirmar=true grava. NUNCA infira o alvo: o REP DEVE dar os códigos (lista) OU um padrão (ex.: termina em "000"). acao=inativar (some do catálogo/pedidos/portal, preserva histórico — REVERSÍVEL via reativar) é o padrão seguro; acao=excluir (apaga de vez) só funciona em item SEM pedido e é só pra Master — com pedido, oriente inativar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        industria: { type: 'string', description: 'Nome reduzido da indústria. Obrigatório.' },
+        codigos:   { type: 'array', items: { type: 'string' }, description: 'Lista exata de códigos a remover (use OU padrao).' },
+        padrao:    { type: 'object', description: 'Critério por padrão de código (use OU codigos).',
+          properties: { modo: { type: 'string', enum: ['igual', 'comeca', 'termina', 'contem'] }, valor: { type: 'string' } } },
+        acao:      { type: 'string', enum: ['inativar', 'reativar', 'excluir'], description: 'inativar (padrão) | reativar | excluir.' },
+        confirmar: { type: 'boolean', description: 'false (default) = prévia; true = grava (após o REP confirmar).' },
+      },
+      required: ['industria', 'acao'],
+    },
+  },
+  {
+    name: 'mesclar_itens',
+    description:
+      'ESCRITA (só Master) — DEDUPLICA itens do catálogo: re-aponta o histórico de pedidos do DUPLICADO para o ORIGINAL e remove o duplicado. SEMPRE 2 passos (prévia→confirma). NUNCA pareie no chute: o REP DEVE dar os pares exatos {de_codigo (duplicado), para_codigo (original)} OU uma regra (ex.: remover o sufixo "000" do código pra achar o original). O ORIGINAL tem que existir; se não existir, é renomear (use editar_item), não mesclar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        industria: { type: 'string', description: 'Nome reduzido da indústria. Obrigatório.' },
+        pares:     { type: 'array', description: 'Pares exatos duplicado→original.',
+          items: { type: 'object', properties: { de_codigo: { type: 'string' }, para_codigo: { type: 'string' } }, required: ['de_codigo', 'para_codigo'] } },
+        regra:     { type: 'object', description: 'Alternativa: regra de derivação do original.',
+          properties: { remover_sufixo: { type: 'string', description: 'Sufixo do código do duplicado a remover pra achar o original (ex.: "000").' } } },
+        confirmar: { type: 'boolean', description: 'false (default) = prévia; true = grava.' },
+      },
+      required: ['industria'],
     },
   },
 ];
