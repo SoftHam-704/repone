@@ -77,3 +77,39 @@ describe('removerItens', () => {
     expect(r.preservados_com_movimento).toEqual(['A000']);
   });
 });
+
+import { mesclarItens } from '../mesclar-itens';
+
+describe('mesclarItens', () => {
+  it('exige Master', async () => {
+    const db = { query: vi.fn(), transaction: vi.fn() };
+    const r: any = await mesclarItens(db as any, { industria: 'CANAPARTS', pares: [{ de_codigo: 'A000', para_codigo: 'A' }] }, { role: 'manager' });
+    expect(r.erro).toMatch(/Master/i);
+  });
+
+  it('prévia mostra o par resolvido e nº de pedidos a re-apontar', async () => {
+    const db = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [{ for_codigo: 7, for_nomered: 'CANAPARTS', for_nome: 'C' }] })
+        .mockResolvedValueOnce({ rows: [{ pro_id: 11, pro_codprod: 'A000' }] })
+        .mockResolvedValueOnce({ rows: [{ pro_id: 1, pro_codprod: 'A' }] })
+        .mockResolvedValueOnce({ rows: [{ n: '5' }] }),
+      transaction: vi.fn(),
+    };
+    const r: any = await mesclarItens(db as any, { industria: 'CANAPARTS', pares: [{ de_codigo: 'A000', para_codigo: 'A' }] }, { role: 'admin' });
+    expect(r.previa).toBe(true);
+    expect(r.pares[0]).toMatchObject({ de: 'A000', para: 'A', pedidos: 5 });
+  });
+
+  it('original inexistente → recusa (não é merge)', async () => {
+    const db = {
+      query: vi.fn()
+        .mockResolvedValueOnce({ rows: [{ for_codigo: 7, for_nomered: 'CANAPARTS', for_nome: 'C' }] })
+        .mockResolvedValueOnce({ rows: [{ pro_id: 11, pro_codprod: 'A000' }] })
+        .mockResolvedValueOnce({ rows: [] }),
+      transaction: vi.fn(),
+    };
+    const r: any = await mesclarItens(db as any, { industria: 'CANAPARTS', pares: [{ de_codigo: 'A000', para_codigo: 'A' }] }, { role: 'admin' });
+    expect(r.erro || r.recusados?.length).toBeTruthy();
+  });
+});
