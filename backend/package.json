@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "tsx watch server.ts",
     "start": "node dist/server.js",
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-iris-knowledge.mjs",
     "tenant:create": "tsx scripts/create-tenant.ts",
     "tenant:migrate": "tsx scripts/migrate-all.ts",
     "tenant:sync-functions": "tsx scripts/sync-functions.ts",
     "tenant:list": "tsx scripts/list-tenants.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
@@ -47,6 +49,7 @@
     "@types/pg": "^8.15.4",
     "JSONStream": "^1.3.5",
     "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.9"
   }
 }
