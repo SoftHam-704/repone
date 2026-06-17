@@ -15,7 +15,7 @@ export async function mesclarItens(db: any, input: any, user: any) {
 
   const confirmar = input?.confirmar === true;
   const ind = await resolverIndustria(db, input?.industria);
-  if (!ind.ok) return ind.resposta;
+  if (!ind.ok) return (ind as { ok: false; resposta: any }).resposta;
   const forId = ind.industria.for_codigo;
 
   let paresIn: { de_codigo: string; para_codigo: string }[] = [];

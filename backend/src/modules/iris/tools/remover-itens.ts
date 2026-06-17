@@ -12,7 +12,7 @@ export async function removerItens(db: any, input: any, user: any) {
   }
 
   const ind = await resolverIndustria(db, input?.industria);
-  if (!ind.ok) return ind.resposta;
+  if (!ind.ok) return (ind as { ok: false; resposta: any }).resposta;
   const forId = ind.industria.for_codigo;
 
   const codigos: string[] = Array.isArray(input?.codigos) ? input.codigos.map((c: any) => String(c).trim()).filter(Boolean) : [];
