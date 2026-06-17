@@ -42,6 +42,7 @@
 DO $mig$
 DECLARE
   v_backfill   INT := 0;
+  v_nomeonly   INT := 0;
   v_normaliza  INT := 0;
   v_ambiguo    INT := 0;
   v_semmatch   INT := 0;
@@ -93,6 +94,32 @@ BEGIN
      AND (cl.cli_idcidade IS NULL
           OR NOT EXISTS (SELECT 1 FROM public.cidades pc WHERE pc.cid_codigo = cl.cli_idcidade));  -- NULL ou órfã (idempotente)
   GET DIAGNOSTICS v_backfill = ROW_COUNT;
+
+  -- ----------------------------------------------------------------- ETAPA A2
+  -- Passe conservador por NOME ÚNICO NACIONAL (sem exigir UF): resolve só quando o
+  -- nome normalizado existe em EXATAMENTE 1 município em TODO o public.cidades —
+  -- zero risco de homônimo. Pega os residuais com cli_uf vazio (ex.: Belo Horizonte,
+  -- Sete Lagoas, Ji-Paraná). Nomes que repetem entre UFs (Bom Jesus, Santa Maria…)
+  -- NÃO entram aqui — ficam pra correção manual.
+  WITH unico AS (
+    SELECT translate(upper(btrim(c.cid_nome)),
+             'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇáàâãäéèêëíìîïóòôõöúùûüç',
+             'AAAAAEEEEIIIIOOOOOUUUUCAAAAAEEEEIIIIOOOOOUUUUC') AS ncid,
+           min(c.cid_codigo) AS cid_codigo
+    FROM public.cidades c
+    GROUP BY 1
+    HAVING count(*) = 1
+  )
+  UPDATE clientes cl
+     SET cli_idcidade = u.cid_codigo
+    FROM unico u
+   WHERE (cl.cli_idcidade IS NULL
+          OR NOT EXISTS (SELECT 1 FROM public.cidades pc WHERE pc.cid_codigo = cl.cli_idcidade))
+     AND btrim(coalesce(cl.cli_cidade,'')) <> ''
+     AND translate(upper(btrim(cl.cli_cidade)),
+           'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇáàâãäéèêëíìîïóòôõöúùûüç',
+           'AAAAAEEEEIIIIOOOOOUUUUCAAAAAEEEEIIIIOOOOOUUUUC') = u.ncid;
+  GET DIAGNOSTICS v_nomeonly = ROW_COUNT;
 
   -- ------------------------------------------------------------------ ETAPA B
   -- Alinhar texto ao canônico onde cli_idcidade aponta p/ public.cidades e o texto
@@ -154,8 +181,9 @@ BEGIN
   --  PIORAMOS. O backfill só usa public.cidades, então não cria órfão novo.)
 
   RAISE NOTICE '== Migration 074 cidades :: tenant=% ==', current_schema();
-  RAISE NOTICE '  ETAPA A backfill cli_idcidade (match único nome+UF) : %', v_backfill;
-  RAISE NOTICE '  ETAPA B texto alinhado ao canônico (acento/caixa)   : %', v_normaliza;
+  RAISE NOTICE '  ETAPA A  backfill cli_idcidade (match único nome+UF): %', v_backfill;
+  RAISE NOTICE '  ETAPA A2 resolve por nome ÚNICO nacional (sem UF)   : %', v_nomeonly;
+  RAISE NOTICE '  ETAPA B  texto alinhado ao canônico (acento/caixa)  : %', v_normaliza;
   RAISE NOTICE '  -- restante cli_idcidade NULL após backfill          : %', v_idcid_null;
   RAISE NOTICE '  -- AMBÍGUOS (manual, sem UF ou multi-UF)             : %', v_ambiguo;
   RAISE NOTICE '  -- SEM MATCH (typo/encoding, manual)                 : %', v_semmatch;
