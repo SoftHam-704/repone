@@ -41,7 +41,7 @@ export async function clientInsightHandler(req: Request | any, res: Response) {
              ELSE (CURRENT_DATE - vr.v_ultima)::INTEGER
         END AS dias_inatividade
       FROM clientes c
-      LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo
+      LEFT JOIN public.cidades cid ON c.cli_idcidade = cid.cid_codigo
       LEFT JOIN vendedores v ON c.cli_vendedor = v.ven_codigo
       LEFT JOIN vendas_resumo vr ON c.cli_codigo = vr.v_cliente
       LEFT JOIN mix_produtos mp ON c.cli_codigo = mp.m_cliente
@@ -581,7 +581,7 @@ export async function clientesInativosHandler(req: Request | any, res: Response)
           ) * h.ticket_medio)
         END::NUMERIC                                               AS receita_potencial
       FROM clientes c
-      LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo
+      LEFT JOIN public.cidades cid ON c.cli_idcidade = cid.cid_codigo
       LEFT JOIN vendedores v ON c.cli_vendedor = v.ven_codigo
       LEFT JOIN historico h ON c.cli_codigo = h.cli
       WHERE c.cli_tipopes = 'A'
@@ -656,8 +656,8 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
       const cliExpr = `COALESCE(NULLIF(c.cli_redeloja,''), c.cli_nomred)`;
       const where = conditions.join(' AND ');
       const query = modoUlt
-        ? `SELECT DISTINCT ON (${cliExpr}, f.for_nomered) ${cliExpr} AS cliente, COALESCE(cid.cid_uf, c.cli_uf, '') AS estado, f.for_nomered AS industria, COALESCE(v.ven_nome, '—') AS vendedor_nome, p.ped_totliq::NUMERIC AS valor, (SELECT SUM(ip2.ite_quant) FROM itens_ped ip2 WHERE TRIM(ip2.ite_pedido) = TRIM(p.ped_pedido))::NUMERIC AS qtd, p.ped_data AS data_ultima, (CURRENT_DATE - p.ped_data::date)::INTEGER AS dias FROM pedidos p LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON c.cli_vendedor = v.ven_codigo WHERE ${where} ORDER BY ${cliExpr}, f.for_nomered, p.ped_data DESC`
-        : `SELECT ${cliExpr} AS cliente, MAX(COALESCE(cid.cid_uf, c.cli_uf, '')) AS estado, f.for_nomered AS industria, MAX(COALESCE(v.ven_nome, '—')) AS vendedor_nome, SUM(p.ped_totliq)::NUMERIC AS valor, COALESCE(SUM(iq.qtd), 0)::NUMERIC AS qtd, MAX(p.ped_data) AS data_ultima, (CURRENT_DATE - MAX(p.ped_data)::date)::INTEGER AS dias FROM pedidos p LEFT JOIN (SELECT TRIM(ip.ite_pedido) AS ped_id, SUM(ip.ite_quant) AS qtd FROM itens_ped ip GROUP BY TRIM(ip.ite_pedido)) iq ON TRIM(p.ped_pedido) = iq.ped_id LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON c.cli_vendedor = v.ven_codigo WHERE ${where} GROUP BY ${cliExpr}, f.for_nomered`;
+        ? `SELECT DISTINCT ON (${cliExpr}, f.for_nomered) ${cliExpr} AS cliente, COALESCE(cid.cid_uf, c.cli_uf, '') AS estado, f.for_nomered AS industria, COALESCE(v.ven_nome, '—') AS vendedor_nome, p.ped_totliq::NUMERIC AS valor, (SELECT SUM(ip2.ite_quant) FROM itens_ped ip2 WHERE TRIM(ip2.ite_pedido) = TRIM(p.ped_pedido))::NUMERIC AS qtd, p.ped_data AS data_ultima, (CURRENT_DATE - p.ped_data::date)::INTEGER AS dias FROM pedidos p LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN public.cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON c.cli_vendedor = v.ven_codigo WHERE ${where} ORDER BY ${cliExpr}, f.for_nomered, p.ped_data DESC`
+        : `SELECT ${cliExpr} AS cliente, MAX(COALESCE(cid.cid_uf, c.cli_uf, '')) AS estado, f.for_nomered AS industria, MAX(COALESCE(v.ven_nome, '—')) AS vendedor_nome, SUM(p.ped_totliq)::NUMERIC AS valor, COALESCE(SUM(iq.qtd), 0)::NUMERIC AS qtd, MAX(p.ped_data) AS data_ultima, (CURRENT_DATE - MAX(p.ped_data)::date)::INTEGER AS dias FROM pedidos p LEFT JOIN (SELECT TRIM(ip.ite_pedido) AS ped_id, SUM(ip.ite_quant) AS qtd FROM itens_ped ip GROUP BY TRIM(ip.ite_pedido)) iq ON TRIM(p.ped_pedido) = iq.ped_id LEFT JOIN clientes c ON p.ped_cliente = c.cli_codigo LEFT JOIN public.cidades cid ON c.cli_idcidade = cid.cid_codigo JOIN fornecedores f ON p.ped_industria = f.for_codigo LEFT JOIN vendedores v ON c.cli_vendedor = v.ven_codigo WHERE ${where} GROUP BY ${cliExpr}, f.for_nomered`;
       const result = await db.query(`SELECT * FROM (${query}) sub ORDER BY dias ASC, cliente`, params);
       const data = result.rows.map((r: any) => ({ cliente: r.cliente, estado: r.estado || '', industria: r.industria, vendedor_nome: r.vendedor_nome || '—', valor: parseFloat(r.valor) || 0, qtd: parseFloat(r.qtd) || 0, data_ultima: r.data_ultima, dias: Number(r.dias) || 0 }));
       return res.json({ success: true, data, total: data.length });
@@ -739,7 +739,7 @@ export async function ultimasComprasHandler(req: Request | any, res: Response) {
           ELSE 9999
         END AS dias
       FROM clientes c
-      LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo
+      LEFT JOIN public.cidades cid ON c.cli_idcidade = cid.cid_codigo
       LEFT JOIN compras cp ON c.cli_codigo = cp.ped_cliente
       WHERE ${baseConds.join(' AND ')}
       ORDER BY dias ASC, cliente
@@ -1756,7 +1756,7 @@ export async function portfolioIndustriaClientesHandler(req: Request | any, res:
       FROM itens_ped ip
       JOIN pedidos p   ON TRIM(ip.ite_pedido) = TRIM(p.ped_pedido)
       JOIN clientes c  ON c.cli_codigo = p.ped_cliente
-      LEFT JOIN cidades ci ON ci.cid_codigo = c.cli_idcidade
+      LEFT JOIN public.cidades ci ON ci.cid_codigo = c.cli_idcidade
       WHERE p.ped_industria = $1
         AND p.ped_data BETWEEN $2::date AND $3::date
         AND p.ped_situacao IN ('P', 'F')
@@ -1949,7 +1949,7 @@ export async function clientesChurnTrimestralHandler(req: Request | any, res: Re
         (CURRENT_DATE - u.dt_ultima::date)::INTEGER AS dias_sem_comprar
       FROM ultima_compra u
       JOIN clientes c       ON c.cli_codigo = u.ped_cliente
-      LEFT JOIN cidades ci  ON ci.cid_codigo = c.cli_idcidade
+      LEFT JOIN public.cidades ci  ON ci.cid_codigo = c.cli_idcidade
       LEFT JOIN vendedores v ON v.ven_codigo = c.cli_vendedor
       WHERE ${excluiInativoSQL('c')}
       ORDER BY u.valor_trimestre DESC
@@ -2197,7 +2197,7 @@ export async function industriasAdormecidasClientesHandler(req: Request | any, r
         (CURRENT_DATE - u.ultima_geral)::INTEGER           AS dias_desde_ultima_geral
       FROM adormecidas_por_cliente a
       JOIN clientes c        ON c.cli_codigo = a.ped_cliente
-      LEFT JOIN cidades ci   ON ci.cid_codigo = c.cli_idcidade
+      LEFT JOIN public.cidades ci   ON ci.cid_codigo = c.cli_idcidade
       LEFT JOIN vendedores v ON v.ven_codigo = c.cli_vendedor
       LEFT JOIN ultima_geral u ON u.ped_cliente = a.ped_cliente
       WHERE c.cli_tipopes = 'A'
@@ -2285,7 +2285,7 @@ export async function industriasAdormecidasExportHandler(req: Request | any, res
         pares.qtd_pedidos
       FROM pares
       JOIN clientes c       ON c.cli_codigo = pares.ped_cliente
-      LEFT JOIN cidades ci  ON ci.cid_codigo = c.cli_idcidade
+      LEFT JOIN public.cidades ci  ON ci.cid_codigo = c.cli_idcidade
       LEFT JOIN vendedores v ON v.ven_codigo = c.cli_vendedor
       WHERE c.cli_tipopes = 'A'
         AND ${excluiInativoSQL('c')}

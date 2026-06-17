@@ -29,7 +29,7 @@ export async function listClientsHandler(req: Request, res: Response): Promise<v
         c.cli_atuacao,
         CASE WHEN c.cli_tipopes = 'A' THEN true ELSE false END AS cli_status
       FROM clientes c
-      LEFT JOIN cidades    cid ON c.cli_idcidade = cid.cid_codigo
+      LEFT JOIN public.cidades    cid ON c.cli_idcidade = cid.cid_codigo
       LEFT JOIN vendedores v   ON v.ven_codigo   = c.cli_vendedor
       WHERE 1=1
     `;

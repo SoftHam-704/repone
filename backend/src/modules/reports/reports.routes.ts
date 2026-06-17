@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { authMiddleware } from '../../middleware/auth';
 import { tenantMiddleware } from '../../middleware/tenant';
 import { getLinkedSellerId } from '../../shared/permissions';
+import { calcularComissaoPorItens } from '../../shared/utils/commission';
 
 const router = Router();
 router.use(authMiddleware, tenantMiddleware);
@@ -22,7 +23,7 @@ router.get('/clientes/simplificada', async (req: any, res: Response) => {
         c.cli_fone1,
         c.cli_email
       FROM clientes c
-      LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo
+      LEFT JOIN public.cidades cid ON c.cli_idcidade = cid.cid_codigo
       WHERE c.cli_tipopes = 'A'
     `;
     const params: any[] = [];
@@ -142,7 +143,7 @@ router.get('/clientes/selecionavel', async (req: any, res: Response) => {
         c.cli_fone1,
         c.cli_email
       FROM clientes c
-      LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo
+      LEFT JOIN public.cidades cid ON c.cli_idcidade = cid.cid_codigo
       WHERE ${conditions.join(' AND ')}
       ORDER BY c.cli_nomred, c.cli_nome
       LIMIT 1000
@@ -336,7 +337,7 @@ router.get('/clientes-por-industria', async (req: any, res: Response) => {
         COUNT(DISTINCT p.ped_pedido)::int AS total_pedidos,
         COALESCE(ROUND(SUM(p.ped_totliq)::NUMERIC, 2), 0) AS total_valor
       FROM clientes c
-      LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo
+      LEFT JOIN public.cidades cid ON c.cli_idcidade = cid.cid_codigo
       INNER JOIN pedidos p ON p.ped_cliente = c.cli_codigo
                           AND p.ped_industria = $1
                           AND p.ped_situacao IN ('P','F')
@@ -389,7 +390,7 @@ router.get('/clientes-area-atuacao', async (req: any, res: Response) => {
         c.cli_fone1,
         c.cli_email
       FROM clientes c
-      LEFT JOIN cidades cid ON c.cli_idcidade = cid.cid_codigo
+      LEFT JOIN public.cidades cid ON c.cli_idcidade = cid.cid_codigo
       WHERE ${conditions.join(' AND ')}
       ORDER BY c.cli_nomred, c.cli_nome
     `, params);
@@ -549,12 +550,14 @@ router.get('/vendas-periodo', async (req: any, res: Response) => {
         p.ped_data,
         c.cli_nomred,
         p.ped_pedido,
-        p.ped_pedcli,
+        p.ped_oc,
         p.ped_pedindustria,
         ROUND(p.ped_totliq::NUMERIC, 2)                AS valor_pedido,
         CASE WHEN p.ped_situacao = 'F'
              THEN ROUND(p.ped_totliq::NUMERIC, 2)
-             ELSE 0 END                                AS valor_faturado
+             ELSE 0 END                                AS valor_faturado,
+        (SELECT COUNT(*) FROM itens_ped ip
+          WHERE TRIM(ip.ite_pedido) = TRIM(p.ped_pedido))::INTEGER AS qtd_itens
       FROM pedidos p
       JOIN clientes    c ON c.cli_codigo  = p.ped_cliente
       JOIN fornecedores f ON f.for_codigo = p.ped_industria
@@ -568,6 +571,7 @@ router.get('/vendas-periodo', async (req: any, res: Response) => {
         ...r,
         valor_pedido:   parseFloat(r.valor_pedido)   || 0,
         valor_faturado: parseFloat(r.valor_faturado) || 0,
+        qtd_itens:      Number(r.qtd_itens)          || 0,
       })),
     });
   } catch (error: any) {
@@ -673,7 +677,7 @@ router.get('/vendas-cidade-estado', async (req: any, res: Response) => {
         FROM pedidos p
         JOIN clientes     c   ON c.cli_codigo  = p.ped_cliente
         JOIN fornecedores f   ON f.for_codigo  = p.ped_industria
-        LEFT JOIN cidades cid ON cid.cid_codigo = c.cli_idcidade
+        LEFT JOIN public.cidades cid ON cid.cid_codigo = c.cli_idcidade
         WHERE ${conditions.join(' AND ')}
         ORDER BY COALESCE(cid.cid_nome, c.cli_cidade), p.ped_data, c.cli_nomred
       `, params),
@@ -724,7 +728,7 @@ router.get('/vendas-cliente-industria', async (req: any, res: Response) => {
         p.ped_data,
         c.cli_nomred,
         p.ped_pedido,
-        p.ped_pedcli,
+        p.ped_oc,
         p.ped_pedindustria,
         ROUND(p.ped_totliq::NUMERIC, 2)                AS valor_pedido,
         CASE WHEN p.ped_situacao = 'F'
@@ -856,32 +860,87 @@ router.get('/faturamento/comissao', async (req: any, res: Response) => {
           f.for_nomered                              AS industria_nome,
           c.cli_nomred                               AS cliente,
           TRIM(p.ped_pedido)                         AS ped_pedido,
+          p.ped_industria,
           p.ped_data,
           fp.fat_nf,
           fp.fat_datafat,
+          fp.fat_items_json,
           ROUND(p.ped_totliq::NUMERIC, 2)            AS valor_pedido,
           ROUND(fp.fat_valorfat::NUMERIC, 2)         AS fat_valorfat,
-          COALESCE(fp.fat_percent,  0)               AS percent_display,
-          COALESCE(fp.fat_comissao, 0)               AS comissao
+          fp.fat_percom_vend,
+          COALESCE(vi.vin_percom, 0)                 AS vin_percom
         FROM fatura_ped fp
         JOIN pedidos      p ON TRIM(p.ped_pedido) = TRIM(fp.fat_pedido)
         JOIN clientes     c ON c.cli_codigo        = p.ped_cliente
         JOIN fornecedores f ON f.for_codigo        = fp.fat_industria
+        LEFT JOIN vendedor_ind vi ON vi.vin_codigo = p.ped_vendedor AND vi.vin_industria = fp.fat_industria
         WHERE ${conditions.join(' AND ')}
         ORDER BY f.for_nomered, p.ped_data, c.cli_nomred
       `, params),
       db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
     ]);
 
+    // Este é o relatório "Comissão Vendedores" — UMA linha por pedido/NF.
+    // A comissão é a SOMA das comissões item-a-item daquele pedido (helper
+    // aplica override por grupo gru_usa_percomiss quando vale).
+    // A coluna `percent_display` retorna:
+    //   - número (vin_percom) quando todos os itens usam o % padrão;
+    //   - número (gru_percomiss) quando todos os itens em grupo override;
+    //   - string "min-max" (ex: "1-2") quando o pedido tem MIX. A UI mostra
+    //     "1–2%" pra deixar claro que não é um % único.
+    const enriched = await Promise.all(dataResult.rows.map(async (r: any) => {
+      // Override informado na fatura → comissão do vendedor é % flat sobre o faturado.
+      if (r.fat_percom_vend != null) {
+        const pct  = parseFloat(r.fat_percom_vend) || 0;
+        const fatv = parseFloat(r.fat_valorfat) || 0;
+        return {
+          industria_nome: r.industria_nome,
+          cliente:        r.cliente,
+          ped_pedido:     r.ped_pedido,
+          ped_data:       r.ped_data,
+          fat_nf:         r.fat_nf,
+          fat_datafat:    r.fat_datafat,
+          valor_pedido:   parseFloat(r.valor_pedido) || 0,
+          fat_valorfat:   fatv,
+          percent_display: pct,
+          comissao:        parseFloat((fatv * pct / 100).toFixed(2)),
+        };
+      }
+      const itemsJson = r.fat_items_json && Array.isArray(r.fat_items_json) && r.fat_items_json.length > 0
+        ? r.fat_items_json
+        : undefined;
+      const calc = await calcularComissaoPorItens({
+        db: req.db!,
+        pedido: r.ped_pedido,
+        industria: r.ped_industria,
+        items: itemsJson,
+        percentualPadrao: parseFloat(r.vin_percom) || 0,
+        // Comissão SEMPRE sobre o valor faturado (escala pra cima ou pra baixo).
+        fatValorOverride: parseFloat(r.fat_valorfat) || undefined,
+      });
+
+      const percents = [...new Set(calc.breakdown.map(b => b.percent_aplicado))].sort((a, b) => a - b);
+      const percent_display: number | string = percents.length <= 1
+        ? (percents[0] ?? parseFloat(r.vin_percom) ?? 0)
+        : `${percents[0]}-${percents[percents.length - 1]}`;
+
+      return {
+        industria_nome:  r.industria_nome,
+        cliente:         r.cliente,
+        ped_pedido:      r.ped_pedido,
+        ped_data:        r.ped_data,
+        fat_nf:          r.fat_nf,
+        fat_datafat:     r.fat_datafat,
+        valor_pedido:    parseFloat(r.valor_pedido) || 0,
+        fat_valorfat:    parseFloat(r.fat_valorfat) || 0,
+        percent_display,
+        comissao:        calc.comissao_total,
+      };
+    }));
+
     res.json({
       success: true,
-      data: dataResult.rows.map((r: any) => ({
-        ...r,
-        valor_pedido:    parseFloat(r.valor_pedido)    || 0,
-        fat_valorfat:    parseFloat(r.fat_valorfat)    || 0,
-        percent_display: parseFloat(r.percent_display) || 0,
-        comissao:        parseFloat(r.comissao)        || 0,
-      })),
+      data: enriched,
       empresa: empresaResult.rows[0] ?? null,
     });
   } catch (error: any) {
@@ -916,16 +975,18 @@ router.get('/faturamento/periodo', async (req: any, res: Response) => {
     const [dataResult, empresaResult] = await Promise.all([
       db.query(`
         SELECT
-          f.for_nomered                                                              AS industria_nome,
-          c.cli_nomred                                                               AS cliente,
-          TRIM(p.ped_pedido)                                                         AS ped_pedido,
+          f.for_nomered                                                  AS industria_nome,
+          c.cli_nomred                                                   AS cliente,
+          TRIM(p.ped_pedido)                                             AS ped_pedido,
+          p.ped_industria,
           fp.fat_datafat,
           fp.fat_nf,
-          ROUND(fp.fat_valorfat::NUMERIC, 2)                                        AS fat_valorfat,
-          ROUND(COALESCE(fp.fat_percent, f.for_percom, 0)::NUMERIC, 2)             AS percent_rep,
-          ROUND((fp.fat_valorfat * COALESCE(fp.fat_percent, f.for_percom, 0) / 100)::NUMERIC, 2) AS comissao_rep,
-          ROUND(COALESCE(vi.vin_percom, 0)::NUMERIC, 2)                            AS percent_preposto,
-          ROUND((fp.fat_valorfat * COALESCE(vi.vin_percom, 0) / 100)::NUMERIC, 2) AS comissao_preposto
+          fp.fat_items_json,
+          fp.fat_comissao,
+          ROUND(fp.fat_valorfat::NUMERIC, 2)                             AS fat_valorfat,
+          ROUND(COALESCE(fp.fat_percent, f.for_percom, 0)::NUMERIC, 2)   AS percent_rep_default,
+          fp.fat_percom_vend,
+          ROUND(COALESCE(vi.vin_percom, 0)::NUMERIC, 2)                  AS percent_preposto_default
         FROM fatura_ped   fp
         JOIN pedidos      p  ON TRIM(p.ped_pedido) = TRIM(fp.fat_pedido)
         JOIN clientes     c  ON c.cli_codigo        = p.ped_cliente
@@ -937,16 +998,57 @@ router.get('/faturamento/periodo', async (req: any, res: Response) => {
       db.query(`SELECT emp_nome, emp_cnpj, emp_endereco, emp_cidade, emp_uf, emp_fones FROM empresa_status WHERE emp_id = 1`),
     ]);
 
+    // Recalcula item-a-item considerando override por grupo (gru_usa_percomiss).
+    // Comissão do REP usa fat_comissao já gravado (pelo createBilling/updateBilling),
+    // que agora também passa pelo helper. Comissão do PREPOSTO é recalculada aqui
+    // a partir do vin_percom, aplicando a regra de grupo on-the-fly.
+    const enriched = await Promise.all(dataResult.rows.map(async (r: any) => {
+      // Override informado na fatura → preposto vira % flat sobre o faturado (sobrepõe grupo).
+      if (r.fat_percom_vend != null) {
+        const pct  = parseFloat(r.fat_percom_vend) || 0;
+        const fatv = parseFloat(r.fat_valorfat) || 0;
+        return {
+          industria_nome:    r.industria_nome,
+          cliente:           r.cliente,
+          ped_pedido:        r.ped_pedido,
+          fat_datafat:       r.fat_datafat,
+          fat_nf:            r.fat_nf,
+          fat_valorfat:      fatv,
+          percent_rep:       parseFloat(r.percent_rep_default) || 0,
+          comissao_rep:      parseFloat(r.fat_comissao) || 0,
+          percent_preposto:  pct,
+          comissao_preposto: parseFloat((fatv * pct / 100).toFixed(2)),
+        };
+      }
+      const itemsJson = r.fat_items_json && Array.isArray(r.fat_items_json) && r.fat_items_json.length > 0
+        ? r.fat_items_json
+        : undefined;
+      const prepostoCalc = await calcularComissaoPorItens({
+        db: req.db!,
+        pedido: r.ped_pedido,
+        industria: r.ped_industria,
+        items: itemsJson,
+        percentualPadrao: parseFloat(r.percent_preposto_default) || 0,
+        // Comissão SEMPRE sobre o valor faturado (escala pra cima ou pra baixo).
+        fatValorOverride: parseFloat(r.fat_valorfat) || undefined,
+      });
+      return {
+        industria_nome:    r.industria_nome,
+        cliente:           r.cliente,
+        ped_pedido:        r.ped_pedido,
+        fat_datafat:       r.fat_datafat,
+        fat_nf:            r.fat_nf,
+        fat_valorfat:      parseFloat(r.fat_valorfat)            || 0,
+        percent_rep:       parseFloat(r.percent_rep_default)     || 0,
+        comissao_rep:      parseFloat(r.fat_comissao)            || 0,
+        percent_preposto:  prepostoCalc.percent_medio,
+        comissao_preposto: prepostoCalc.comissao_total,
+      };
+    }));
+
     res.json({
       success: true,
-      data: dataResult.rows.map((r: any) => ({
-        ...r,
-        fat_valorfat:       parseFloat(r.fat_valorfat)       || 0,
-        percent_rep:        parseFloat(r.percent_rep)        || 0,
-        comissao_rep:       parseFloat(r.comissao_rep)       || 0,
-        percent_preposto:   parseFloat(r.percent_preposto)   || 0,
-        comissao_preposto:  parseFloat(r.comissao_preposto)  || 0,
-      })),
+      data: enriched,
       empresa: empresaResult.rows[0] ?? null,
     });
   } catch (error: any) {
