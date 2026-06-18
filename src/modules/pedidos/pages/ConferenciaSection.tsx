@@ -376,6 +376,7 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
       acc: (it: ItemRow) => Number((it as any)[`ite_des${nn}`]) || 0,
     })),
     { key: 'add', label: 'ADD%', align: 'center', width: 38, acc: (it) => Number(it.ite_des10) || 0 },
+    { key: 'esp', label: 'ESP%', align: 'center', width: 38, acc: (it) => Number(it.ite_des11) || 0 },
     { key: 'ipi', label: 'IPI%', align: 'center', width: 38, acc: (it) => Number(it.ite_ipi) || 0 },
     { key: 'st',  label: 'ST%',  align: 'center', width: 38, acc: (it) => Number(it.ite_st) || 0 },
   ], [cOrigIdx]);
@@ -1263,6 +1264,18 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
                     )}
                   </td>
 
+                  {/* ESP% (des11) */}
+                  <td style={tdBase('center')}>
+                    {isView ? (
+                      <span style={{ fontFamily: 'monospace', fontSize: 12, color: item.ite_des11 > 0 ? '#2563EB' : G.textMuted }}>
+                        {fmtPct(item.ite_des11)}%
+                      </span>
+                    ) : (
+                      <EditCell value={fmtPct(item.ite_des11)} align="right" pct
+                        onChange={v => updateItem(item.tempId, 'ite_des11', v)} onKeyDown={goNextCell} />
+                    )}
+                  </td>
+
                   {/* IPI% */}
                   <td style={tdBase('center', { fontFamily: 'monospace', color: item.ite_ipi > 0 ? G.danger : G.textMuted, fontWeight: item.ite_ipi > 0 ? 700 : 400 })}>
                     {fmtPct(item.ite_ipi)}%
@@ -1287,7 +1300,7 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
               <td /><td />
               <td style={{ padding: '7px 6px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 900, fontSize: 12 }}>{fmtBRL(totalLiquido)}</td>
               <td style={{ padding: '7px 6px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 900, fontSize: 12, color: G.textSec }}>{fmtBRL(totalComImp)}</td>
-              <td colSpan={11} />
+              <td colSpan={12} />
             </tr>
           </tfoot>
         </table>
