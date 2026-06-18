@@ -339,7 +339,6 @@ export default function ClientesPage() {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               padding: 24,
             }}
-            onClick={e => { if (e.target === e.currentTarget) closeModal(); }}
           >
             <motion.div
               initial={{ scale: 0.96, opacity: 0 }}

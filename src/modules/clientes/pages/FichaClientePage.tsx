@@ -4,7 +4,7 @@ import { useAuthStore } from '@/shared/stores/useAuthStore';
 import {
   ArrowLeft, Save, Loader2, User,
   MapPin, AlertTriangle,
-  Phone, Search, Copy, Plus, Pencil, Trash2, X, Link2, Share2,
+  Phone, Search, Copy, Plus, Pencil, Trash2, X, Link2, Share2, HelpCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppSidebar } from '@/shared/components/layout/AppSidebar';
@@ -26,6 +26,7 @@ interface Cliente {
   cli_inscricao: string;
   cli_tipopes: string;
   cli_atuacao: string;
+  cli_ignora_estat?: boolean;
   cli_nome: string;
   cli_nomred: string;
   cli_fantasia: string;
@@ -136,6 +137,10 @@ const emptyDescpro: Partial<CliDescpro> = {
 const TABS = ['GERAL', 'CONTATOS', 'INDÚSTRIAS', 'DESCONTOS', 'PROSPECÇÃO', 'ÁREAS'] as const;
 type Tab = typeof TABS[number];
 
+// Máscara de valor (descontos / % add / % especial): digita-se da direita p/ esquerda → "0,00".
+const fmtVal = (n: any) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const digitsToNum = (raw: string) => { const d = String(raw).replace(/\D/g, ''); return d ? parseInt(d, 10) / 100 : 0; };
+
 const empty: Partial<Cliente> = { cli_tipopes: 'A' };
 
 // ─── Estilos compartilhados ───────────────────────────────────────────────────
@@ -165,10 +170,17 @@ const row: React.CSSProperties = {
   marginBottom: 16,
 };
 
-function Field({ label: lbl, children, style }: { label: string; children: React.ReactNode; style?: React.CSSProperties }) {
+function Field({ label: lbl, children, style, help }: { label: string; children: React.ReactNode; style?: React.CSSProperties; help?: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', ...style }}>
-      <span style={label}>{lbl}</span>
+      <span style={{ ...label, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        {lbl}
+        {help && (
+          <span title={help} style={{ display: 'inline-flex', cursor: 'help', color: G.textMuted }}>
+            <HelpCircle size={13} style={{ flexShrink: 0 }} />
+          </span>
+        )}
+      </span>
       {children}
     </div>
   );
@@ -584,6 +596,7 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
   };
 
   const isAtivo = data.cli_tipopes === 'A';
+  const compra = data.cli_ignora_estat !== true;   // default: COMPRA (entra nos estatísticos). REP desliga pra "NÃO COMPRA".
   const displayName = data.cli_nomred || data.cli_nome || '—';
 
   return (
@@ -885,7 +898,10 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
                       <Field label="DATA DE ABERTURA">
                         <input style={{ ...inp, width: 180 }} type="date" value={(data.cli_dtabertura || '').substring(0, 10)} onChange={e => set('cli_dtabertura', e.target.value)} />
                       </Field>
-                      <Field label="ÁREA DE ATUAÇÃO">
+                      <Field
+                        label="CLASSIFICAÇÃO"
+                        help="Classifique o tipo de negócio do cliente. Use 'Filial de Rede' quando o cliente é uma loja da rede que NÃO compra direto (é abastecida pelo CD da rede) — assim ela pode ser filtrada dos relatórios de inatividade sem prejudicar os indicadores do vendedor."
+                      >
                         <select
                           value={data.cli_atuacao || ''}
                           onChange={e => set('cli_atuacao', e.target.value)}
@@ -899,7 +915,38 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
                           <option value="ATA">Atacado</option>
                           <option value="FRO">Frotas</option>
                           <option value="IND">Indústria</option>
+                          <option value="FILIAL">Filial de Rede</option>
                         </select>
+                      </Field>
+                      <Field
+                        label="COMPRA?"
+                        help="Por padrão, todo lojista COMPRA e aparece normalmente nos relatórios de inatividade, churn, adormecidas e últimas compras. Desligue (NÃO COMPRA) quando o lojista realmente não compra de você — ex.: filial abastecida pelo CD da rede, ou um ponto cujo mix não tem nada a ver com as suas indústrias — pra ele sair desses relatórios."
+                      >
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          background: G.card, border: `1px solid ${G.border}`,
+                          borderRadius: 10, padding: '8px 16px',
+                          cursor: 'pointer', userSelect: 'none', width: 'fit-content',
+                        }}
+                          onClick={() => set('cli_ignora_estat', compra)}
+                        >
+                          <div style={{
+                            width: 36, height: 20, borderRadius: 10,
+                            background: compra ? G.success : G.border,
+                            position: 'relative', transition: 'background .2s',
+                          }}>
+                            <div style={{
+                              position: 'absolute', top: 2,
+                              left: compra ? 18 : 2,
+                              width: 16, height: 16, borderRadius: '50%',
+                              background: '#fff', transition: 'left .2s',
+                              boxShadow: '0 1px 3px #0003',
+                            }} />
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: compra ? G.success : G.textMuted }}>
+                            {compra ? 'COMPRA' : 'NÃO COMPRA'}
+                          </span>
+                        </div>
                       </Field>
                     </div>
                   </div>
@@ -1413,7 +1460,6 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
       {indModal.open && (
         <div
           style={{ position:'fixed', inset:0, background:'rgba(40,55,74,0.55)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
-          onClick={e => { if (e.target === e.currentTarget) setIndModal({ open:false, editing:emptyCliInd }); }}
         >
           <div style={{ width:'100%', maxWidth:820, background:'#fff', borderRadius:20, overflow:'hidden', boxShadow:'0 24px 80px rgba(40,55,74,0.35)', maxHeight:'90vh', display:'flex', flexDirection:'column' }}>
             {/* Header */}
@@ -1506,11 +1552,11 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
                 </div>
                 <div>
                   <span style={label}>% ADD</span>
-                  <input style={{ ...inp, textAlign:'right' }} type="number" step="0.01" value={indModal.editing.cli_desc10 ?? 0} onChange={e => setIndModal(prev => ({ ...prev, editing: { ...prev.editing, cli_desc10: parseFloat(e.target.value) || 0 } }))} />
+                  <input style={{ ...inp, textAlign:'right' }} type="text" inputMode="decimal" value={fmtVal(indModal.editing.cli_desc10)} onChange={e => setIndModal(prev => ({ ...prev, editing: { ...prev.editing, cli_desc10: digitsToNum(e.target.value) } }))} />
                 </div>
                 <div>
                   <span style={label}>% ESPECIAL</span>
-                  <input style={{ ...inp, textAlign:'right' }} type="number" step="0.01" value={indModal.editing.cli_desc11 ?? 0} onChange={e => setIndModal(prev => ({ ...prev, editing: { ...prev.editing, cli_desc11: parseFloat(e.target.value) || 0 } }))} />
+                  <input style={{ ...inp, textAlign:'right' }} type="text" inputMode="decimal" value={fmtVal(indModal.editing.cli_desc11)} onChange={e => setIndModal(prev => ({ ...prev, editing: { ...prev.editing, cli_desc11: digitsToNum(e.target.value) } }))} />
                 </div>
               </div>
 
@@ -1531,9 +1577,9 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
                         <div style={{ fontSize:10, fontWeight:700, color:G.textMuted, textAlign:'center', marginBottom:3 }}>{n}º</div>
                         <input
                           style={{ ...inp, textAlign:'center', padding:'6px 4px' }}
-                          type="number" step="0.01" min={0}
-                          value={(indModal.editing[k] as number) ?? 0}
-                          onChange={e => setIndModal(prev => ({ ...prev, editing: { ...prev.editing, [k]: parseFloat(e.target.value) || 0 } }))}
+                          type="text" inputMode="decimal"
+                          value={fmtVal(indModal.editing[k])}
+                          onChange={e => setIndModal(prev => ({ ...prev, editing: { ...prev.editing, [k]: digitsToNum(e.target.value) } }))}
                         />
                       </div>
                     );
@@ -1564,7 +1610,6 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
       {discModal.open && (
         <div
           style={{ position:'fixed', inset:0, background:'rgba(40,55,74,0.55)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
-          onClick={e => { if (e.target === e.currentTarget) setDiscModal({ open:false, editing:emptyDescpro }); }}
         >
           <div style={{ width:'100%', maxWidth:560, background:'#fff', borderRadius:20, overflow:'hidden', boxShadow:'0 24px 80px rgba(40,55,74,0.35)', maxHeight:'90vh', display:'flex', flexDirection:'column' }}>
             {/* Header */}
@@ -1624,17 +1669,17 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
               {/* Row 2: Descontos 1º-9º */}
               <div>
                 <span style={{ ...label, display:'block', marginBottom:8 }}>DESCONTOS (1º AO 9º)</span>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(9,1fr)', gap:6 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8 }}>
                   {([1,2,3,4,5,6,7,8,9] as const).map(n => {
                     const k = `cli_desc${n}` as keyof CliDescpro;
                     return (
                       <div key={n}>
                         <div style={{ fontSize:10, fontWeight:700, color:G.textMuted, textAlign:'center', marginBottom:3 }}>{n}º</div>
                         <input
-                          style={{ ...inp, textAlign:'center', padding:'6px 4px' }}
-                          type="number" step="0.01" min={0}
-                          value={(discModal.editing[k] as number) ?? 0}
-                          onChange={e => setDiscModal(prev => ({ ...prev, editing: { ...prev.editing, [k]: parseFloat(e.target.value) || 0 } }))}
+                          style={{ ...inp, textAlign:'center', padding:'6px 6px' }}
+                          type="text" inputMode="decimal"
+                          value={fmtVal(discModal.editing[k])}
+                          onChange={e => setDiscModal(prev => ({ ...prev, editing: { ...prev.editing, [k]: digitsToNum(e.target.value) } }))}
                         />
                       </div>
                     );
@@ -1665,7 +1710,6 @@ export default function FichaClientePage({ overrideId, onClose }: { overrideId?:
       {contactModal.open && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(40,55,74,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-          onClick={e => { if (e.target === e.currentTarget) setContactModal({ open: false, editing: emptyContato }); }}
         >
           <div style={{ width: '100%', maxWidth: 560, background: '#fff', borderRadius: 20, overflow: 'hidden', boxShadow: '0 24px 80px rgba(40,55,74,0.35)' }}>
             {/* Header */}
@@ -1869,6 +1913,8 @@ function ProspeccaoTab({ cliId }: { cliId: number }) {
 }
 
 // ─── Aba Áreas de Atuação ─────────────────────────────────────────────────────
+// Áreas são uma lista FIXA (global, mantida pelo SoftHam). Usuário apenas
+// marca/desmarca quais se aplicam ao cliente — NÃO cria áreas novas.
 function AreasTab({ cliId }: { cliId: number }) {
   const [items, setItems] = useState<{ id: number; nome: string; selected: boolean }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1957,7 +2003,7 @@ function AreasTab({ cliId }: { cliId: number }) {
         </div>
         {items.length === 0 && (
           <div style={{ fontSize: 13, color: G.textMuted, textAlign: 'center', padding: 20 }}>
-            Nenhuma área cadastrada. Acesse Cadastros → Áreas de Atuação para criar.
+            Nenhuma área disponível no momento. Solicite ao suporte SoftHam.
           </div>
         )}
       </div>
