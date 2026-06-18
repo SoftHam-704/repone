@@ -12,6 +12,7 @@ import { cadastrarCadastro } from './cadastrar-cadastro';
 import { clientesPorCidade } from './clientes-por-cidade';
 import { removerItens } from './remover-itens';
 import { mesclarItens } from './mesclar-itens';
+import { inativarSemMovimento } from './inativar-sem-movimento';
 
 export type ToolHandler = (db: any, input: any, user: any) => Promise<any>;
 
@@ -31,6 +32,7 @@ export const TOOLS_REGISTRY: Record<string, ToolHandler> = {
   clientes_por_cidade:      clientesPorCidade,
   remover_itens:            removerItens,
   mesclar_itens:            mesclarItens,
+  inativar_sem_movimento:   inativarSemMovimento,
 };
 
 // Definições JSON Schema enviadas ao modelo (Anthropic SDK tools).
@@ -254,6 +256,20 @@ export const TOOLS = [
         confirmar: { type: 'boolean', description: 'false (default) = prévia; true = grava.' },
       },
       required: ['industria'],
+    },
+  },
+  {
+    name: 'inativar_sem_movimento',
+    description:
+      'ESCRITA (Gerência+) — Inativa em massa CLIENTES ou INDÚSTRIAS sem pedido há mais de N anos (limpa os dormentes dos filtros). SEMPRE 2 passos: confirmar=false (PRÉVIA — conta, separa "nunca compraram" × "compraram e pararam", lista os nomes) → mostre ao REP e peça "confirma?"; confirmar=true grava. O número de ANOS é obrigatório e vem do REP — se ele não disse, PERGUNTE ("há quantos anos sem comprar?"), NÃO invente. Critério = data do último pedido (P/F); cliente que nunca comprou cai pela data de cadastro, indústria que nunca vendeu entra direto. Protege filiais de rede. É REVERSÍVEL (reativa pelo cadastro).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        alvo:      { type: 'string', enum: ['clientes', 'industrias'], description: 'O que inativar: "clientes" ou "industrias" (representadas). Se o REP não disse, pergunte.' },
+        anos:      { type: 'integer', description: 'Anos sem pedido pra inativar (ex.: 2, 3). OBRIGATÓRIO — se o REP não informou, pergunte antes; não invente prazo.' },
+        confirmar: { type: 'boolean', description: 'false (default) = prévia sem gravar; true = grava (só após o REP confirmar a prévia).' },
+      },
+      required: ['alvo', 'anos'],
     },
   },
 ];
