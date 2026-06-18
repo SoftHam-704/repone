@@ -21,6 +21,18 @@ assert.equal(dpsCnae.infDPS.serv.cServ.CNAE, '6202300', 'CNAE só dígitos no cS
 const dpsSemCnae = buildNfsePayload({ lancamento, aliquotas, prestador, provedor: 'nacional', ambiente: 'homologacao' }).payload as any;
 assert.equal(dpsSemCnae.infDPS.serv.cServ.CNAE, undefined, 'sem CNAE → campo omitido');
 
+// Tomador com município (IBGE) entra em toma.end.endNac.cMun (+ CEP/logradouro/bairro/email)
+const dpsToma = buildNfsePayload({ prestador, aliquotas, provedor: 'nacional', ambiente: 'homologacao',
+  lancamento: { ...lancamento, tomador_ibge: '3106200', tomador_cep: '30.140-071',
+    tomador_logradouro: 'Av Afonso Pena', tomador_bairro: 'Centro', tomador_email: 'fin@ind.com' } }).payload as any;
+assert.equal(dpsToma.infDPS.toma.end.endNac.cMun, '3106200', 'IBGE do tomador no endNac.cMun');
+assert.equal(dpsToma.infDPS.toma.end.endNac.CEP, '30140071', 'CEP só dígitos');
+assert.equal(dpsToma.infDPS.toma.end.xLgr, 'Av Afonso Pena');
+assert.equal(dpsToma.infDPS.toma.email, 'fin@ind.com');
+// Sem IBGE do tomador → não monta o bloco end (não inventa endereço)
+const dpsSemToma = buildNfsePayload({ lancamento, aliquotas, prestador, provedor: 'nacional', ambiente: 'homologacao' }).payload as any;
+assert.equal(dpsSemToma.infDPS.toma.end, undefined, 'sem IBGE → sem bloco end');
+
 // Provedor municipal (RPS/ABRASF) — estrutura real (item_lista_servico + valores{})
 const rps = buildNfsePayload({ lancamento, aliquotas, prestador, provedor: 'municipal', ambiente: 'homologacao' });
 const rp = rps.payload as any;

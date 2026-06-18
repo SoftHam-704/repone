@@ -14,6 +14,12 @@ export interface LancamentoNfse {
   representada_nome: string;
   for_cnpj: string;             // CNPJ da indústria (tomador)
   descricao?: string;           // discriminação do serviço (override do texto padrão)
+  // Endereço do tomador (representada). IBGE resolvido por public.cidades no controller.
+  tomador_ibge?: string;        // código IBGE (7 díg) do município do tomador
+  tomador_cep?: string;
+  tomador_logradouro?: string;
+  tomador_bairro?: string;
+  tomador_email?: string;
 }
 export interface AliquotasNfse {
   regime: string;               // 'PRESUMIDO' | 'SIMPLES' | ...
@@ -72,7 +78,21 @@ export function buildNfsePayload(args: BuildArgs): BuiltPayload {
           dhEmi: new Date().toISOString(),
           dCompet: compToDate(l.competencia),
           prest: { CNPJ: onlyDigits(p.cnpj), regTrib: { regEspTrib: regEspTribDoRegime(a.regime) } },
-          toma:  { CNPJ: onlyDigits(l.for_cnpj), xNome: l.representada_nome },
+          toma:  {
+            CNPJ: onlyDigits(l.for_cnpj),
+            xNome: l.representada_nome,
+            ...(l.tomador_email ? { email: l.tomador_email } : {}),
+            // Padrão Nacional exige o município do tomador (endNac.cMun). Sem IBGE
+            // resolvido, NÃO inventa endereço — o bloco end fica de fora.
+            ...(l.tomador_ibge ? { end: {
+              endNac: {
+                cMun: l.tomador_ibge,
+                ...(l.tomador_cep ? { CEP: onlyDigits(l.tomador_cep) } : {}),
+              },
+              ...(l.tomador_logradouro ? { xLgr: l.tomador_logradouro } : {}),
+              ...(l.tomador_bairro ? { xBairro: l.tomador_bairro } : {}),
+            } } : {}),
+          },
           serv: {
             locPrest: { cLocPrestacao: p.ibge },
             cServ: { cTribNac: a.codigo_servico_padrao, cTribMun: a.ctrib_mun, cNBS: a.cnbs,

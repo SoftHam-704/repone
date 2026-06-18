@@ -255,10 +255,17 @@ async function carregarParaEmissao(db: any, id: number) {
   const lanc = (await db.query(`
     SELECT n.*, f.for_cgc AS for_cnpj, f.for_email AS tomador_email,
            COALESCE(NULLIF(TRIM(f.for_nomered),''), f.for_nome, n.representada_nome) AS tomador_nome,
+           f.for_endereco AS tomador_logradouro, f.for_bairro AS tomador_bairro, f.for_cep AS tomador_cep,
+           f.for_cidade, f.for_uf, c.cid_ibge AS tomador_ibge,
            s.descricao AS serv_descricao, s.item_lc116 AS serv_item, s.ctribnac AS serv_ctribnac,
            s.cnbs AS serv_cnbs, s.ctribmun AS serv_ctribmun, s.iss_pct AS serv_iss
     FROM fin_nfse n
     LEFT JOIN fornecedores f ON f.for_codigo = n.for_codigo
+    LEFT JOIN public.cidades c
+      ON c.cid_uf <> 'EX'
+      AND upper(btrim(c.cid_uf)) = upper(btrim(f.for_uf))
+      AND translate(upper(btrim(c.cid_nome)),  'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ','AAAAAEEEEIIIIOOOOOUUUUC')
+        = translate(upper(btrim(f.for_cidade)),'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ','AAAAAEEEEIIIIOOOOOUUUUC')
     LEFT JOIN fin_nfse_servicos s ON s.id = n.servico_id
     WHERE n.id = $1
   `, [id])).rows[0];
@@ -275,6 +282,7 @@ function validarEmissao(lanc: any, emp: any): string[] {
   if (!emp.emp_cnbs) faltando.push('Código NBS (Configurações)');
   if (!emp.emp_ibge) faltando.push('Código IBGE do município (Configurações)');
   if (!lanc.for_cnpj) faltando.push('CNPJ da representada (tomador)');
+  if (!lanc.tomador_ibge) faltando.push('Município do tomador — preencha Cidade + UF no cadastro da representada (resolve o IBGE)');
   if (!(Number(lanc.vr_bruto) > 0)) faltando.push('Valor (VR Bruto) maior que zero');
   return faltando;
 }
@@ -296,7 +304,10 @@ function montarPayload(lanc: any, emp: any) {
     : `Comissão sobre representação comercial — competência ${lanc.competencia}`;
   return buildNfsePayload({
     lancamento: { id: lanc.id, competencia: lanc.competencia, vr_bruto: Number(lanc.vr_bruto), iss: Number(lanc.iss),
-      representada_nome: lanc.tomador_nome || lanc.representada_nome || '', for_cnpj: String(lanc.for_cnpj), descricao: desc },
+      representada_nome: lanc.tomador_nome || lanc.representada_nome || '', for_cnpj: String(lanc.for_cnpj), descricao: desc,
+      tomador_ibge: lanc.tomador_ibge || undefined, tomador_cep: lanc.tomador_cep || undefined,
+      tomador_logradouro: lanc.tomador_logradouro || undefined, tomador_bairro: lanc.tomador_bairro || undefined,
+      tomador_email: lanc.tomador_email || undefined },
     aliquotas,
     prestador: { cnpj: String(emp.emp_cnpj), razao: emp.emp_nome || '', ibge: String(emp.emp_ibge || '') },
     provedor: 'nacional', ambiente: emp.emp_nfse_ambiente === 'PRODUCAO' ? 'producao' : 'homologacao',
@@ -313,8 +324,9 @@ export async function previaNfseHandler(req: Request, res: Response): Promise<vo
     const { payload } = montarPayload(lanc, emp);
     const isSimples = (emp.emp_regime || '').toUpperCase().includes('SIMPLES');
     res.json({ success: true, data: {
-      prestador: { nome: emp.emp_nome, cnpj: emp.emp_cnpj, im: emp.emp_im },
-      tomador: { nome: lanc.tomador_nome || lanc.representada_nome, cnpj: lanc.for_cnpj, email: lanc.tomador_email },
+      prestador: { nome: emp.emp_nome, cnpj: emp.emp_cnpj, im: emp.emp_im, cnae: emp.emp_cnae },
+      tomador: { nome: lanc.tomador_nome || lanc.representada_nome, cnpj: lanc.for_cnpj, email: lanc.tomador_email,
+                 municipio_ibge: lanc.tomador_ibge, cidade: lanc.for_cidade, uf: lanc.for_uf },
       servico: { item_lc116: lanc.serv_item || emp.emp_item_lc116, ctribnac: lanc.serv_ctribnac || emp.emp_ctribnac,
                  cnbs: lanc.serv_cnbs || emp.emp_cnbs, descricao: lanc.serv_descricao
                    ? `${lanc.serv_descricao} — competência ${lanc.competencia}`
