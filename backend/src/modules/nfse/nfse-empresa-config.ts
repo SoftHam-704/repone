@@ -19,6 +19,7 @@ export function empresaToAliquotas(e: EmpresaStatusFiscal): AliquotasNfse {
     codigo_servico_padrao: e.emp_ctribnac || '',
     ctrib_mun: e.emp_ctribmun || undefined,
     cnbs: e.emp_cnbs || undefined,
+    cnae: e.emp_cnae || undefined,
   };
 }
 

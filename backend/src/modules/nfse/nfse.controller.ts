@@ -288,7 +288,8 @@ function montarPayload(lanc: any, emp: any) {
         inscricao_municipal: emp.emp_im || '',
         codigo_servico_padrao: lanc.serv_ctribnac || emp.emp_ctribnac,
         ctrib_mun: lanc.serv_ctribmun || emp.emp_ctribmun || undefined,
-        cnbs: lanc.serv_cnbs || emp.emp_cnbs || undefined }
+        cnbs: lanc.serv_cnbs || emp.emp_cnbs || undefined,
+        cnae: emp.emp_cnae || undefined }   // CNAE é do prestador (empresa), não do serviço
     : empresaToAliquotas(emp);
   const desc = lanc.serv_descricao
     ? `${lanc.serv_descricao} — competência ${lanc.competencia}`

@@ -22,6 +22,7 @@ export interface AliquotasNfse {
   codigo_servico_padrao: string;  // cTribNac (nacional, ex.: 100900 = LC116 10.09)
   ctrib_mun?: string;             // cTribMun (código do município, ex.: 100901 = BH 10.09.01)
   cnbs?: string;                  // código NBS — exigido pelo schema do DPS Nacional
+  cnae?: string;                  // CNAE do prestador (9 dígitos no XML) — exigido por alguns municípios
   // caminho RPS/ABRASF (municipal, ex.: ISSDSF Campo Grande):
   item_lista_servico?: string;          // LC116 (ex.: 1.07)
   codigo_tributacao_municipio?: string; // atividade do cadastro econômico (ex.: 620910000)
@@ -74,7 +75,8 @@ export function buildNfsePayload(args: BuildArgs): BuiltPayload {
           toma:  { CNPJ: onlyDigits(l.for_cnpj), xNome: l.representada_nome },
           serv: {
             locPrest: { cLocPrestacao: p.ibge },
-            cServ: { cTribNac: a.codigo_servico_padrao, cTribMun: a.ctrib_mun, cNBS: a.cnbs, xDescServ: discriminacao(l) },
+            cServ: { cTribNac: a.codigo_servico_padrao, cTribMun: a.ctrib_mun, cNBS: a.cnbs,
+              ...(a.cnae ? { CNAE: onlyDigits(a.cnae) } : {}), xDescServ: discriminacao(l) },
           },
           valores: {
             vServPrest: { vServ: l.vr_bruto },

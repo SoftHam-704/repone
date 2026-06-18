@@ -14,6 +14,13 @@ const lancamento = {
 const aliquotas = { regime: 'PRESUMIDO', iss_pct: 2.5, inscricao_municipal: '123456', codigo_servico_padrao: '10.09' };
 const prestador = { cnpj: '28427986000108', razao: 'HM BORCATO REPRESENTACAO COMERCIAL LTDA', ibge: '3106200' };
 
+// CNAE (prestador) entra no DPS cServ.CNAE com 9 dígitos quando presente; some quando vazio
+const dpsCnae = buildNfsePayload({ lancamento, prestador, provedor: 'nacional', ambiente: 'homologacao',
+  aliquotas: { ...aliquotas, cnae: '6202-3/00' } }).payload as any;
+assert.equal(dpsCnae.infDPS.serv.cServ.CNAE, '6202300', 'CNAE só dígitos no cServ');
+const dpsSemCnae = buildNfsePayload({ lancamento, aliquotas, prestador, provedor: 'nacional', ambiente: 'homologacao' }).payload as any;
+assert.equal(dpsSemCnae.infDPS.serv.cServ.CNAE, undefined, 'sem CNAE → campo omitido');
+
 // Provedor municipal (RPS/ABRASF) — estrutura real (item_lista_servico + valores{})
 const rps = buildNfsePayload({ lancamento, aliquotas, prestador, provedor: 'municipal', ambiente: 'homologacao' });
 const rp = rps.payload as any;
