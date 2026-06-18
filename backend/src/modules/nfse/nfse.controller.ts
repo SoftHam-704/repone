@@ -345,6 +345,12 @@ export async function previaNfseHandler(req: Request, res: Response): Promise<vo
 // POST /:id/emitir  — emite a NFS-e do lançamento via empresa_status
 export async function emitirNfseHandler(req: Request, res: Response): Promise<void> {
   try {
+    // Trava de produto: emissão de NFS-e queima crédito ACBr (pago). Só libera quem o
+    // master habilitou (modulo_nfse_ativo → req.user.nfseAtiva). A prévia segue liberada.
+    if (!(req as any).user?.nfseAtiva) {
+      res.status(403).json({ success: false, message: 'Emissão de NFS-e não habilitada para esta empresa. Fale com a SoftHam para liberar.' });
+      return;
+    }
     const db = req.db!;
     const id = Number(req.params.id);
     const { lanc, emp } = await carregarParaEmissao(db, id);

@@ -16,6 +16,7 @@ export interface User {
   whatsappEnabled: boolean;
   crmRepEnabled: boolean;
   portalLojistaEnabled: boolean;
+  nfseEnabled?: boolean;
   iaPlanLevel: string;
   isPromotor?: boolean;
 }

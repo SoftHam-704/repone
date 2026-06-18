@@ -34,7 +34,7 @@ interface NavLeaf {
   label: string;
   path: string;
   icon: React.ElementType;
-  feature?: 'biEnabled' | 'whatsappEnabled' | 'crmRepEnabled' | 'iaEnabled';
+  feature?: 'biEnabled' | 'whatsappEnabled' | 'crmRepEnabled' | 'iaEnabled' | 'nfseEnabled';
   masterOnly?: boolean;
   minLevel?: number;     // Nível mínimo: 1=operador(todos), 2=gerência+, 3=master. Default 1.
   comingSoon?: boolean;  // Mostra badge "EM BREVE" e desabilita navegação
@@ -106,7 +106,7 @@ const GROUPS: NavGroup[] = [
       { label: 'Centro de Custo',  path: '/financeiro/centro-custo',           icon: Building2,       minLevel: 2 },
       { label: 'Clientes',         path: '/financeiro/fin-clientes',           icon: Users,           minLevel: 2 },
       { label: 'Fornecedores',     path: '/financeiro/fin-fornecedores',       icon: Building2,       minLevel: 2 },
-      { label: 'NFS-e',            path: '/financeiro/nfse-comissoes',         icon: FileText,        minLevel: 2 },
+      { label: 'NFS-e',            path: '/financeiro/nfse-comissoes',         icon: FileText,        minLevel: 2, feature: 'nfseEnabled' },
     ],
   },
   {

@@ -33,6 +33,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
              COALESCE(modulo_bi_ativo, false) as modulo_bi_ativo,
              COALESCE(modulo_whatsapp_ativo, false) as modulo_whatsapp_ativo,
              COALESCE(modulo_crmrep_ativo, false) as modulo_crmrep_ativo,
+             COALESCE(modulo_nfse_ativo, false) as modulo_nfse_ativo,
              COALESCE(plano_ia_nivel, 'ATIVA') as plano_ia_nivel
       FROM empresas
       WHERE regexp_replace(cnpj, '[^0-9]', '', 'g') = $1 AND status = 'ATIVO'
@@ -63,6 +64,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
         modulo_bi_ativo: true,
         modulo_whatsapp_ativo: false,
         modulo_crmrep_ativo: false,
+        modulo_nfse_ativo: true,   // dev fallback (SoftHam) pode emitir/testar localmente
         plano_ia_nivel: 'ATIVA',
       };
     }
@@ -256,6 +258,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
         empresaId: empresa.id,
         cnpj: empresa.cnpj,
         iaAtiva: !['INATIVA', 'NONE', ''].includes(String(empresa.plano_ia_nivel || 'INATIVA').toUpperCase()),  // toggle "Acesso à IRIS" do ADM ('INATIVA'/'NONE' = off) — gateia IRIS Dev
+        nfseAtiva: empresa.modulo_nfse_ativo === true,  // libera emissão de NFS-e (queima crédito ACBr) — default bloqueado
 
         isPromotor,  // promotor de vendas: esconde opções de venda no mobile
       },
@@ -295,6 +298,7 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
         whatsappEnabled: empresa.modulo_whatsapp_ativo === true,
         crmRepEnabled: empresa.modulo_crmrep_ativo === true,
         portalLojistaEnabled: empresa.ios_enabled === 'S',
+        nfseEnabled: empresa.modulo_nfse_ativo === true,
         iaPlanLevel: empresa.plano_ia_nivel,
         isPromotor,
       },
