@@ -104,7 +104,7 @@ function AtividadeModal({ venCodigo, onClose, onSaved }: {
 
   useEffect(() => {
     Promise.all([
-      api.get('/clients?limit=500'),
+      api.get('/clients?limit=5000'),
       api.get('/crm/tipos'),
       api.get('/crm/canais'),
       api.get('/crm/resultados'),

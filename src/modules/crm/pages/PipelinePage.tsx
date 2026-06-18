@@ -89,7 +89,7 @@ function OportunidadeModal({ initial, onClose, onSaved }: {
   const [error,    setError]    = useState('')
 
   useEffect(() => {
-    api.get('/clients?limit=500').then(r => setClientes(r.data.data ?? [])).catch(() => {})
+    api.get('/clients?limit=5000').then(r => setClientes(r.data.data ?? [])).catch(() => {})
   }, [])
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
