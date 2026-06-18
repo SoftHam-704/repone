@@ -1984,6 +1984,30 @@ export async function clientesChurnTrimestralHandler(req: Request | any, res: Re
 //   faturamento de mercado, e FILTRA mostrando APENAS os itens que esse
 //   cliente NUNCA comprou (histórico completo).
 
+// GET /estatisticas/gap-catalogo/clientes?industria=X
+// Retorna apenas clientes com pelo menos 1 pedido P/F da indústria
+export async function gapCatalogoClientesHandler(req: Request | any, res: Response) {
+  try {
+    const db = req.db!;
+    const indId = Number(req.query.industria);
+    if (!indId) return res.status(400).json({ success: false, error: 'Indústria obrigatória' });
+
+    const result = await db.query(`
+      SELECT DISTINCT c.cli_codigo, c.cli_nomred
+      FROM pedidos p
+      JOIN clientes c ON c.cli_codigo = p.ped_cliente
+      WHERE p.ped_industria = $1
+        AND p.ped_situacao IN ('P', 'F')
+      ORDER BY c.cli_nomred
+    `, [indId]);
+
+    res.json({ success: true, data: result.rows });
+  } catch (err: any) {
+    console.error('[gapCatalogoClientesHandler]', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
 // GET /estatisticas/gap-catalogo?industria&cliente&dataInicial&dataFinal
 export async function gapCatalogoHandler(req: Request | any, res: Response) {
   try {

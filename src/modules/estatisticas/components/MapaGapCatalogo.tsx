@@ -90,10 +90,19 @@ export default function MapaGapCatalogo({ dataInicio, dataFim, onDataInicio, onD
   const [sortBy, setSortBy]   = useState<keyof GapRow>('qtd_mercado');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
+  // Carrega lista de indústrias uma vez
   useEffect(() => {
     api.get('/aux/industrias').then(r => setIndustrias(r.data.data || []));
-    api.get('/clients?limit=2000').then(r => setClientes(r.data.data || []));
   }, []);
+
+  // Carrega apenas clientes com histórico na indústria selecionada
+  useEffect(() => {
+    if (!industria) { setClientes([]); setCliente(''); return; }
+    api.get('/estatisticas/gap-catalogo/clientes', { params: { industria } })
+      .then(r => setClientes(r.data.data || []));
+    setCliente('');
+    setData([]); setKpis(null); setLoaded(false);
+  }, [industria]);
 
   const processar = useCallback(async () => {
     if (!industria || !cliente) return;
@@ -190,8 +199,8 @@ export default function MapaGapCatalogo({ dataInicio, dataFim, onDataInicio, onD
           <div style={labelSt}>Cliente *</div>
           <div style={{ position: 'relative' }}>
             <User size={11} style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', color: G.textMuted, pointerEvents: 'none' }} />
-            <select style={selStyle} value={cliente} onChange={e => setCliente(e.target.value)}>
-              <option value="">— Selecione —</option>
+            <select style={selStyle} value={cliente} onChange={e => setCliente(e.target.value)} disabled={!industria}>
+              <option value="">{industria ? '— Selecione —' : '← Selecione a indústria'}</option>
               {clientes.map(c => <option key={c.cli_codigo} value={String(c.cli_codigo)}>{c.cli_nomred}</option>)}
             </select>
           </div>
