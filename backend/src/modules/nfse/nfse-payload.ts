@@ -39,6 +39,14 @@ export interface BuiltPayload { tipo: 'rps' | 'dps'; payload: unknown }
 
 const onlyDigits = (s: string) => String(s ?? '').replace(/\D/g, '');
 const compToDate = (c: string) => `${c}-01`;                 // 'YYYY-MM' → 'YYYY-MM-01'
+
+/** regEspTrib do Padrão Nacional: 6 = Simples ME/EPP, 5 = MEI, 1 = demais (fallback ABRASF). */
+export function regEspTribDoRegime(regime: string | undefined): number {
+  const r = (regime ?? '').toUpperCase();
+  if (r === 'SIMPLES_MEI') return 5;
+  if (r.includes('SIMPLES')) return 6;
+  return 1;
+}
 const discriminacao = (l: LancamentoNfse) =>
   l.descricao ?? `Comissão sobre representação comercial — competência ${l.competencia}`;
 
@@ -62,7 +70,7 @@ export function buildNfsePayload(args: BuildArgs): BuiltPayload {
           tpAmb,
           dhEmi: new Date().toISOString(),
           dCompet: compToDate(l.competencia),
-          prest: { CNPJ: onlyDigits(p.cnpj), regTrib: { regEspTrib: 0 } },
+          prest: { CNPJ: onlyDigits(p.cnpj), regTrib: { regEspTrib: regEspTribDoRegime(a.regime) } },
           toma:  { CNPJ: onlyDigits(l.for_cnpj), xNome: l.representada_nome },
           serv: {
             locPrest: { cLocPrestacao: p.ibge },

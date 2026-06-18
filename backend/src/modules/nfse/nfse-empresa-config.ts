@@ -1,4 +1,4 @@
-import { AliquotasNfse } from './nfse-payload';
+import { AliquotasNfse, regEspTribDoRegime } from './nfse-payload';
 
 const onlyDigits = (s: any) => String(s ?? '').replace(/\D/g, '');
 
@@ -28,7 +28,7 @@ export function empresaToConfigNfse(e: EmpresaStatusFiscal) {
   const isSimples = regime.includes('SIMPLES');
   const isMEI = regime === 'SIMPLES_MEI';
   const opSimpNac = isMEI ? 2 : isSimples ? 3 : 1;
-  const regTrib: any = { opSimpNac, regEspTrib: 0 };
+  const regTrib: any = { opSimpNac, regEspTrib: regEspTribDoRegime(e.emp_regime) };
   if (isSimples) regTrib.regApTribSN = 1;
   return {
     ambiente: e.emp_nfse_ambiente === 'PRODUCAO' ? 'producao' : 'homologacao',

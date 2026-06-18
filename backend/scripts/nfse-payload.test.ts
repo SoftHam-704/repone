@@ -1,5 +1,11 @@
 import assert from 'node:assert';
-import { buildNfsePayload } from '../src/modules/nfse/nfse-payload';
+import { buildNfsePayload, regEspTribDoRegime } from '../src/modules/nfse/nfse-payload';
+
+// regEspTrib (Padrão Nacional): 6 Simples ME/EPP, 5 MEI, 1 demais (fallback ABRASF)
+assert.equal(regEspTribDoRegime('SIMPLES'), 6, 'SIMPLES → 6');
+assert.equal(regEspTribDoRegime('SIMPLES_MEI'), 5, 'MEI → 5');
+assert.equal(regEspTribDoRegime('PRESUMIDO'), 1, 'PRESUMIDO → 1');
+assert.equal(regEspTribDoRegime(''), 1, 'vazio → 1 (fallback)');
 
 const lancamento = {
   id: 1, competencia: '2026-06', vr_bruto: 1000, iss: 25,
