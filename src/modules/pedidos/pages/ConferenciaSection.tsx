@@ -91,6 +91,7 @@ function calcLinha(it: ItemRow, casas = 2): ItemRow {
     liq = liq * (1 - n(d) / 100);
   });
   liq = liq * (1 - n(it.ite_des10) / 100);
+  liq = liq * (1 - n(it.ite_des11) / 100);
 
   // Arredonda o LÍQUIDO UNITÁRIO na casa decimal configurada (par_qtddecimais),
   // pra ficar na mesma precisão do bruto. O total é unitário(arredondado) × qtd —
@@ -506,8 +507,6 @@ export function ConferenciaSection({ order, orderItems, setOrderItems, priceTabl
         let updated = { ...it };
         if (p) {
           updated.ite_nomeprod = p.pro_nome || it.ite_nomeprod;
-          // Modo B: refresca o desconto adicional da tabela (itab_descontoadd → ite_des10/ADD%).
-          updated.ite_des10 = n(p.desconto_add) ?? updated.ite_des10;
           if (hasSuframa) { updated.ite_ipi = 0; updated.ite_st = 0; }
 
           // Re-classifica item mal-marcado como promo: se a tabela tem promo
