@@ -2,8 +2,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { api } from '@/shared/lib/api'
 import {
   Search, MapPin, CheckCircle2, AlertTriangle, XCircle,
-  MinusCircle, Loader2, RefreshCw, ChevronRight, Phone,
-  ShoppingBag, CalendarCheck,
+  MinusCircle, Loader2, RefreshCw, ChevronRight,
+  ShoppingBag, CalendarCheck, RotateCcw,
 } from 'lucide-react'
 import FichaCarteiraPanel from './FichaCarteiraPanel'
 
@@ -16,19 +16,17 @@ const G = {
 const fmt = (v: number) =>
   (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 
-const fmtDate = (d: string | null) =>
-  d ? new Date(d.slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—'
-
 const diasDesde = (d: string | null) =>
   d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null
 
-type StatusCarteira = 'ativo' | 'risco' | 'inativo' | 'perdido'
+type StatusCarteira = 'ativo' | 'quase_inativo' | 'inativo_recente' | 'inativo' | 'ex_cliente'
 
 const STATUS_MAP: Record<StatusCarteira, { label: string; color: string; bg: string; icon: any }> = {
-  ativo:   { label: 'Ativo',    color: G.success, bg: '#16A34A18', icon: CheckCircle2 },
-  risco:   { label: 'Em Risco', color: G.amber,   bg: '#D9760018', icon: AlertTriangle },
-  inativo: { label: 'Inativo',  color: G.danger,  bg: '#DC262618', icon: XCircle },
-  perdido: { label: 'Perdido',  color: G.textMuted, bg: '#6B7A8A18', icon: MinusCircle },
+  ativo:           { label: 'Ativo',           color: '#16A34A', bg: '#16A34A18', icon: CheckCircle2 },
+  quase_inativo:   { label: 'Quase Inativo',   color: '#F97316', bg: '#F9731618', icon: AlertTriangle },
+  inativo_recente: { label: 'Inativo Recente', color: '#EA580C', bg: '#EA580C18', icon: AlertTriangle },
+  inativo:         { label: 'Inativo',         color: '#DC2626', bg: '#DC262618', icon: XCircle },
+  ex_cliente:      { label: 'Ex-cliente',      color: '#374151', bg: '#37415118', icon: MinusCircle },
 }
 
 interface ClienteCarteira {
@@ -45,19 +43,22 @@ interface ClienteCarteira {
   valor_t0: number
   valor_t1: number
   ltv: number
+  dias_sem_comprar: number
+  ciclo_compra_dias: number | null
   status_carteira: StatusCarteira
 }
 
 const FILTROS: { key: string; label: string }[] = [
-  { key: 'todos',   label: 'Todos' },
-  { key: 'risco',   label: 'Em Risco' },
-  { key: 'ativo',   label: 'Ativos' },
-  { key: 'inativo', label: 'Inativos' },
-  { key: 'perdido', label: 'Perdidos' },
+  { key: 'todos',           label: 'Todos' },
+  { key: 'quase_inativo',   label: 'Quase Inativo' },
+  { key: 'inativo_recente', label: 'Inativo Recente' },
+  { key: 'inativo',         label: 'Inativo' },
+  { key: 'ex_cliente',      label: 'Ex-cliente' },
+  { key: 'ativo',           label: 'Ativos' },
 ]
 
 function StatusBadge({ status }: { status: StatusCarteira }) {
-  const s = STATUS_MAP[status]
+  const s = STATUS_MAP[status] ?? STATUS_MAP.ex_cliente
   const Icon = s.icon
   return (
     <div style={{
@@ -73,8 +74,10 @@ function StatusBadge({ status }: { status: StatusCarteira }) {
 }
 
 function ClienteRow({ c, onSelect }: { c: ClienteCarteira; onSelect: () => void }) {
-  const diasCompra = diasDesde(c.ultima_compra)
+  const diasCompra = c.dias_sem_comprar ?? diasDesde(c.ultima_compra)
   const diasVisita = diasDesde(c.ultima_visita)
+  const sm = STATUS_MAP[c.status_carteira] ?? STATUS_MAP.ex_cliente
+  const Icon = sm.icon
 
   return (
     <div
@@ -90,11 +93,10 @@ function ClienteRow({ c, onSelect }: { c: ClienteCarteira; onSelect: () => void 
       {/* Status icon */}
       <div style={{
         width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-        background: STATUS_MAP[c.status_carteira].bg,
-        border: `1px solid ${STATUS_MAP[c.status_carteira].color}28`,
+        background: sm.bg, border: `1px solid ${sm.color}28`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        {(() => { const Icon = STATUS_MAP[c.status_carteira].icon; return <Icon size={16} style={{ color: STATUS_MAP[c.status_carteira].color }} /> })()}
+        <Icon size={16} style={{ color: sm.color }} />
       </div>
 
       {/* Name + location */}
@@ -108,14 +110,20 @@ function ClienteRow({ c, onSelect }: { c: ClienteCarteira; onSelect: () => void 
         </div>
       </div>
 
-      {/* Badges */}
+      {/* Status + dias */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
         <StatusBadge status={c.status_carteira} />
         <div style={{ display: 'flex', gap: 6 }}>
           {diasCompra !== null && (
-            <span style={{ fontSize: 10, color: G.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
+            <span style={{ fontSize: 10, color: sm.color, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
               <ShoppingBag size={9} />
-              {diasCompra}d
+              {diasCompra}d sem comprar
+            </span>
+          )}
+          {c.ciclo_compra_dias && (
+            <span style={{ fontSize: 10, color: G.textMuted, display: 'flex', alignItems: 'center', gap: 3 }}>
+              <RotateCcw size={9} />
+              ~{c.ciclo_compra_dias}d
             </span>
           )}
           {diasVisita !== null && (
@@ -164,7 +172,6 @@ export default function CarteiraClientesPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Count by status for tab badges
   const counts = clientes.reduce<Record<string, number>>((acc, c) => {
     acc[c.status_carteira] = (acc[c.status_carteira] || 0) + 1
     acc.todos = (acc.todos || 0) + 1
@@ -181,7 +188,7 @@ export default function CarteiraClientesPage() {
             Carteira de Clientes
           </h1>
           <p style={{ margin: '4px 0 0', fontSize: 12, color: G.textMuted }}>
-            {loading ? 'Carregando...' : `${counts.todos ?? 0} clientes ativos na carteira`}
+            {loading ? 'Carregando...' : `${counts.todos ?? 0} clientes na carteira`}
           </p>
         </div>
         <button onClick={load} disabled={loading}
@@ -189,6 +196,26 @@ export default function CarteiraClientesPage() {
           <RefreshCw size={12} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
           Atualizar
         </button>
+      </div>
+
+      {/* Legenda de status */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        {([
+          { key: 'ativo',           range: '0–90 dias' },
+          { key: 'quase_inativo',   range: '91–120 dias' },
+          { key: 'inativo_recente', range: '121–150 dias' },
+          { key: 'inativo',         range: '151–180 dias' },
+          { key: 'ex_cliente',      range: '180+ dias' },
+        ] as { key: StatusCarteira; range: string }[]).map(({ key, range }) => {
+          const s = STATUS_MAP[key]
+          return (
+            <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: G.textMuted }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: s.color }} />
+              <span style={{ color: s.color, fontWeight: 700 }}>{s.label}</span>
+              <span>{range} sem comprar</span>
+            </div>
+          )
+        })}
       </div>
 
       {/* Search */}
@@ -212,21 +239,24 @@ export default function CarteiraClientesPage() {
         {FILTROS.map(f => {
           const active = filtro === f.key
           const count = counts[f.key] ?? 0
+          const sm = STATUS_MAP[f.key as StatusCarteira]
           return (
             <button key={f.key} onClick={() => setFiltro(f.key)}
               style={{
                 padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700,
-                border: `1px solid ${active ? G.mustard : G.border}`,
-                background: active ? G.mustard : G.card,
-                color: active ? G.text : G.textSec,
+                border: `1px solid ${active ? (sm?.color ?? G.mustard) : G.border}`,
+                background: active ? (sm?.color ?? G.mustard) : G.card,
+                color: active ? '#fff' : G.textSec,
                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
               }}>
-              {f.label}
+              {f.key === 'todos' && active
+                ? <span style={{ color: G.text }}>{f.label}</span>
+                : f.label}
               {count > 0 && (
                 <span style={{
                   fontSize: 10, padding: '1px 6px', borderRadius: 10,
-                  background: active ? '#0002' : G.cardHi,
-                  color: active ? G.text : G.textMuted,
+                  background: active ? '#fff3' : G.cardHi,
+                  color: active ? '#fff' : G.textMuted,
                 }}>
                   {count}
                 </span>

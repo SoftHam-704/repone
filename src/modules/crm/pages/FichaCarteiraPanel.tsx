@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { api } from '@/shared/lib/api'
 import {
   X, MapPin, Phone, CheckCircle2, AlertTriangle, XCircle, MinusCircle,
-  ShoppingBag, Package, CalendarCheck, Loader2, Plus, ChevronDown,
+  ShoppingBag, Package, CalendarCheck, Loader2, Plus, ChevronDown, RotateCcw,
 } from 'lucide-react'
 
 const G = {
@@ -18,13 +18,14 @@ const fmt = (v: number) =>
 const fmtDate = (d: string | null) =>
   d ? new Date(d.slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—'
 
-type StatusCarteira = 'ativo' | 'risco' | 'inativo' | 'perdido'
+type StatusCarteira = 'ativo' | 'quase_inativo' | 'inativo_recente' | 'inativo' | 'ex_cliente'
 
 const STATUS_MAP: Record<StatusCarteira, { label: string; color: string; bg: string; icon: any }> = {
-  ativo:   { label: 'Ativo',    color: G.success,   bg: '#16A34A18', icon: CheckCircle2 },
-  risco:   { label: 'Em Risco', color: G.amber,     bg: '#D9760018', icon: AlertTriangle },
-  inativo: { label: 'Inativo',  color: G.danger,    bg: '#DC262618', icon: XCircle },
-  perdido: { label: 'Perdido',  color: G.textMuted, bg: '#6B7A8A18', icon: MinusCircle },
+  ativo:           { label: 'Ativo',           color: '#16A34A', bg: '#16A34A18', icon: CheckCircle2 },
+  quase_inativo:   { label: 'Quase Inativo',   color: '#F97316', bg: '#F9731618', icon: AlertTriangle },
+  inativo_recente: { label: 'Inativo Recente', color: '#EA580C', bg: '#EA580C18', icon: AlertTriangle },
+  inativo:         { label: 'Inativo',         color: '#DC2626', bg: '#DC262618', icon: XCircle },
+  ex_cliente:      { label: 'Ex-cliente',      color: '#374151', bg: '#37415118', icon: MinusCircle },
 }
 
 const RESULTADO_OPTIONS = [
@@ -56,6 +57,8 @@ interface FichaData {
   pedidos: Array<{ ped_pedido: string; ped_data: string; ped_totliq: number; ped_situacao: string; industria: string }>
   visitas: Array<{ id: number; data_visita: string; resultado: string; obs: string; industria_nome: string | null }>
   produtos_favs: Array<{ ite_produto: string; ite_nomeprod: string; vezes: number; qtd_total: number }>
+  ciclo_compra_dias: number | null
+  proxima_compra_em: number | null
 }
 
 interface Props {
@@ -121,7 +124,7 @@ export default function FichaCarteiraPanel({ cliCodigo, cliNomred, statusCarteir
     }
   }
 
-  const s = STATUS_MAP[statusCarteira]
+  const s = STATUS_MAP[statusCarteira] ?? STATUS_MAP.ex_cliente
   const StatusIcon = s.icon
 
   const panel = (
@@ -190,6 +193,44 @@ export default function FichaCarteiraPanel({ cliCodigo, cliNomred, statusCarteir
             </button>
           </div>
         </div>
+
+        {/* Card Ciclo de Compra */}
+        {ficha && ficha.ciclo_compra_dias && (
+          <div style={{
+            padding: '12px 20px', borderBottom: `1px solid ${G.border}`,
+            background: G.cardHi, flexShrink: 0,
+            display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, background: '#28374A14', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <RotateCcw size={15} style={{ color: G.textSec }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 9, fontWeight: 800, color: G.textMuted, letterSpacing: 0.5, textTransform: 'uppercase' }}>Ciclo de Compra</div>
+                <div style={{ fontSize: 15, fontWeight: 900, color: G.text }}>
+                  a cada <span style={{ color: G.textSec }}>{ficha.ciclo_compra_dias}d</span>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: ficha.proxima_compra_em !== null && ficha.proxima_compra_em < 0 ? '#DC262614' : '#16A34A14',
+              }}>
+                <ShoppingBag size={15} style={{ color: ficha.proxima_compra_em !== null && ficha.proxima_compra_em < 0 ? '#DC2626' : '#16A34A' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 9, fontWeight: 800, color: G.textMuted, letterSpacing: 0.5, textTransform: 'uppercase' }}>Próxima Compra</div>
+                {ficha.proxima_compra_em === null ? (
+                  <div style={{ fontSize: 12, color: G.textMuted }}>—</div>
+                ) : ficha.proxima_compra_em >= 0 ? (
+                  <div style={{ fontSize: 13, fontWeight: 900, color: '#16A34A' }}>em {ficha.proxima_compra_em}d</div>
+                ) : (
+                  <div style={{ fontSize: 13, fontWeight: 900, color: '#DC2626' }}>atrasado {Math.abs(ficha.proxima_compra_em)}d</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Register Visit CTA */}
         <div style={{ padding: '12px 20px', borderBottom: `1px solid ${G.border}`, background: G.card, flexShrink: 0 }}>

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import axios from 'axios';
 import { env } from '../../config/env';
 import { pool } from '../../config/database';
+import { excluiInativoSQL } from '../../shared/utils/cliente-ativo';
 
 function err(res: Response, e: any, ctx = '') {
   console.error(`❌ [CRM]${ctx ? ' ' + ctx : ''}:`, e?.message ?? e);
@@ -193,18 +194,20 @@ export async function createInteracaoHandler(req: Request, res: Response): Promi
     await client.query('BEGIN');
     const { cli_codigo, ven_codigo, tipo_interacao_id, canal_id, resultado_id, descricao, industrias, data_interacao } = req.body;
 
-    if (!cli_codigo || !ven_codigo || !tipo_interacao_id) {
+    if (!cli_codigo || !tipo_interacao_id) {
       await client.query('ROLLBACK');
-      res.status(400).json({ success: false, message: 'cli_codigo, ven_codigo e tipo_interacao_id são obrigatórios' });
+      res.status(400).json({ success: false, message: 'cli_codigo e tipo_interacao_id são obrigatórios' });
       return;
     }
 
     const dataFinal = data_interacao || new Date().toISOString().slice(0, 10);
+    const criadoPorId   = req.user?.userId ?? null;
+    const criadoPorNome = req.user?.name   ?? null;
 
     const { rows } = await client.query(`
-      INSERT INTO crm_interacao (cli_codigo, ven_codigo, tipo_interacao_id, canal_id, resultado_id, descricao, data_interacao)
-      VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *
-    `, [cli_codigo, ven_codigo, tipo_interacao_id, canal_id || null, resultado_id || null, descricao || null, dataFinal]);
+      INSERT INTO crm_interacao (cli_codigo, ven_codigo, tipo_interacao_id, canal_id, resultado_id, descricao, data_interacao, criado_por_usuario_id, criado_por_nome)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *
+    `, [cli_codigo, ven_codigo || null, tipo_interacao_id, canal_id || null, resultado_id || null, descricao || null, dataFinal, criadoPorId, criadoPorNome]);
 
     const interacaoId = rows[0].interacao_id;
 
@@ -232,13 +235,14 @@ export async function updateInteracaoHandler(req: Request, res: Response): Promi
     await client.query(`SET search_path TO "${schema}", public`);
     await client.query('BEGIN');
     const { id } = req.params;
-    const { tipo_interacao_id, canal_id, resultado_id, descricao, industrias, data_interacao } = req.body;
+    const { tipo_interacao_id, canal_id, resultado_id, descricao, industrias, data_interacao, ven_codigo } = req.body;
 
     await client.query(`
       UPDATE crm_interacao SET tipo_interacao_id=$1, canal_id=$2, resultado_id=$3, descricao=$4,
-        data_interacao=COALESCE($5::date, data_interacao)
-      WHERE interacao_id=$6
-    `, [tipo_interacao_id, canal_id || null, resultado_id || null, descricao || null, data_interacao || null, id]);
+        data_interacao=COALESCE($5::date, data_interacao),
+        ven_codigo=COALESCE($6::int, ven_codigo)
+      WHERE interacao_id=$7
+    `, [tipo_interacao_id, canal_id || null, resultado_id || null, descricao || null, data_interacao || null, ven_codigo || null, id]);
 
     await client.query('DELETE FROM crm_interacao_industria WHERE interacao_id=$1', [id]);
 
@@ -521,6 +525,7 @@ export async function carteiraRadarHandler(req: Request, res: Response): Promise
             AND p_atual.ped_situacao IN ('P','F')
             ${venWhere.replace('p.', 'p_atual.')}
         )
+          AND ${excluiInativoSQL('c')}
         GROUP BY c.cli_codigo, c.cli_nomred, c.cli_cidade, c.cli_uf, c.cli_fone1
         ORDER BY valor_trimestre_anterior DESC
         LIMIT 50
@@ -606,6 +611,9 @@ export async function carteiraClientesHandler(req: Request, res: Response): Prom
     if (industria && !isNaN(parseInt(industria))) { params.push(parseInt(industria)); extraWhere += ` AND p_all.ped_industria = $${params.length}`; }
     if (search) { params.push(`%${search}%`); extraWhere += ` AND (c.cli_nomred ILIKE $${params.length} OR c.cli_nome ILIKE $${params.length})`; }
 
+    const VALID_STATUS = ['ativo','quase_inativo','inativo_recente','inativo','ex_cliente'];
+    const statusFiltro = status && status !== 'todos' && VALID_STATUS.includes(status) ? status : null;
+
     const result = await db.query(`
       WITH compras AS (
         SELECT
@@ -617,8 +625,6 @@ export async function carteiraClientesHandler(req: Request, res: Response): Prom
             WHERE p_all.ped_data BETWEEN $1 AND $2)                           AS ped_t0,
           COUNT(DISTINCT p_all.ped_pedido) FILTER (
             WHERE p_all.ped_data BETWEEN $3 AND $4)                           AS ped_t1,
-          COUNT(DISTINCT p_all.ped_pedido) FILTER (
-            WHERE p_all.ped_data BETWEEN $5 AND $6)                           AS ped_t2,
           COALESCE(SUM(p_all.ped_totliq) FILTER (
             WHERE p_all.ped_data BETWEEN $1 AND $2), 0)                       AS valor_t0,
           COALESCE(SUM(p_all.ped_totliq) FILTER (
@@ -635,6 +641,20 @@ export async function carteiraClientesHandler(req: Request, res: Response): Prom
         WHERE cli_codigo IS NOT NULL
         ${venId ? `AND ven_codigo = ${venId}` : ''}
         GROUP BY cli_codigo
+      ),
+      ciclos AS (
+        -- Ciclo médio de compra: mediana dos intervalos entre pedidos consecutivos
+        SELECT ped_cliente, ROUND(AVG(intervalo))::int AS ciclo_dias
+        FROM (
+          SELECT ped_cliente,
+                 ped_data - LAG(ped_data) OVER (PARTITION BY ped_cliente ORDER BY ped_data) AS intervalo
+          FROM pedidos
+          WHERE ped_situacao IN ('P','F')
+            AND ped_cliente IN (SELECT ped_cliente FROM compras)
+        ) sub
+        WHERE intervalo IS NOT NULL AND intervalo > 0
+        GROUP BY ped_cliente
+        HAVING COUNT(*) >= 1
       )
       SELECT
         c.cli_codigo,
@@ -648,30 +668,41 @@ export async function carteiraClientesHandler(req: Request, res: Response): Prom
         cp.ltv,
         cp.ped_t0,
         cp.ped_t1,
-        cp.ped_t2,
         cp.valor_t0,
         cp.valor_t1,
-        uv.data_visita AS ultima_visita,
+        uv.data_visita                                                         AS ultima_visita,
         uv.ultimo_resultado,
+        COALESCE((CURRENT_DATE - cp.ultima_compra::date), 9999)                AS dias_sem_comprar,
+        ci.ciclo_dias                                                          AS ciclo_compra_dias,
         CASE
-          WHEN cp.ped_t0 > 0                          THEN 'ativo'
-          WHEN cp.ped_t1 > 0 AND cp.ped_t0 = 0       THEN 'risco'
-          WHEN cp.ped_t2 > 0 AND cp.ped_t1 = 0       THEN 'inativo'
-          WHEN cp.ped_t0 IS NULL AND cp.ped_t1 IS NULL THEN 'perdido'
-          ELSE 'perdido'
-        END AS status_carteira
+          WHEN cp.ultima_compra IS NULL                                        THEN 'ex_cliente'
+          WHEN (CURRENT_DATE - cp.ultima_compra::date) <= 90                  THEN 'ativo'
+          WHEN (CURRENT_DATE - cp.ultima_compra::date) <= 120                 THEN 'quase_inativo'
+          WHEN (CURRENT_DATE - cp.ultima_compra::date) <= 150                 THEN 'inativo_recente'
+          WHEN (CURRENT_DATE - cp.ultima_compra::date) <= 180                 THEN 'inativo'
+          ELSE                                                                      'ex_cliente'
+        END                                                                    AS status_carteira
       FROM clientes c
       JOIN compras cp ON cp.ped_cliente = c.cli_codigo
       LEFT JOIN ultima_visita uv ON uv.cli_codigo = c.cli_codigo
-      ${status && status !== 'todos' ? `WHERE CASE
-        WHEN cp.ped_t0 > 0 THEN 'ativo'
-        WHEN cp.ped_t1 > 0 AND cp.ped_t0 = 0 THEN 'risco'
-        WHEN cp.ped_t2 > 0 AND cp.ped_t1 = 0 THEN 'inativo'
-        ELSE 'perdido'
-      END = '${status}'` : ''}
+      LEFT JOIN ciclos ci ON ci.ped_cliente = c.cli_codigo
+      WHERE ${excluiInativoSQL('c')}
+      ${statusFiltro ? `AND CASE
+        WHEN cp.ultima_compra IS NULL THEN 'ex_cliente'
+        WHEN (CURRENT_DATE - cp.ultima_compra::date) <= 90  THEN 'ativo'
+        WHEN (CURRENT_DATE - cp.ultima_compra::date) <= 120 THEN 'quase_inativo'
+        WHEN (CURRENT_DATE - cp.ultima_compra::date) <= 150 THEN 'inativo_recente'
+        WHEN (CURRENT_DATE - cp.ultima_compra::date) <= 180 THEN 'inativo'
+        ELSE 'ex_cliente'
+      END = '${statusFiltro}'` : ''}
       ORDER BY
-        CASE CASE WHEN cp.ped_t0 > 0 THEN 'ativo' WHEN cp.ped_t1 > 0 AND cp.ped_t0 = 0 THEN 'risco' WHEN cp.ped_t2 > 0 AND cp.ped_t1 = 0 THEN 'inativo' ELSE 'perdido' END
-          WHEN 'risco' THEN 0 WHEN 'inativo' THEN 1 WHEN 'perdido' THEN 2 WHEN 'ativo' THEN 3
+        CASE
+          WHEN cp.ultima_compra IS NULL                                        THEN 1
+          WHEN (CURRENT_DATE - cp.ultima_compra::date) <= 90                  THEN 5
+          WHEN (CURRENT_DATE - cp.ultima_compra::date) <= 120                 THEN 2
+          WHEN (CURRENT_DATE - cp.ultima_compra::date) <= 150                 THEN 3
+          WHEN (CURRENT_DATE - cp.ultima_compra::date) <= 180                 THEN 4
+          ELSE                                                                      1
         END,
         cp.valor_t1 DESC
     `, params.slice(0, 7));
@@ -689,7 +720,7 @@ export async function carteiraFichaHandler(req: Request, res: Response): Promise
     const tAtual = trimestre(0);
     const tAnter = trimestre(-1);
 
-    const [cliente, pedidos, visitas, produtosFavs, areas] = await Promise.all([
+    const [cliente, pedidos, visitas, produtosFavs, areas, ciclo] = await Promise.all([
       db.query(`
         SELECT c.cli_codigo, c.cli_nome, c.cli_nomred,
                c.cli_cidade, c.cli_uf, c.cli_fone1,
@@ -732,18 +763,42 @@ export async function carteiraFichaHandler(req: Request, res: Response): Promise
         JOIN atua_cli ac ON ac.atu_atuaid = a.atu_id AND ac.atu_idcli = $1
         ORDER BY a.atu_descricao
       `, [parseInt(String(id))]),
+
+      db.query(`
+        SELECT ROUND(AVG(intervalo))::int AS ciclo_dias,
+               MAX(ultima)::date          AS ultima_compra
+        FROM (
+          SELECT
+            ped_data - LAG(ped_data) OVER (ORDER BY ped_data) AS intervalo,
+            MAX(ped_data) OVER ()                              AS ultima
+          FROM pedidos
+          WHERE ped_cliente = $1 AND ped_situacao IN ('P','F')
+        ) sub
+        WHERE intervalo IS NOT NULL AND intervalo > 0
+      `, [id]),
     ]);
 
     if (!cliente.rows[0]) { res.status(404).json({ success: false, message: 'Cliente não encontrado' }); return; }
 
+    const cicloDias: number | null = ciclo.rows[0]?.ciclo_dias ?? null;
+    const ultimaCompra: string | null = ciclo.rows[0]?.ultima_compra ?? null;
+    let proximaCompraEm: number | null = null;
+    if (cicloDias && ultimaCompra) {
+      const proximaData = new Date(ultimaCompra);
+      proximaData.setDate(proximaData.getDate() + cicloDias);
+      proximaCompraEm = Math.round((proximaData.getTime() - Date.now()) / 86400000);
+    }
+
     res.json({
       success: true,
       data: {
-        cliente:       cliente.rows[0],
-        pedidos:       pedidos.rows,
-        visitas:       visitas.rows,
-        produtos_favs: produtosFavs.rows,
-        areas:         areas.rows.map((r: any) => r.atu_descricao),
+        cliente:           cliente.rows[0],
+        pedidos:           pedidos.rows,
+        visitas:           visitas.rows,
+        produtos_favs:     produtosFavs.rows,
+        areas:             areas.rows.map((r: any) => r.atu_descricao),
+        ciclo_compra_dias: cicloDias,
+        proxima_compra_em: proximaCompraEm,
       }
     });
   } catch (e) { err(res, e, 'ficha cliente'); }
@@ -853,7 +908,7 @@ export async function relatorioRelacionamentosHandler(req: Request, res: Respons
         c.cli_nomred AS cliente_nome,
         c.cli_cidade,
         c.cli_uf,
-        COALESCE(v.ven_nome, '') AS operador,
+        COALESCE(i.criado_por_nome, v.ven_nome, '') AS operador,
         t.descricao AS tipo,
         COALESCE(r.descricao, '') AS resultado,
         f.for_nomered AS industria,
@@ -1241,6 +1296,202 @@ export async function checkoutHandler(req: Request, res: Response): Promise<void
     });
   } catch (e) { err(res, e, 'checkout'); }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🚪 PORTA TEMPORÁRIA — LANÇAMENTO RETROATIVO DE VISITAS
+// ─────────────────────────────────────────────────────────────────────────────
+// Aberta em 2026-05-21 a pedido do tenant RO Consult — um promotor esqueceu de
+// registrar checkin/checkout de visitas já realizadas. Permite que o usuário
+// autenticado lance UMA visita completa (checkin + checkout) com data/hora
+// retroativa.
+//
+// 🔒 PORTA AUTO-FECHA EM: 2026-06-10 (alterar `VISITA_RETROATIVA_ATE` p/ estender).
+//
+// Pra REMOVER a porta completamente:
+//   1. Apagar este handler (linhas marcadas até o "FIM PORTA TEMPORÁRIA")
+//   2. Apagar o export `lancamentoRetroativoVisitaHandler` em crm.routes.ts
+//   3. Apagar a linha `router.post('/visitas/lancamento-retroativo', ...)`
+//
+// Regras de segurança:
+//   - Endpoint ativo apenas até VISITA_RETROATIVA_ATE
+//   - User precisa estar autenticado (já pelo authMiddleware)
+//   - ven_codigo passado precisa bater com vínculo do user (vendedores.ven_codusu)
+//     OU user precisa ser master/gerência
+//   - data_checkin não pode ser futura
+//   - data_checkin não pode ter mais de 60 dias retroativos
+//   - data_checkout precisa ser >= data_checkin (no mesmo dia OK)
+//
+// POST /api/crm/visitas/lancamento-retroativo
+// Body: {
+//   cli_codigo: number,
+//   ven_codigo: number (do vendedor, não do user),
+//   data_checkin: string ISO ('2026-05-15T09:30:00'),
+//   data_checkout: string ISO ('2026-05-15T10:15:00'),
+//   resultado?: 'positivou' | 'nao_positivou' | 'reagendou' | 'ausente' | 'fechado',
+//   notas?: string,
+//   latitude?: number,
+//   longitude?: number,
+// }
+const VISITA_RETROATIVA_ATE = '2026-06-10'; // YYYY-MM-DD — porta fecha automaticamente
+
+export async function lancamentoRetroativoVisitaHandler(req: Request, res: Response): Promise<void> {
+  // 1. Verifica se a porta está aberta (auto-expiração)
+  const hoje = new Date().toISOString().slice(0, 10);
+  if (hoje > VISITA_RETROATIVA_ATE) {
+    res.status(410).json({
+      success: false,
+      message: `Lançamento retroativo encerrado em ${VISITA_RETROATIVA_ATE}. Endpoint indisponível.`,
+    });
+    return;
+  }
+
+  const db = req.db!;
+  const userId = req.user?.userId;
+  if (!userId) {
+    res.status(401).json({ success: false, message: 'Não autenticado.' });
+    return;
+  }
+
+  const {
+    cli_codigo, ven_codigo,
+    data_checkin, data_checkout,
+    resultado, notas,
+    latitude, longitude,
+  } = req.body;
+
+  // 2. Validações de payload
+  if (!cli_codigo || !ven_codigo || !data_checkin || !data_checkout) {
+    res.status(400).json({
+      success: false,
+      message: 'Campos obrigatórios: cli_codigo, ven_codigo, data_checkin, data_checkout',
+    });
+    return;
+  }
+
+  const checkin  = new Date(data_checkin);
+  const checkout = new Date(data_checkout);
+  if (isNaN(checkin.getTime()) || isNaN(checkout.getTime())) {
+    res.status(400).json({ success: false, message: 'data_checkin e data_checkout devem ser ISO válido.' });
+    return;
+  }
+  if (checkout < checkin) {
+    res.status(400).json({ success: false, message: 'data_checkout não pode ser anterior a data_checkin.' });
+    return;
+  }
+  if (checkin > new Date()) {
+    res.status(400).json({ success: false, message: 'data_checkin não pode ser no futuro.' });
+    return;
+  }
+  const diasRetroativos = (Date.now() - checkin.getTime()) / 86400000;
+  if (diasRetroativos > 60) {
+    res.status(400).json({ success: false, message: 'data_checkin não pode ter mais de 60 dias.' });
+    return;
+  }
+
+  try {
+    // 3. Permissão: ven_codigo precisa bater com vínculo do user OU user ser master
+    const userCheck = await db.query(
+      'SELECT master, gerencia FROM user_nomes WHERE codigo = $1',
+      [userId]
+    );
+    const isMasterOrGerencia =
+      userCheck.rows.length > 0 &&
+      (userCheck.rows[0].master === true || userCheck.rows[0].gerencia === true);
+
+    if (!isMasterOrGerencia) {
+      const venVinculo = await db.query(
+        'SELECT ven_codigo FROM vendedores WHERE ven_codusu = $1',
+        [userId]
+      );
+      const venVinculado = venVinculo.rows[0]?.ven_codigo;
+      if (venVinculado !== parseInt(ven_codigo)) {
+        res.status(403).json({
+          success: false,
+          message: 'Você só pode lançar visita retroativa pra você mesmo. ven_codigo não bate com seu vínculo.',
+        });
+        return;
+      }
+    }
+
+    // 4. Inserir checkin + checkout em registro_visitas (data explícita)
+    const obs = `Lançamento retroativo em ${new Date().toISOString().slice(0, 10)} (user ${userId})`;
+
+    const checkinRes = await db.query(`
+      INSERT INTO registro_visitas
+        (vis_datahora, vis_promotor_id, vis_cliente_id,
+         vis_latitude_checkin, vis_longitude_checkin, vis_tipo, vis_observacao)
+      VALUES ($1, $2, $3, $4, $5, 'CHECKIN', $6)
+      RETURNING vis_codigo, vis_datahora
+    `, [
+      checkin.toISOString(),
+      userId,
+      parseInt(cli_codigo),
+      latitude ?? 0,
+      longitude ?? 0,
+      obs,
+    ]);
+
+    const checkoutRes = await db.query(`
+      INSERT INTO registro_visitas
+        (vis_datahora, vis_promotor_id, vis_cliente_id,
+         vis_latitude_checkin, vis_longitude_checkin, vis_tipo, vis_observacao)
+      VALUES ($1, $2, $3, $4, $5, 'CHECKOUT', $6)
+      RETURNING vis_codigo, vis_datahora
+    `, [
+      checkout.toISOString(),
+      userId,
+      parseInt(cli_codigo),
+      latitude ?? 0,
+      longitude ?? 0,
+      obs,
+    ]);
+
+    // 5. Inserir em visitas_campo (visita completa com checkout)
+    let campoId: number | null = null;
+    try {
+      const duracaoMin = Math.round((checkout.getTime() - checkin.getTime()) / 60000);
+      const campoRes = await db.query(`
+        INSERT INTO visitas_campo
+          (cli_codigo, ven_codigo, data,
+           checkin_at, checkin_lat, checkin_lng,
+           checkout_at, checkout_lat, checkout_lng,
+           resultado, notas, duracao_minutos)
+        VALUES ($1, $2, $3::date, $4, $5, $6, $7, $5, $6, $8, $9, $10)
+        RETURNING id
+      `, [
+        parseInt(cli_codigo),
+        parseInt(ven_codigo),
+        checkin.toISOString().slice(0, 10),
+        checkin.toISOString(),
+        latitude ?? null,
+        longitude ?? null,
+        checkout.toISOString(),
+        resultado ?? 'positivou',
+        notas ?? obs,
+        duracaoMin,
+      ]);
+      campoId = campoRes.rows[0]?.id ?? null;
+    } catch (e: any) {
+      console.warn(`⚠️ [VISITA-RETROATIVA] visitas_campo falhou (não-bloqueante): ${e.message}`);
+    }
+
+    // 6. Log de auditoria (tag clara pra grep)
+    const schema = (req as any).schema || '?';
+    console.log(`🚪 [VISITA-RETROATIVA] ${schema} | userId=${userId} | ven=${ven_codigo} | cli=${cli_codigo} | checkin=${checkin.toISOString()} | checkout=${checkout.toISOString()} | campo_id=${campoId}`);
+
+    res.json({
+      success: true,
+      message: 'Visita retroativa registrada.',
+      vis_codigo_checkin: checkinRes.rows[0].vis_codigo,
+      vis_codigo_checkout: checkoutRes.rows[0].vis_codigo,
+      campo_id: campoId,
+      porta_fecha_em: VISITA_RETROATIVA_ATE,
+    });
+  } catch (e) { err(res, e, 'lancamento-retroativo'); }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// FIM PORTA TEMPORÁRIA
+// ─────────────────────────────────────────────────────────────────────────────
 
 // GET /crm/visitas/historico — histórico de visitas paginado
 export async function visitasHistoricoHandler(req: Request, res: Response): Promise<void> {
