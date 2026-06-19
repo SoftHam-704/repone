@@ -242,7 +242,8 @@ export default function MapaGapCatalogo({ dataInicio, dataFim, onDataInicio, onD
       }}>
         <Target size={16} style={{ color: '#7C3AED', flexShrink: 0, marginTop: 1 }} />
         <div style={{ fontSize: 11, color: '#581C87', lineHeight: 1.5 }}>
-          <strong>O que faz este mapa:</strong> escolha uma indústria e um cliente. O sistema lista todos os itens da indústria <em>vendidos no mercado dentro do período</em>, classifica em curva ABC (A=80% do faturamento, B=15%, C=5%) e mostra <strong>apenas os itens que esse cliente NUNCA comprou</strong> em qualquer época. <strong>Útil para:</strong> argumentar visita com lista pronta de oportunidades — começar pelos da curva A (maior potencial de receita) e usar "Pontos de Venda" pra mostrar quantos concorrentes já compram aquele item.
+          <strong>O que faz este mapa:</strong> escolha uma indústria e um cliente. O sistema lista os itens da indústria <em>vendidos a outros clientes no período</em>, classifica em curva ABC e mostra <strong>apenas os itens que esse cliente NUNCA comprou</strong> em qualquer época. <br />
+          <strong>Atenção:</strong> os valores de <em>Qtd e R$ do Mercado</em> representam o que <strong>os demais clientes</strong> compraram — o cliente selecionado comprou <strong>zero</strong> de todos esses itens (por isso aparecem como gap). <strong>Pontos de Venda</strong> = quantos clientes da carteira já compram aquele item.
         </div>
       </div>
 
@@ -257,7 +258,7 @@ export default function MapaGapCatalogo({ dataInicio, dataFim, onDataInicio, onD
             { label: 'Curva A',   value: kpis.curvaA,            icon: PieChart, color: ABC_COLORS.A.bar },
             { label: 'Curva B',   value: kpis.curvaB,            icon: PieChart, color: ABC_COLORS.B.bar },
             { label: 'Curva C',   value: kpis.curvaC,            icon: PieChart, color: ABC_COLORS.C.bar },
-            { label: 'Mercado R$', value: `R$ ${fmtR$(kpis.valorMercado)}`, icon: PieChart, color: G.mustard },
+            { label: 'Mercado R$ (outros)', value: `R$ ${fmtR$(kpis.valorMercado)}`, icon: PieChart, color: G.mustard },
           ].map(k => {
             const Icon = k.icon;
             return (
@@ -301,9 +302,9 @@ export default function MapaGapCatalogo({ dataInicio, dataFim, onDataInicio, onD
                 {thSort('codigo', 'Código', { color: G.mustard })}
                 {thSort('descricao', 'Descrição')}
                 {thSort('familia', 'Família')}
-                {thSort('valor_mercado', 'Valor Mercado', { align: 'right' })}
-                {thSort('qtd_mercado', 'Qtd Mercado', { align: 'right' })}
-                {thSort('pontos_venda', 'Pontos Venda', { align: 'right' })}
+                {thSort('valor_mercado', 'R$ Mercado (outros)', { align: 'right' })}
+                {thSort('qtd_mercado', 'Qtd Mercado (outros)', { align: 'right' })}
+                {thSort('pontos_venda', 'Pts Venda', { align: 'right' })}
                 {thSort('pct_acumulado', '% Acum.', { align: 'right' })}
               </tr>
             </thead>
